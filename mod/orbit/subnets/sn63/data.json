@@ -1,0 +1,141 @@
+{
+  "netuid": 63,
+  "name": "Enigma",
+  "symbol": "س",
+  "owner": "5CqTmNfgDchxULD1bfoz8jvj9rDYSoq76kiq98oBUUEDpWqX",
+  "description": "Breaking today to build tomorrow",
+  "github": "https://github.com/qbittensor-labs/enigma",
+  "url": "https://www.qbittensorlabs.com/",
+  "discord": "qbittensorlabs",
+  "logo": "https://www.qbittensorlabs.com/63.png",
+  "registered_at": 4885578,
+  "tempo": 360,
+  "active": true,
+  "block": 9322663,
+  "related": [],
+  "market": {
+    "price": 0.003766889,
+    "moving_price": 0.0037797540426254272,
+    "market_cap": 23438.4858826244,
+    "tao_in": 10549.371905644,
+    "alpha_in": 2800552.746685981,
+    "alpha_out": 3421686.847478966,
+    "volume": 1246790.621621162,
+    "vol_24h": 269.1554352079984,
+    "emission": 0.0,
+    "change_1h": -0.00018582939375066942,
+    "change_24h": -0.9770621207831565,
+    "change_7d": -6.501385766247081
+  },
+  "spark_24h": [
+    0.003804057,
+    0.003804057,
+    0.003808561,
+    0.003782489,
+    0.003796809,
+    0.003774682,
+    0.003774682,
+    0.003774682,
+    0.003774682,
+    0.003774681,
+    0.003769581,
+    0.003769581,
+    0.003783577,
+    0.003769159,
+    0.003768488,
+    0.003768486,
+    0.003768486,
+    0.00376804,
+    0.00376804,
+    0.003765994,
+    0.003765994,
+    0.003765994,
+    0.003765994,
+    0.003765994,
+    0.003765994,
+    0.003765974,
+    0.003766541,
+    0.003766541,
+    0.003766541,
+    0.003766541,
+    0.003766899,
+    0.003766899,
+    0.003766899,
+    0.003766899,
+    0.003766899,
+    0.003766898,
+    0.003766898,
+    0.003766898,
+    0.003766898,
+    0.003766898,
+    0.003766898,
+    0.003766898,
+    0.003766898,
+    0.003766897,
+    0.003766896,
+    0.003766896,
+    0.003766896,
+    0.003766889
+  ],
+  "trades_24h": {
+    "trades": 30,
+    "buys": 10,
+    "sells": 20,
+    "buy_tao": 108.646570349,
+    "sell_tao": 159.032121936,
+    "net_tao": -50.38555158700001,
+    "traders": 20
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5GrxMeMTzLageVtqcMYoQDyReMfuT4vQysuwXZqvqkmSVE2S",
+      "net_tao": 0.04990143099999855,
+      "gross_tao": 59.950098569000005,
+      "trades": 2
+    },
+    {
+      "coldkey": "5FhVJkR1R7r6BvHz8fU3KQrBeco6ZioDWRw9VThDdxD1o5Ye",
+      "net_tao": 0.019077478999999897,
+      "gross_tao": 39.980922521,
+      "trades": 2
+    },
+    {
+      "coldkey": "5Gv3Bq2jZmXqe1ynE5q4Eb8zph6pPHH6LRRoasi3nb7Vdjbd",
+      "net_tao": 0.02063115300000007,
+      "gross_tao": 39.979368847,
+      "trades": 2
+    },
+    {
+      "coldkey": "5HGgoL7fAfy3JFUMLpUPYtrUGPyPFUFfk2FkGUH1bigWo8No",
+      "net_tao": 0.018408517999997542,
+      "gross_tao": 36.579991482,
+      "trades": 2
+    },
+    {
+      "coldkey": "5FvHcFfsdqMyKSWjtcmAGsXss4hx5AtX5AHYejk7VjgBzuTz",
+      "net_tao": -36.311085273,
+      "gross_tao": 36.311085273,
+      "trades": 1
+    }
+  ],
+  "news": [
+    {
+      "ts": 1792005491,
+      "kind": "commit",
+      "source": "github",
+      "title": "Record submission id when requesting metadata for traceability",
+      "url": "https://github.com/qbittensor-labs/enigma/commit/e3eb850e9748142d028618bcda2c4878f06fd990",
+      "publisher": "qbittensor-labs/enigma"
+    },
+    {
+      "ts": 1791925322,
+      "kind": "commit",
+      "source": "github",
+      "title": "Track whether a terminal verify update reached the platform and HQP L…",
+      "url": "https://github.com/qbittensor-labs/enigma/commit/9860c5c90e06359c5b17944ba9c6992b87e11f31",
+      "publisher": "qbittensor-labs/enigma"
+    }
+  ],
+  "updated": 1792474861,
+  "updated_day": "2026-10-20"
+}

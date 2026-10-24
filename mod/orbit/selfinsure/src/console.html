@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>selfinsure — a mutual with nothing hidden</title>
+<style>
+  :root { --bg:#0b0d10; --fg:#e6e9ee; --dim:#8a93a0; --line:#1f242b; --ok:#3ddc84; --warn:#ffb454; --bad:#ff5c5c; --accent:#7aa2ff; }
+  * { box-sizing:border-box }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace }
+  header { padding:28px 32px 12px; border-bottom:1px solid var(--line) }
+  h1 { margin:0 0 4px; font-size:20px; letter-spacing:.02em }
+  h1 small { color:var(--dim); font-weight:normal; font-size:13px; margin-left:12px }
+  .sub { color:var(--dim); max-width:80ch }
+  main { padding:20px 32px 60px; max-width:1200px }
+  form { display:flex; gap:8px; flex-wrap:wrap; margin:14px 0 22px }
+  input, select { background:#12161b; color:var(--fg); border:1px solid var(--line); padding:8px 10px; font:inherit; min-width:120px }
+  input[name=address] { flex:1; min-width:340px }
+  button { background:var(--accent); color:#000; border:0; padding:8px 14px; font:inherit; cursor:pointer }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:14px }
+  .card { border:1px solid var(--line); padding:14px 16px; background:#0f1216 }
+  .card h2 { margin:0 0 10px; font-size:12px; text-transform:uppercase; letter-spacing:.12em; color:var(--dim) }
+  .card.provider { border-color:var(--accent) }
+  .big { font-size:34px; line-height:1.1; margin:4px 0 2px }
+  .row { display:flex; justify-content:space-between; gap:12px; padding:3px 0; border-bottom:1px dashed var(--line) }
+  .row:last-child { border-bottom:0 }
+  .row b { font-weight:normal; color:var(--dim) }
+  .ok { color:var(--ok) } .warn { color:var(--warn) } .bad { color:var(--bad) }
+  .verdict { margin-top:8px; padding:8px 10px; background:#12161b; border-left:3px solid var(--dim) }
+  .verdict.ok { border-color:var(--ok) } .verdict.bad { border-color:var(--bad) } .verdict.warn { border-color:var(--warn) }
+  ul.guar { margin:0; padding-left:18px } ul.guar li { margin:4px 0 }
+  .err { color:var(--bad); white-space:pre-wrap }
+  footer { color:var(--dim); font-size:13px; padding:0 32px 30px }
+  a { color:var(--accent) }
+  code { color:#c9d1d9 }
+</style>
+</head>
+<body>
+<header>
+  <h1>selfinsure <small>a member-owned mutual, on-chain, with nothing hidden</small></h1>
+  <div class="sub">Every number below is read off the contract with no key. The one an insurer never
+  publishes is the provider's take — here it is a view function, capped at 10% in code, and 0% on the health template.</div>
+</header>
+<main>
+  <form id="f">
+    <input name="address" placeholder="pool contract address (0x…)" required>
+    <input name="network" placeholder="network (eth module name, e.g. local, base-sepolia)" style="min-width:300px">
+    <button>read the pool</button>
+  </form>
+  <div id="out"></div>
+  <div class="grid" id="static">
+    <div class="card"><h2>guaranteed in code</h2><ul class="guar" id="guar"><li>loading…</li></ul></div>
+    <div class="card"><h2>the health template</h2><div id="preset">loading…</div></div>
+  </div>
+</main>
+<footer>
+  <code>GET /onchain?address=0x…</code> · <code>GET /contract</code> · <code>GET /preset?preset=health&amp;decimals=6</code> ·
+  <code>POST /mcp</code> for agents · <a href="/contract/source">source</a> · <a href="/contract/abi">abi</a>
+</footer>
+<script>
+const $ = s => document.querySelector(s);
+const q = new URLSearchParams(location.search);
+if (q.get('address')) $('input[name=address]').value = q.get('address');
+if (q.get('network')) $('input[name=network]').value = q.get('network');
+
+function row(k, v, cls) { return `<div class="row"><b>${k}</b><span class="${cls||''}">${v}</span></div>`; }
+function pct(x) { return (Number(x) * 100).toFixed(2) + '%'; }
+function money(v, sym) { return `${v} ${sym||''}`; }
+
+async function read(address, network) {
+  const out = $('#out');
+  out.innerHTML = '<div class="card">reading…</div>';
+  try {
+    const r = await fetch(`/onchain?address=${encodeURIComponent(address)}${network ? '&network=' + encodeURIComponent(network) : ''}`);
+    const t = await r.json();
+    if (t.error) throw new Error(t.error);
+    const m = t.money, p = t.provider, s = t.solvency, sym = t.symbol;
+    const verdictCls = s.reconciles && s.solvent ? 'ok' : (s.reconciles ? 'warn' : 'bad');
+    out.innerHTML = `
+      <div class="card" style="margin-bottom:14px">
+        <h2>pool</h2>
+        <div class="big">${t.name}</div>
+        <div class="sub">${t.address} · ${t.network} · asset ${t.asset || 'native ' + sym} · owner ${t.owner}</div>
+      </div>
+      <div class="grid">
+        <div class="card provider">
+          <h2>the provider's profit</h2>
+          <div class="big">${pct(p.profit_share_of_premium)}</div>
+          <div class="sub">of every ${sym} of premium ever paid went to the operator. ${pct(p.member_share_of_premium)} stayed with members.</div>
+          ${row('fee now', p.fee_pct_now + '%')}
+          ${row('fee cap (constant)', (p.fee_cap_bps/100) + '%')}
+          ${row('profit accrued', money(p.profit_accrued, sym))}
+          ${row('profit withdrawn', money(p.profit_withdrawn, sym))}
+          ${row('pending raise', p.pending_fee_bps ? (p.pending_fee_bps/100) + '% at ' + new Date(p.pending_fee_at*1000).toISOString() : 'none', p.pending_fee_bps ? 'warn' : '')}
+          ${row('notice', p.notice)}
+        </div>
+        <div class="card">
+          <h2>the money</h2>
+          ${row('premiums in', money(m.premiums_in, sym))}
+          ${row('donations in', money(m.donations_in, sym))}
+          ${row('paid in claims', money(m.paid_in_claims, sym))}
+          ${row('returned to members', money(m.returned_to_members, sym))}
+          ${row('rebates unclaimed', money(m.rebates_unclaimed, sym))}
+          ${row('pot (balance)', money(m.balance, sym))}
+          ${row('held on chain', money(m.held_on_chain, sym))}
+          ${row('loss ratio', pct(m.loss_ratio))}
+        </div>
+        <div class="card">
+          <h2>solvency</h2>
+          ${row('open exposure', money(m.open_exposure, sym))}
+          ${row('unfunded claims', money(m.unfunded_claims, sym), m.unfunded_claims !== '0' ? 'bad' : '')}
+          ${row('reserve floor', money(m.reserve_floor, sym))}
+          ${row('distributable now', money(m.distributable, sym))}
+          ${row('books reconcile', s.reconciles ? 'yes' : 'NO', s.reconciles ? 'ok' : 'bad')}
+          <div class="verdict ${verdictCls}">${s.verdict}</div>
+        </div>
+        <div class="card">
+          <h2>terms</h2>
+          ${row('premium', money(t.terms.premium, sym) + ' / ' + t.terms.period_days + ' days')}
+          ${row('coverage per claim', money(t.terms.coverage, sym))}
+          ${row('deductible', money(t.terms.deductible, sym))}
+          ${row('annual cap', t.terms.annual_cap ? money(t.terms.annual_cap, sym) : 'none')}
+          ${row('waiting period', t.terms.waiting_days + ' days')}
+          ${row('adjudication', t.terms.quorum + ' votes, ' + t.terms.threshold_pct + '% must accept' + (t.terms.approved_agents_only ? ', admitted agents only' : ''))}
+          ${row('oracle', t.oracle ? t.oracle_mode + ' · ' + t.oracle : 'none')}
+          ${row('members / agents / claims', t.counts.members + ' / ' + t.counts.agents + ' / ' + t.counts.claims)}
+        </div>
+      </div>`;
+    history.replaceState(null, '', `?address=${address}${network ? '&network=' + network : ''}`);
+  } catch (e) {
+    out.innerHTML = `<div class="card err">${e.message}</div>`;
+  }
+}
+
+$('#f').addEventListener('submit', e => {
+  e.preventDefault();
+  read($('input[name=address]').value.trim(), $('input[name=network]').value.trim());
+});
+if ($('input[name=address]').value) read($('input[name=address]').value, $('input[name=network]').value);
+
+fetch('/contract').then(r => r.json()).then(c => {
+  $('#guar').innerHTML = c.guarantees.map(g => `<li>${g}</li>`).join('');
+}).catch(() => {});
+fetch('/preset?preset=health&decimals=6').then(r => r.json()).then(p => {
+  const h = p.terms_human, why = p.why || {};
+  $('#preset').innerHTML =
+    row('premium', '$' + h.premium + ' / ' + h.period_days + ' days') +
+    row('coverage', '$' + h.coverage.toLocaleString()) +
+    row('deductible', '$' + h.deductible) +
+    row('annual cap', '$' + h.annual_cap.toLocaleString()) +
+    row('waiting period', h.waiting_days + ' days') +
+    row('reserve floor', '$' + h.reserve_floor.toLocaleString()) +
+    row('operator fee', h.fee_bps / 100 + '%', 'ok') +
+    row('adjudication', h.quorum + ' votes, ' + h.threshold_bps / 100 + '%') +
+    `<div class="verdict">${why.fee_bps || ''}</div>`;
+}).catch(() => {});
+</script>
+</body>
+</html>

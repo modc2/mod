@@ -61,14 +61,14 @@
     "url": null
   },
   {
-    "cid": "QmR2kTHdyqQ3TRJCzrW5FpQF4YtSa2E947is61axnzUG3j",
+    "cid": "QmXS4yocaJCL9oAF4K16nYuUQrhv73hCUN8RY2v6VQJW3u",
     "content": "Qme6CaaTamyc65gG7SZLJ59heD33eATB9LtiwxiyKD2yWM",
     "created": null,
     "key": "0x7d7c323496ed80e16d47b036607c586fb33dd123",
     "name": "agent",
     "prev": null,
-    "schema": "QmccAp4cnqMqczriJsdxTJspU9AWkC7NpgYxKmB8jH28TE",
-    "updated": 1785650711.2022433,
+    "schema": "QmVbHdayudfH7TkU7gvST9WuocrdouREsajG1tJBv9BRpm",
+    "updated": 1786224155.5583518,
     "url": {
       "api": "http://localhost:50117",
       "app": "http://localhost:3117"
@@ -314,7 +314,11 @@
     "path": "/root/mod/mod/orbit/compute",
     "schema": null,
     "updated": null,
-    "url": null
+    "url": {
+      "api": "http://localhost:50510",
+      "app": "http://localhost:50510/compute",
+      "mcp": "http://localhost:50510/mcp"
+    }
   },
   {
     "cid": null,
@@ -386,7 +390,11 @@
     "path": "/root/mod/mod/orbit/defi",
     "schema": null,
     "updated": null,
-    "url": null
+    "url": {
+      "api": "http://localhost:50500",
+      "app": "http://localhost:50501",
+      "mcp": "http://localhost:50500/mcp"
+    }
   },
   {
     "cid": null,
@@ -636,7 +644,10 @@
     "path": "/root/mod/mod/orbit/mcp",
     "schema": null,
     "updated": null,
-    "url": null
+    "url": {
+      "api": "http://localhost:50360",
+      "app": "http://localhost:50361"
+    }
   },
   {
     "cid": null,
@@ -904,29 +915,32 @@
     "url": null
   },
   {
-    "cid": "QmXL6cUx5emwWjZeXVDRKQXgdEr9pcsK24MZ1paJEtWrQq",
+    "cid": "QmcL1yaMDpPFWjZ3LYeHvyFRTnDzKTLfWWBT3RLsed5Mbt",
     "content": "QmNNfV3fsk92RLMnSyc8qFPUUCxJH25aVPnP2WyoQ5TDFg",
     "created": null,
     "key": "0x7d7c323496ed80e16d47b036607c586fb33dd123",
     "name": "claude",
     "prev": "Qmdo9kyz3G7xHqhCJmSpUhvspm8RnVxdLtyhnJPuJwzn3G",
-    "schema": "QmdZY5xSwrcaiSfM9toPDvLBJfPAoPjrqpd1w6miwmtQsM",
-    "updated": 1785299485.705305,
+    "schema": "QmYARrkdxUV3V9DnUwcocazTcXR9FuJWXyhGRVWCo3ThWA",
+    "updated": 1785997704.3878498,
     "url": {
       "api": "http://localhost:8820",
       "app": "http://localhost:8823"
     }
   },
   {
-    "cid": "QmSqSBo76dwqp4Mm4sfEcyrwtmkR5eTv9uhdgtgWsFhb2n",
+    "cid": "Qme2epeymfEwVe3LvdrhnnhJCFxKtfiLK5MfXWByXLS7nf",
     "content": "QmTrK2ZtMTUHKVLhzQJhsLvNeXpZu5osefoNLS2GY5yA7w",
     "created": null,
     "key": "0x7d7c323496ed80e16d47b036607c586fb33dd123",
     "name": "x",
     "prev": null,
-    "schema": "QmWTm83y3TXQmFUx7ZcqqvFh2gHJiNK6H77rjUHcsmh1vx",
-    "updated": 1777470046.4286246,
-    "url": null
+    "schema": "QmTCnBETioig9N3NoZQX9Pqrm8EVnxQAVXoVaaLVg87D4i",
+    "updated": 1785997684.806542,
+    "url": {
+      "api": "http://localhost:50350",
+      "app": "http://localhost:50350"
+    }
   },
   {
     "cid": "QmPKzEAENsoe5bnhKWoVkj1kYkwkXK6DQveeBKY9Upbncn",
@@ -1006,15 +1020,19 @@
     "url": null
   },
   {
-    "cid": "QmUDbNMrAmakFBp436MVHLibCTBFSUTJJpwJqkXSfMuYMM",
+    "cid": "QmaaJ57zRBFvdtTSX7bpRwnaeaaGVjjhdsgo1SmGXzb5yh",
     "content": "QmUNdrJ5RzhGLW9Kc5zYf3rjuM8TT4nMsatWqLR4K2LQ4K",
     "created": null,
     "key": "0x7d7c323496ed80e16d47b036607c586fb33dd123",
     "name": "arena",
     "prev": null,
-    "schema": "QmYboewBGMDaa3re8XyfhuCMeK4b4sDBNJdGfvgk2yy6ZJ",
-    "updated": 1783973960.4112628,
-    "url": null
+    "schema": "Qmd6CbPhgvtSJsq3CtUDAkgYUq9qk3DeWF72DQjCCP6Woc",
+    "updated": 1785997696.507525,
+    "url": {
+      "api": "http://localhost:50470",
+      "app": "http://localhost:50470/arena",
+      "mcp": "http://localhost:50470/mcp"
+    }
   },
   {
     "cid": "QmUN8S6c8XpDBp7i2Eac8GgYibpWhXd4mphrwwQGUv7kxx",
@@ -1102,14 +1120,14 @@
     "url": null
   },
   {
-    "cid": "QmdafMHAe9hKMP7791LWy4N9owCdc5ZvhMPxuCn2hCnnKG",
+    "cid": "QmXPU67i8fayKpGf7U5UsR3ytsBDhDtqxqzsJa6Lq6BKth",
     "content": "QmVRvCSBExtFuTMDEAaac3AHNDpX48uEsYV2War7V4bNEn",
     "created": null,
     "key": "0x7d7c323496ed80e16d47b036607c586fb33dd123",
     "name": "bloctime",
     "prev": null,
-    "schema": "QmPxeWmygk4KfyU6rW1How4Awoa7iseg23PCeqrwf4YCS9",
-    "updated": 1785299495.3422894,
+    "schema": "Qmdz9RgMmYtuemdHh1B6UKBpX7bwki2sKLvWU7gqoijFr2",
+    "updated": 1785997716.741555,
     "url": {
       "api": "http://localhost:8851",
       "app": "http://localhost:8852"
@@ -1169,8 +1187,8 @@
     "schema": "QmR6Ky5sfthcjJLjR581JyYt2PiDztZAnFcsjpPw2aN8QX",
     "updated": 1785299485.374916,
     "url": {
-      "api": "http://localhost:50120",
-      "app": "http://localhost:50121"
+      "api": "http://localhost:50300",
+      "app": "http://localhost:50300"
     }
   },
   {
@@ -1185,14 +1203,14 @@
     "url": null
   },
   {
-    "cid": "Qmc3bkAyn6KNW4ZHLj83H8oBJVh3gi6qVqTYgg9CjYumLe",
+    "cid": "QmSmh5FY69gSkPpAEEQUxHhZBjvDFtQwyMoLmGNs4XZVaV",
     "content": "QmPGvFczAwWk97mGoSBLE8ZshhF5vv2e4Yjdsq6UuRQe9Y",
     "created": null,
     "key": "0x7d7c323496ed80e16d47b036607c586fb33dd123",
     "name": "claudecode",
     "prev": null,
-    "schema": "QmPp9mgkCa68R8mmSGGNMNmnbAN8GWFBjf2im8KU7esUqJ",
-    "updated": 1783974240.696952,
+    "schema": "Qmd5X5a4jrHgyZe6Df5uqSC3RrFKwrEoBa8hGnHrfcAvGZ",
+    "updated": 1785997727.182914,
     "url": null
   },
   {
@@ -1298,7 +1316,11 @@
     "prev": null,
     "schema": "QmTnjFm1HAvKNWPuNsRuGpxrimgAR7uDKrqnPSiAKvjtRQ",
     "updated": 1783974420.7059658,
-    "url": null
+    "url": {
+      "api": "http://localhost:50510",
+      "app": "http://localhost:50510/compute",
+      "mcp": "http://localhost:50510/mcp"
+    }
   },
   {
     "cid": "QmbuRErGBLXGKJNDd76LJGatGFwia3Vx7DzVSFRN1Bbkjb",
@@ -1362,14 +1384,14 @@
     "url": null
   },
   {
-    "cid": "QmfEadPPmHJP44JH8AZe6GrfGy9LJ6XA2RJSwBqovsRWth",
+    "cid": "QmYoq2z2udkPZ89Q1v66fTz53DZL3JasBmZgREKbHF7cpM",
     "content": "QmVqExNwQ47ZhkeHzPLk56bkpdpvXNVhXJxwY1tQoTik4Z",
     "created": null,
     "key": "0x7d7c323496ed80e16d47b036607c586fb33dd123",
     "name": "copytensor",
     "prev": null,
-    "schema": "QmcSvozrR5oP6RnrupD6ok4ioEh6vrmoDYPouh6hN6R59w",
-    "updated": 1785650730.5052867,
+    "schema": "QmYqruhUeccVgA9MHHifMgUitsKYMvtJCPRGFUBgxpDEJj",
+    "updated": 1785997727.3867378,
     "url": {
       "api": "http://localhost:50150",
       "app": "http://localhost:3150/copytensor",
@@ -1428,27 +1450,27 @@
     }
   },
   {
-    "cid": "QmP2K3axcj95fm4apTHFXMNxy5CnQi4d7mtPJV5BLNpe7q",
+    "cid": "QmWrtDWfYZHGiQJVRfw3pS1snkiVnaasPfmFWJ9h8PjE9f",
     "content": "QmaiZd4r3La6rAo2MSY6884uXcRk78Adgx4oF8muQxRiJ5",
     "created": null,
     "key": "0x7d7c323496ed80e16d47b036607c586fb33dd123",
     "name": "docs",
     "prev": null,
-    "schema": "QmV5Mwz5yYT8QmE3uuA9uE3ek4mRNB1iED6pkJctVFbSAU",
-    "updated": 1785650710.9218183,
+    "schema": "QmWAcw36nCCoHyUEwrG93PkwrW7oHag6yt2iF9kRcwcY4G",
+    "updated": 1785997695.7514646,
     "url": {
       "app": "http://localhost:50191/docs"
     }
   },
   {
-    "cid": "QmbXXg24Fn8HzrSJErZo9cH2vdoypaEc98aDRKe6RFg9Ty",
+    "cid": "QmVSEgnmp3nQNGToNyXqww5zDB7bxEUrACUSqfkknD2qgE",
     "content": "QmYHBhdEDRMzRfCgYWnFiK8WAqtrjHdpdy9CsqgDfeG1Ek",
     "created": null,
     "key": "0x7d7c323496ed80e16d47b036607c586fb33dd123",
     "name": "dstore",
     "prev": null,
-    "schema": "QmUVF22Hn6mdsaqoWALUFvo4GZiS2gTKmWhLjzDCpWXKHR",
-    "updated": 1785650717.9893215,
+    "schema": "QmZ877cci3HrrzaKRdkkB4N6ZZsmWS85oLDDoVSZVVuWDe",
+    "updated": 1785997704.9074118,
     "url": {
       "api": "http://localhost:50150",
       "app": "http://localhost:50151"
@@ -1554,14 +1576,14 @@
     "url": null
   },
   {
-    "cid": "QmWwwAP9kPc1uxvf74Kg6PXApb6Mm9haRuXNLhykZhTrem",
+    "cid": "QmNN7HeAqKHrXNbV2ieLMo1bUaLojSHsruCy4cVvx3Tfme",
     "content": "QmeztRKaKePKjYB9qyA2eknJC2gxRvNVxDenZsi3BLydn8",
     "created": null,
     "key": "0x7d7c323496ed80e16d47b036607c586fb33dd123",
     "name": "filecoin",
     "prev": null,
-    "schema": "QmQ165wR6UdBGYKkBc9n6vm18UrE1jgbSmf3u9WRVjMD8M",
-    "updated": 1785650725.3270652,
+    "schema": "QmZHnJ7UCaQS5bJshHZ6yrHENNWJCUvdvzuFJ4wtbgeEj6",
+    "updated": 1785997718.4802358,
     "url": {
       "api": "http://localhost:50140",
       "app": "http://localhost:50141"
@@ -1612,14 +1634,14 @@
     "url": null
   },
   {
-    "cid": "Qmey741ng1amFM5zpcGJdqBY1BhHqR5PNipMZtzjJYZZYU",
+    "cid": "QmUJVmH4p7kCqPiBXdYhLFBhtNVyd75jBJtCUfEpTnKRoh",
     "content": "QmTPVQp9Km6KaeC7z55rbCqrCZAZGHsRYkn1xaEiTHfJ7J",
     "created": null,
     "key": "0x7d7c323496ed80e16d47b036607c586fb33dd123",
     "name": "freewash",
     "prev": null,
-    "schema": "QmSF2ngxdJbsqzJQazWeaiWgyWBngHFxHgdUydPDJfDmDC",
-    "updated": 1785479230.4706802,
+    "schema": "QmYB9T6F7knxKeB2Me7XWFxbjuKL1A7vkvSke7RFKjdo1A",
+    "updated": 1785997719.551865,
     "url": "http://127.0.0.1:8799"
   },
   {
@@ -1824,15 +1846,21 @@
     }
   },
   {
-    "cid": "QmStS7oW5h718pPG7txWe3gTXmA3891m1twbHa7k4hovdv",
+    "cid": "QmP1o5UdZQRzhXDZLXzT2SiPGS2bcuAbw6bHEUwUH3qzjr",
     "content": "QmQEaDRFhxX7cYdn6KogqJqi6BSxzyAuQA8w3KwNhWrrEP",
     "created": null,
     "key": "0x7d7c323496ed80e16d47b036607c586fb33dd123",
     "name": "lium",
     "prev": null,
-    "schema": "QmbN3X6zwqND6tpJKDD4yFGFrT6WJHnF12kgMT8MbUr2BY",
-    "updated": 1783975320.696783,
-    "url": null
+    "schema": "QmY8HitohE3tRBXbVPkx5dZ8Di5uF5WdGnfd8Ey6GVtvwS",
+    "updated": 1785997693.6329334,
+    "url": {
+      "api": "http://localhost:50430",
+      "app": "http://localhost:50430/lium",
+      "docs": "https://docs.lium.io",
+      "mcp": "http://localhost:50430/mcp",
+      "provider": "https://lium.io"
+    }
   },
   {
     "cid": "QmedhhwL69XPzTxBVzyHhLxSyR6eE4MHXpYeNwAvLAAkdu",
@@ -1970,14 +1998,14 @@
     "url": null
   },
   {
-    "cid": "QmUy2TTiDP7yQe7bEKquS4iGi58S4qLoqWiRo2QkjR69nM",
+    "cid": "QmVDsECJVNNFzZzEiGAiPQrXhmr5yxYQLZhUzU3MVD4xZU",
     "content": "QmWJDoDR2un7m5Qx1p6oewZM19XfFgdkijZat8d5Qxm35m",
     "created": null,
     "key": "0x7d7c323496ed80e16d47b036607c586fb33dd123",
     "name": "modcity",
     "prev": null,
-    "schema": "QmSE1gvd5c2ahocEZait62KVCdL4rA4k2SgNEp1nSNtoCC",
-    "updated": 1785299493.7813818,
+    "schema": "QmXDLtc2NKRyKmzR4RUihz4wk6KM5uXMTiGHSjXSnf8Znj",
+    "updated": 1785997713.2152653,
     "url": {
       "api": "http://localhost:50140",
       "app": "http://localhost:50141"
@@ -2031,14 +2059,14 @@
     "url": null
   },
   {
-    "cid": "QmUKiC4yU7fZp6XBQoBE6AtNCiY87PKK4dnWkvEi4h2wp2",
+    "cid": "QmPFX6xFGZ2VetdhVhGcQTc37QiRvurYjCyZLzZDSx589y",
     "content": "QmbU4d17LVonHnxCnWp7J3PLm8kq1ZJQECVU9hZMLmCiK8",
     "created": null,
     "key": "0x7d7c323496ed80e16d47b036607c586fb33dd123",
     "name": "modrs",
     "prev": null,
     "schema": "QmYWmGkcTBgtZQSgfjkC8Dwu2ayCuYaW2Ngc7kBwvNZPkm",
-    "updated": 1785299482.0110638,
+    "updated": 1785997699.896616,
     "url": null
   },
   {
@@ -2277,14 +2305,14 @@
     }
   },
   {
-    "cid": "QmTYFeMrwnB8mTp62vXVyE4NLgDDAzZ7kjGSKciiUfDspZ",
+    "cid": "Qmb46x6pJGp7xPbkSZfcdA2y9zfpQFCMMWKmioWvczGPvV",
     "content": "QmUMpryfZ3DfDSuYv5WAbk9yfq2YTE1eDKTWBGuTQTU66a",
     "created": null,
     "key": "0x7d7c323496ed80e16d47b036607c586fb33dd123",
     "name": "openhouse",
     "prev": null,
-    "schema": "QmSoHqHhnSea9o9QjgBWBL7r4VGajhRJcYFz72E9D2sNrJ",
-    "updated": 1785299500.5047941,
+    "schema": "QmbJyfMBg6WBLPiUPWfHSCB2RutY2YRV1Yfo5rr86BSErW",
+    "updated": 1785997725.6528223,
     "url": {
       "api": "http://localhost:50130",
       "app": "http://localhost:50131"
@@ -2302,14 +2330,14 @@
     "url": null
   },
   {
-    "cid": "QmdgGkSSxKQVjoWtLjhhYPuR9tXz6awQHEGhG7iCvfRHwG",
+    "cid": "QmWBAFWEnFaUKjgZRtDbk9NXJqvdbPiWkfUQm3Tvt2fTeJ",
     "content": "QmWWJEQpoFSxeo3hbVZWiAbSRRMpfCits8HtMT6t3NDCz8",
     "created": null,
     "key": "0x7d7c323496ed80e16d47b036607c586fb33dd123",
     "name": "openplay",
     "prev": null,
-    "schema": "QmRG9ybiJWZYYeJ3ZJenPWHzxfu5y8xe3TM8diRqCVcmZ1",
-    "updated": 1785299498.0158267,
+    "schema": "QmQxeoGy6awYUvCujT1n21XRsUBc89ddmNDY4QvWEpz1A6",
+    "updated": 1785997722.2925398,
     "url": {
       "api": "http://localhost:50160",
       "app": "http://localhost:50161"
@@ -2363,14 +2391,14 @@
     }
   },
   {
-    "cid": "QmYas2UchNSmrTcBfofPUrcsSuLDhLHs42kowLXt7j43yJ",
+    "cid": "QmVg2YhcGV3sDWVwbMdrdtywJVMR7ZvXiGEt4C1VTXax41",
     "content": "QmTUxGjoyoY2s33m8qico8GWvL2cF4BvzBu18NkswrEtE9",
     "created": null,
     "key": "0x7d7c323496ed80e16d47b036607c586fb33dd123",
     "name": "polymarket",
     "prev": null,
-    "schema": "QmTu2XxuDfgqCCAQbTuH5bTxrHmbdoaVsA1Qj3D3LBgfTo",
-    "updated": 1785650731.845147,
+    "schema": "QmamiN4g39A4vEky54CXUvWbq566eTyBUEgV2268XQHK43",
+    "updated": 1785997728.7264535,
     "url": {
       "api": "http://localhost:50091",
       "app": "http://localhost:3091/polymarket",
@@ -2389,14 +2417,14 @@
     "url": null
   },
   {
-    "cid": "QmeB8d3UMj9woVYWo8WBnx2kyzyYik6gmDUKpHo34pnZZa",
+    "cid": "QmWpsZD7ogeEZLFMbZMWguPLJuzrVrfiJYe46VJahS6FhW",
     "content": "QmdmyuJVZ3kCMiZcK8i8dydaKbwsUzbk1oQBmfN7JZ1XKv",
     "created": null,
     "key": "0x7d7c323496ed80e16d47b036607c586fb33dd123",
     "name": "prefi",
     "prev": null,
-    "schema": "QmeT3WYLoFicjPzXEfVJk9m9dZryiWhKXGcedTSQ4fLxn8",
-    "updated": 1783976280.72518,
+    "schema": "QmPRLaczXcN6cEF3vQP84Xx36w7mBFYhQmC43pW7SAYciy",
+    "updated": 1785997700.382064,
     "url": {
       "api": "http://localhost:8830",
       "app": "http://localhost:8831"
@@ -2626,14 +2654,14 @@
     "url": null
   },
   {
-    "cid": "QmfRujSAS6KqYdWdSYktBtFoZRiEy19tKWdx8W8ZMPnY7S",
+    "cid": "QmaWn1cyxegGazbQTiMBn2dHJTtrUkTwj4ybFyQVj8xBk7",
     "content": "Qmf7Jd8n7hj3QTeLEkAFvwdM63NzaBygyCiyGgtmqXB8eG",
     "created": null,
     "key": "0x7d7c323496ed80e16d47b036607c586fb33dd123",
     "name": "scrape",
     "prev": null,
-    "schema": "QmWZAWZ2g6XJ4KAgtapQzMJGdban9x2d3wysJPzCFn3pmp",
-    "updated": 1785299489.0780265,
+    "schema": "QmdcxPcikRjvaz1GcbnGnwc8zarVnKTv5pSKkw8cNrJTLM",
+    "updated": 1785997708.0208924,
     "url": null
   },
   {
@@ -2924,15 +2952,21 @@
     }
   },
   {
-    "cid": "QmYYXcEtGpHRbetjcxinr1c6wBWKu72JqjhhyrhRGpp2wM",
+    "cid": "QmRyPfmk2Gr1kboCogfxjtas5EDguJEqTjMEiv5zTy7iAF",
     "content": "QmZFvtwKb8oSPo4XY9kHEcnEw1mK8QsVzxrwnkCEaX1Amw",
     "created": null,
     "key": "0x7d7c323496ed80e16d47b036607c586fb33dd123",
     "name": "targon",
     "prev": null,
-    "schema": "QmcZCuZLN15uQ8rBmZQoUFMJjswgeHMu95kDwa8Rderkun",
-    "updated": 1783977190.4337633,
-    "url": null
+    "schema": "QmUt1AzKm7pZjZFisKBDstqj2HSkhRyhjbZEQRswm23Y6D",
+    "updated": 1785997708.3655472,
+    "url": {
+      "api": "http://localhost:50440",
+      "app": "http://localhost:50440/targon",
+      "docs": "https://docs.targon.com",
+      "mcp": "http://localhost:50440/mcp",
+      "provider": "https://targon.com"
+    }
   },
   {
     "cid": "QmSWi6HqkDBAYEh7g3ZkWz8uAbWj4QWyN5RjeGRkhXxRvt",
@@ -3182,15 +3216,20 @@
     "url": null
   },
   {
-    "cid": "QmQEgsJcHrUd3NuF35SFR1wQLSzhEtruyJUCFqGDJP9wYi",
+    "cid": "QmVpFYCeZuNnRQVh8KFQvx7oCQBqv4zjBPNfBU51qpj8J8",
     "content": "Qmb8wCn8er6jMdvjii8yPZU6A8KZEX676Z1iCyqMK8fWLW",
     "created": null,
     "key": "0x7d7c323496ed80e16d47b036607c586fb33dd123",
     "name": "wasmland",
     "prev": null,
-    "schema": "QmSPgeX4NfEhpHGMxj8ptrn2Kr22GjmfxixNtPpW6u4DPy",
-    "updated": 1785299499.5090873,
-    "url": null
+    "schema": "QmSdNkajv4bKeoLFM9rnGr9WKFUBVrgGYzoHzTkaCh2kde",
+    "updated": 1785965940.027914,
+    "url": {
+      "api": "http://localhost:50480",
+      "app": "http://localhost:50481/wasmland",
+      "same_origin_api": "http://localhost:50481/wasmland/_api",
+      "gateway": "https://modc2.com/wasmland"
+    }
   },
   {
     "cid": "QmbJypqcnrxGYeZHQ2X7XaheeETwWTZSb5o1st6XXFmoak",
@@ -3461,14 +3500,14 @@
     "url": null
   },
   {
-    "cid": "QmR6PcuW1SmNLtfJRcoEuZH24uBGEd9hpZrdrNUUkEcRH7",
+    "cid": "QmaHy1HyGzuNXHcqMHTcuVf4Ckf9vYURaRRMxJqXKAEE1F",
     "content": "QmTN7L9jKGpaoackLGnXbQbQk6QDjPFvDYie8F2LmyteVw",
     "created": null,
     "key": "0x7d7c323496ed80e16d47b036607c586fb33dd123",
     "name": "build",
     "prev": null,
-    "schema": "QmPGoAegFXdqoeFq1pxbN2gjJM85zevU3u2PPBdnoavw88",
-    "updated": 1785299479.5016463,
+    "schema": "QmVXmTD53nig3aEKVBkN6zBrUTp3Kxz3rAwMEGTRz9b6ei",
+    "updated": 1786128999.3345876,
     "url": {
       "api": "http://localhost:50200",
       "app": "http://localhost:50201"
@@ -3489,14 +3528,14 @@
     }
   },
   {
-    "cid": "QmbWKZ17vsMSSCDEazZuHMqXBGAWYo5XE1cCdE5msBvbnF",
+    "cid": "QmWL1rVeZxE4pYe7Mr68u5ywDsWxZWyxgSdSFGw1rTb1Q5",
     "content": "QmabVeh4k9Pdmpn41pmejqYuVQh2wLb2X72v6GArVtTkWs",
     "created": null,
     "key": "0x7d7c323496ed80e16d47b036607c586fb33dd123",
     "name": "tdot",
     "prev": null,
-    "schema": "QmRVqx14XqFpW6CpWWu6Mc14xYa8LDt7c2DERmmfg6JStB",
-    "updated": 1785650710.2817702,
+    "schema": "QmZ8T9fVL6Mz8SFSEZ7XrvWnetkDA3mxcempUeAS86Hbhr",
+    "updated": 1785997695.0215034,
     "url": {
       "api": "http://localhost:50320",
       "app": "http://localhost:50321"
@@ -3514,14 +3553,14 @@
     "url": null
   },
   {
-    "cid": "Qmce4dyi3gGAHe9f8wPj7hPckAXC2jWNFqciEXLagd2WeX",
+    "cid": "QmP9DqpSiaEoF9Vtqo1KpH3XRTCrfaMuaJB3uYndiWkV93",
     "content": "QmPJKWpU6dq7SvqhL5PRSA48q9MpTNUt466VdC9d4aeK6F",
     "created": null,
     "key": "0x7d7c323496ed80e16d47b036607c586fb33dd123",
     "name": "supermario",
     "prev": null,
-    "schema": "QmY2qSaEu47Qt4ArjBU978MsBWoQVBuQiBFEN6e7BobEZg",
-    "updated": 1785528628.0736718,
+    "schema": "QmTyMuscWxdMqWYsvk6aySBotYkHLNjjbvCkzbnQQBsaHQ",
+    "updated": 1785997728.9782147,
     "url": {
       "api": "http://localhost:50340",
       "app": "http://localhost:50341/supermario"
@@ -3550,6 +3589,209 @@
     "url": {
       "api": "http://localhost:50341",
       "app": "http://localhost:50341/superhood"
+    }
+  },
+  {
+    "cid": "QmRTXErGuddZD9pEiApJaShwNdZMTFCSdzoE8xYVaaEnob",
+    "content": "QmVbBD1mx2ifderaRJ82k5AMPj3bVzEQeLuBUpmLqTHc5V",
+    "created": 1785690719.824838,
+    "key": "0x7d7c323496ed80e16d47b036607c586fb33dd123",
+    "name": "codexcli",
+    "prev": null,
+    "schema": "QmacDyVUKxkNXKfNidv8TWEFZoSzP2xMYWFM2za2Dx1iXh",
+    "updated": 1785690719.824838,
+    "url": null
+  },
+  {
+    "cid": "QmUs2aNu9VguA7K6ZdEPQwpdy2waB6FZWWTUJRFZewnTJ1",
+    "content": "Qmf8sX3y3gCCeQqt2Dmb2xWM1BE42EmgZbFLUw3zV9T4YL",
+    "created": 1785774102.7753234,
+    "key": "0x7d7c323496ed80e16d47b036607c586fb33dd123",
+    "name": "bitchain-fork",
+    "prev": null,
+    "schema": "QmZRAfz2PYaLzHw6TnfxoL5dJjMHZ7S7bQng65aKpm35Eq",
+    "updated": 1785774102.7753234,
+    "url": {
+      "api": "http://localhost:50370",
+      "app": "http://localhost:50371/bitchain-fork"
+    }
+  },
+  {
+    "cid": "QmQ5KP8E4xV7PC42Bs1XGZgmTqfzc6mQGdCdDCdrXn4pYN",
+    "content": "QmaLH5BzRQP3DEpXhVzajogdgbes1h3Jf2chH2McYULidK",
+    "created": 1785777867.6844563,
+    "key": "0x7d7c323496ed80e16d47b036607c586fb33dd123",
+    "name": "openbnb",
+    "prev": null,
+    "schema": "QmbXy7bGDdYojLNRrnRSmJfSvamL63GfaQAuA7XAQna587",
+    "updated": 1785997714.4086137,
+    "url": {
+      "api": "http://localhost:50370",
+      "app": "http://localhost:50371"
+    }
+  },
+  {
+    "cid": "QmPKeRdZpkWz5NKp5DoYgX1PySoD71PbfBTpHCpwEPVUbn",
+    "content": "QmdLXu2n1SvjFW5e3P9ocKoUaoYznypTh1nRjHE2gixBSc",
+    "created": null,
+    "key": "0x7d7c323496ed80e16d47b036607c586fb33dd123",
+    "name": "encrypt",
+    "prev": null,
+    "schema": "QmdBYWCtskyxWpHLHeuCWMQE2qTx5EiWz7CjAMyKj9cxXe",
+    "updated": 1785997712.2319012,
+    "url": {
+      "api": "http://localhost:50380",
+      "app": "http://localhost:50381"
+    }
+  },
+  {
+    "cid": "QmSeKZuVmnmuwmADts8ZkafJEuVy1MQR4tPjyrySwGeJGs",
+    "content": "QmdteQxz4qNAHF1KaxkSyt94fE4K9yBRhrBcm75ycPPtSk",
+    "created": null,
+    "key": "0x7d7c323496ed80e16d47b036607c586fb33dd123",
+    "name": "cathedral",
+    "prev": null,
+    "schema": "QmRtMnPKJWuFacUHsrwXUyHn31mQexcPVzhWXS2w3TGaEb",
+    "updated": 1785997724.84391,
+    "url": {
+      "account": "https://cathedral.computer/account/",
+      "api": "http://localhost:50390",
+      "app": "http://localhost:50391/cathedral",
+      "docs": "https://cathedral.computer/docs/",
+      "gateway": "http://localhost:3000/cathedral",
+      "provider": "https://cathedral.computer"
+    }
+  },
+  {
+    "cid": "QmbASezTMQHu4rJaXk1CcTPGBz8kRFfKsYYYPjBQqPu58r",
+    "content": "QmVjoVqeScZy892udBcCvzNpgKvLQWQKyNGUA6LDUpZUiW",
+    "created": 1785863846.7657938,
+    "key": "0x7d7c323496ed80e16d47b036607c586fb33dd123",
+    "name": "privtest",
+    "prev": null,
+    "schema": "Qmain6g1338iK1xdh5KmvjKr9savziprngEoMB4fsxQJt5",
+    "updated": 1785863846.7657938,
+    "url": null
+  },
+  {
+    "cid": "QmRGdpGM2J7fNVoHZqNVoaVdAUuqRE2VbSEzof1AgNospw",
+    "content": "QmbCa71KPag6orzjtVgN3S2xsMef1bXAxVC8q99rnKfWEQ",
+    "created": null,
+    "key": "0x7d7c323496ed80e16d47b036607c586fb33dd123",
+    "name": "openarena",
+    "prev": null,
+    "schema": "QmPuAatPm2BEfoBbggh9155CsDHejDDvLxcFQStSZANx74",
+    "updated": 1786127332.705621,
+    "url": {
+      "api": "http://localhost:50400",
+      "app": "http://localhost:50400/openarena",
+      "mcp": "http://localhost:50400/mcp"
+    }
+  },
+  {
+    "cid": "QmaeCYTP687YXM9rcDjX9kX2BhVBM5FX7w7FmVFpEowNBH",
+    "content": "QmQmLzU1P7pJCqK3NFwM7mEmwd7Z5vV9tVm4rs1SpZc8wA",
+    "created": null,
+    "key": "0x7d7c323496ed80e16d47b036607c586fb33dd123",
+    "name": "build-fork",
+    "prev": null,
+    "schema": "QmRSJfCL3y5VzJ9Stgwf7AvWwWMTinGn7d2Jfwmyu5Jcwy",
+    "updated": 1785867879.7697084,
+    "url": {
+      "api": "http://localhost:8894",
+      "app": "http://localhost:8895"
+    }
+  },
+  {
+    "cid": "QmSCof4vSER9BLdaeFUsoWPQArUCe8YJMYgvQxWiBwC7aB",
+    "content": "QmRYW1haWZYqE4KBbvq3sBznrvUibjNZ19gkGAcQzKCgP5",
+    "created": null,
+    "key": "0x7d7c323496ed80e16d47b036607c586fb33dd123",
+    "name": "agebt",
+    "prev": null,
+    "schema": "QmNr6qvae8GgFjHfz1KCGr29PBZLVVugDUMcitUJMENwxy",
+    "updated": 1785899316.292001,
+    "url": null
+  },
+  {
+    "cid": "QmSizsN84ALhYpooYZbuVmBjDJjK4WAsWoVLQQuK539DcH",
+    "content": "QmbBSa9FrNdcXiki5xjsQckGwCscU5aEQvU2EibHMoWXPH",
+    "created": null,
+    "key": "0x7d7c323496ed80e16d47b036607c586fb33dd123",
+    "name": "liquidai",
+    "prev": null,
+    "schema": "QmUd468DgsDmNxmQpi34g7grYS9tKT2x7ML8xoMgQa4zcr",
+    "updated": 1785997720.8807385,
+    "url": {
+      "api": "http://localhost:50460",
+      "app": "http://localhost:50461/liquidai",
+      "gateway_api": "http://localhost:3001/api/liquidai",
+      "gateway_app": "http://localhost:3001/liquidai",
+      "hf": "LiquidAI"
+    }
+  },
+  {
+    "cid": "QmbUXW2vWj83bPSwDUj2Vx1EjTWdq9ZUCGahGP5RRdAwvv",
+    "content": "QmXRGtbGm5iDPuqvzKGzYjE7qxLwEfWkfDnuFUnvTqTdhR",
+    "created": null,
+    "key": "0x7d7c323496ed80e16d47b036607c586fb33dd123",
+    "name": "musica",
+    "prev": null,
+    "schema": "QmY9iRcauByZL9ZUW5kso2RRF3WgT5rTCU75SPM4zjV8kv",
+    "updated": 1785997705.6562035,
+    "url": {
+      "api": "http://localhost:50480",
+      "app": "http://localhost:50480/musica"
+    }
+  },
+  {
+    "cid": "QmW8yJuWsVs1eKaiqKB4MFuHP1FHEn1BBMPVzTMnwXpEyP",
+    "content": "QmeBsWpmgvvqbcME88zza9MpAdwsNe6FLTt5tSXtoEJs21",
+    "created": null,
+    "key": "0x7d7c323496ed80e16d47b036607c586fb33dd123",
+    "name": "nim",
+    "prev": null,
+    "schema": "QmNsbFFzuBz9rAUxRFoMRAFg7b8Nq9YhtM9ZCuYPFS1aJQ",
+    "updated": 1785997688.5644436,
+    "url": null
+  },
+  {
+    "cid": "QmcdAzmDScEuDXD4qug7yfFBLpU88vHqfpnYsP2zJCzppQ",
+    "content": "QmWJJa1W4qMxpkhg5n1DJjdGM2WQZW4RCSeiH34hxwueeD",
+    "created": null,
+    "key": "0x7d7c323496ed80e16d47b036607c586fb33dd123",
+    "name": "tic-tac-toe",
+    "prev": null,
+    "schema": "QmZrpJeoTGAiLcTRefUuNuhoYywB8EDsBQ54stFLd7fiQ4",
+    "updated": 1785966107.72471,
+    "url": null
+  },
+  {
+    "cid": "QmZN8ttHhbBRan8zxfpWGtJCMLa8bBWHzhPH8jEZ9bv4Ky",
+    "content": "QmWbb3s21Kqwa7JeuumZ9ZXYE3m98um8W1W3VEqgZzjjds",
+    "created": 1786125216.8802516,
+    "key": "0x7d7c323496ed80e16d47b036607c586fb33dd123",
+    "name": "costmarket",
+    "prev": null,
+    "schema": "QmZsYaNscf7v9KcdMWJYbjBocCtgihWNsaEPp84wDD8etH",
+    "updated": 1786125216.8802516,
+    "url": {
+      "api": "http://localhost:50490",
+      "app": "http://localhost:50491"
+    }
+  },
+  {
+    "cid": "QmPVw6VxuQwTwsjVK2VKZscHhv2aP9hm6QJWugZYuv35uZ",
+    "content": "QmYE1rqWL9QEjfSBQVrtRd41H4yFXVCNb6e494wDoy5gji",
+    "created": null,
+    "key": "0x7d7c323496ed80e16d47b036607c586fb33dd123",
+    "name": "github",
+    "prev": null,
+    "schema": "QmfRZiY99QrY6y6uwrohuxwdw6UYSvprm3dSJS6pbkq5NZ",
+    "updated": 1786292720.3745606,
+    "url": {
+      "app": "https://modc2.com/github",
+      "gateway": "https://modc2.com/github"
     }
   },
   {

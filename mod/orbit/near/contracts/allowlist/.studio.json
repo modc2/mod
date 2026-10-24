@@ -1,0 +1,14 @@
+{
+  "name": "allowlist",
+  "template": "merkle_allowlist",
+  "desc": "The owner publishes one 32-byte root for a list of thousands of accounts",
+  "created": 1792025194,
+  "init": {
+    "method": "new",
+    "args": {
+      "root": "0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  },
+  "cairo_twin": "merkle_allowlist",
+  "deployed": []
+}

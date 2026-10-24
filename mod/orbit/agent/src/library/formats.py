@@ -257,6 +257,9 @@ def parse(text: str, filename: Optional[str] = None,
             "icon": _text(meta.get("icon")) or ">_",
             "tools": _list(meta.get("tools") or meta.get("skills")),
             "model": _text(meta.get("model")) or None,
+            # the memory module it thinks with — one of memory/registry.py's
+            # (default, ephemeral), or a dotted path to another mod's
+            "memory": _text(meta.get("memory")) or None,
             "harness": _text(meta.get("harness")) or None,
             "tags": tags}
 

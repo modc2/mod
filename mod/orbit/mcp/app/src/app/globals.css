@@ -211,6 +211,11 @@ button.sm { padding: 5px 10px; font-size: 12.5px; }
   transition: border-color 0.12s ease, transform 0.12s ease;
 }
 .card:hover { border-color: var(--line-strong); transform: translateY(-1px); }
+@keyframes card-pulse {
+  from { box-shadow: 0 0 0 3px color-mix(in srgb, var(--good) 40%, transparent); }
+  to   { box-shadow: 0 0 0 8px color-mix(in srgb, var(--good) 0%, transparent); }
+}
+.card-active { animation: card-pulse 1.5s ease-out forwards; }
 .card h3 {
   margin: 0;
   font-size: 15px;
@@ -419,3 +424,13 @@ html[data-theme="light"] {
 }
 html[data-theme="light"] button.primary { color: #ffffff; }
 html[data-theme="light"] .scrim, html[data-theme="light"] .sheet { background: #1a1c2a5c; }
+
+/* ── result rows (web search, public directories) ─────────────────── */
+/* A search result is prose, not a tool name — the mono/accent treatment
+   .tool .name gets would read as code. */
+.tool .t { font-size: 14px; font-weight: 550; color: var(--ink); }
+.tool .t:hover { color: var(--accent-ink); text-decoration: underline; }
+.tool .src { font-size: 11.5px; color: var(--ink-faint); word-break: break-all; }
+/* the action on a result row keeps its place; the title yields instead */
+.tool .t { flex: 1 1 auto; min-width: 0; }
+.tool .row > button.sm { flex: 0 0 auto; }

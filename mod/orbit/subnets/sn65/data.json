@@ -1,0 +1,181 @@
+{
+  "netuid": 65,
+  "name": "True Performance Network",
+  "symbol": "ص",
+  "owner": "5GxEEHxLWpvcAGghL8LG7xNjrxZk4SEPW1VT43hGPZ2TP9mZ",
+  "description": "Distributed AI model compression & optimization engine",
+  "github": "https://github.com/taofu-labs/true-performance-network",
+  "url": "https://www.trueperformancenetwork.com/",
+  "discord": "https://discord.com/invite/GRVZyPYd6G",
+  "logo": "https://taofu-labs.github.io/truepn-branding/assets/img/logo-mark.png",
+  "registered_at": 4950813,
+  "tempo": 360,
+  "active": true,
+  "block": 9322663,
+  "related": [],
+  "market": {
+    "price": 0.002226376,
+    "moving_price": 0.0022428666707128286,
+    "market_cap": 13670.184363900915,
+    "tao_in": 5718.039628359,
+    "alpha_in": 2568316.591803443,
+    "alpha_out": 3571789.286045095,
+    "volume": 319813.21394446,
+    "vol_24h": 554.4261548759532,
+    "emission": 0.0,
+    "change_1h": -0.00017966384894263498,
+    "change_24h": -0.7893180707182257,
+    "change_7d": -7.604914621605186
+  },
+  "spark_24h": [
+    0.002244089,
+    0.002246434,
+    0.002261951,
+    0.002270762,
+    0.002270762,
+    0.002270762,
+    0.002270736,
+    0.002270736,
+    0.002268299,
+    0.002268298,
+    0.002268293,
+    0.002268293,
+    0.002267212,
+    0.002266157,
+    0.002265686,
+    0.002265684,
+    0.002265684,
+    0.002265684,
+    0.002265684,
+    0.002231093,
+    0.002231093,
+    0.002231182,
+    0.002231182,
+    0.002231182,
+    0.002231182,
+    0.002231174,
+    0.0022289,
+    0.0022289,
+    0.0022289,
+    0.002226143,
+    0.002226382,
+    0.002226382,
+    0.002226382,
+    0.002226382,
+    0.002226382,
+    0.002226381,
+    0.002226381,
+    0.002226381,
+    0.002226381,
+    0.002226381,
+    0.002226381,
+    0.002226381,
+    0.002226381,
+    0.002226381,
+    0.00222638,
+    0.00222638,
+    0.00222638,
+    0.002226376
+  ],
+  "trades_24h": {
+    "trades": 70,
+    "buys": 38,
+    "sells": 32,
+    "buy_tao": 265.920427234,
+    "sell_tao": 287.496431261,
+    "net_tao": -21.57600402700001,
+    "traders": 43
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5GFASTQftoZcMXRuaML9brsMMZQJMqyTViMnYHQsN5mTi1hN",
+      "net_tao": -0.05028816100000105,
+      "gross_tao": 90.274730635,
+      "trades": 6
+    },
+    {
+      "coldkey": "5Cw2qFy2tZy9ZLt4LsJc9b68nffQndZDHF1KZynmVbA4Z3pC",
+      "net_tao": -0.15085699099999772,
+      "gross_tao": 78.150856991,
+      "trades": 4
+    },
+    {
+      "coldkey": "5FptM7kNNje2yW5gRDVijQ8W9r5SACG14LNR2ag8i7vnN4NG",
+      "net_tao": 0.05771488999999974,
+      "gross_tao": 43.94228511,
+      "trades": 2
+    },
+    {
+      "coldkey": "5FJ8hukYBnJmVVvJ5TvtGJkH5ssUcUvu2WuJPUh7invjzToJ",
+      "net_tao": -40.787266478,
+      "gross_tao": 40.787266478,
+      "trades": 1
+    },
+    {
+      "coldkey": "5F1XjkDCLVygZb73otM2ePzRgyZ6U2g2F6CMLD4uwuktzi8g",
+      "net_tao": -0.17062191200000143,
+      "gross_tao": 40.170621912,
+      "trades": 2
+    }
+  ],
+  "news": [
+    {
+      "ts": 1791483744,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #13 from taofu-labs/testnet",
+      "url": "https://github.com/taofu-labs/true-performance-network/commit/2994eb0831685d1400e23834a0f50c04805fbd73",
+      "publisher": "taofu-labs/true-performance-network"
+    },
+    {
+      "ts": 1791471090,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix fluid bench epoch settings",
+      "url": "https://github.com/taofu-labs/true-performance-network/commit/1ccd32f30c19bf34f2b3c863769caed10916ce17",
+      "publisher": "taofu-labs/true-performance-network"
+    },
+    {
+      "ts": 1791209006,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #12 from taofu-labs/testnet",
+      "url": "https://github.com/taofu-labs/true-performance-network/commit/7ae25fa7e531e72dd22c48fd4c3a15aabfe7d606",
+      "publisher": "taofu-labs/true-performance-network"
+    },
+    {
+      "ts": 1791194821,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #11 from taofu-labs/fix/overreport",
+      "url": "https://github.com/taofu-labs/true-performance-network/commit/3a813f82793aa832ca31d049c9d519f70ddbd951",
+      "publisher": "taofu-labs/true-performance-network"
+    },
+    {
+      "ts": 1791193536,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix line + test",
+      "url": "https://github.com/taofu-labs/true-performance-network/commit/0547a834a0a9bdec67a47f1770671d5d6e8f7a31",
+      "publisher": "taofu-labs/true-performance-network"
+    },
+    {
+      "ts": 1790837008,
+      "kind": "commit",
+      "source": "github",
+      "title": "update miner docs",
+      "url": "https://github.com/taofu-labs/true-performance-network/commit/9d4e3cd3ac86c6a099ba6adec9af3bac687e8a72",
+      "publisher": "taofu-labs/true-performance-network"
+    },
+    {
+      "ts": 1790771630,
+      "kind": "commit",
+      "source": "github",
+      "title": "add proper ram tracking",
+      "url": "https://github.com/taofu-labs/true-performance-network/commit/79718e5fa4ae1cdb82de3520c5d02371ec4d6d5e",
+      "publisher": "taofu-labs/true-performance-network"
+    }
+  ],
+  "updated": 1792474861,
+  "updated_day": "2026-10-20"
+}

@@ -1,12 +1,12 @@
 {
     "name": "bitevo",
-    "version": "1.0.0",
-    "description": "Bittensor subnet \u2014 miners generate YC-style startup ideas, validators judge them",
-    "port": 50120,
-    "app_port": 50121,
+    "version": "2.1.0",
+    "description": "Bittensor subnet on the zuma protocol \u2014 anonymous miners pitch YC-style startups, anonymous validators judge them (LSAG ring signatures, wire-compatible with orbit/ztensor's Starknet/NEAR contracts); evolutionary genome populations fit multivariate predictions of the future",
+    "port": 51460,
+    "app_port": 51461,
     "urls": {
-        "api": "http://localhost:50120",
-        "app": "http://localhost:50121"
+        "api": "http://localhost:51460",
+        "app": "http://localhost:51461"
     },
     "fns": [
         "forward",
@@ -18,8 +18,16 @@
         "add_miner",
         "challenge",
         "score_idea",
+        "evolve",
+        "forecast",
+        "population",
+        "datasets",
+        "zuma",
+        "audit",
         "backends",
         "whitepaper",
+        "top_pitches",
+        "list_epochs",
         "test",
         "serve",
         "kill"
@@ -61,6 +69,22 @@
             "method": "POST",
             "docs": "Score a single startup idea"
         },
+        "/evolve": {
+            "method": "POST",
+            "docs": "Evolve multivariate forecaster genomes against the held-out future window"
+        },
+        "/forecast": {
+            "method": "GET",
+            "docs": "Best genome's multivariate forecast (query ?horizon=N)"
+        },
+        "/population": {
+            "method": "GET",
+            "docs": "Genome leaderboard and fitness history"
+        },
+        "/datasets": {
+            "method": "GET",
+            "docs": "Built-in multivariate datasets for evolution"
+        },
         "/backends": {
             "method": "GET",
             "docs": "Supported LLM backends"
@@ -68,8 +92,32 @@
         "/whitepaper": {
             "method": "GET",
             "docs": "Bitevo whitepaper (markdown)"
+        },
+        "/zuma": {
+            "method": "GET",
+            "docs": "zuma subnet registry: rings, emission, credits per payout"
+        },
+        "/audit": {
+            "method": "GET",
+            "docs": "Re-verify every ring signature of an epoch (query ?epoch=N)"
+        },
+        "/top": {
+            "method": "GET",
+            "docs": "Hall of Fame: top pitches by composite score across all archived epochs (query ?limit=N)"
+        },
+        "/epochs/list": {
+            "method": "GET",
+            "docs": "List all archived epochs with lightweight summaries (epoch, type, challenge, miners, top score)"
         }
     },
-    "schema": "QmaRsaUNzEEw7h3tEpSFm3hnsKPaG4fWenXDit4ZqL9B1P",
-    "gateway_port": 50121
+    "schema": "QmcCkcPWsWGoQVP1iwKh2SguH3Jx67325FKNRB8sqN4BcP",
+    "gateway_port": 51461,
+    "protocol": {
+        "name": "zuma",
+        "impl": "core/zuma.py (pure Python, imports orbit/ztensor/src/core/stark.py)",
+        "submit": "miner LSAG over msg=work in H('zuma-mine', subnet, epoch); tag = key_id(image)",
+        "score": "validator LSAG over msg=score 0..100 in H('zuma-score', subnet, epoch, tag); nullifier = key_id(image)",
+        "claim": "miner re-signs the mine scope with msg=payout; credited emission*tag_sum/epoch_total",
+        "state": "~/.bitevo/zuma/keys.json (0600) + subnet.json"
+    }
 }

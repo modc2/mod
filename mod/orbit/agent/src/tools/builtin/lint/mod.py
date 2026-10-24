@@ -3,7 +3,7 @@ import subprocess
 import os
 import json
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, List
 
 
 class Tool:
@@ -91,7 +91,6 @@ class Tool:
     def _detect(self, cwd: str) -> List[str]:
         """Auto-detect available linting tools"""
         found = []
-        files = {f.name for f in Path(cwd).iterdir() if f.is_file()}
 
         # python
         if any(Path(cwd).glob("**/*.py")):

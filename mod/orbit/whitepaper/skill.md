@@ -1,10 +1,21 @@
 # whitepaper
 
-MOD off-chain Merkle-tree registry whitepaper module. Ships the LaTeX source, a Next.js viewer, and a Python reference implementation of the tree.
+The MOD whitepaper module: the off-chain Merkle-tree registry (Part I) and the mod protocol it registers (Part II). Ships the LaTeX source, a Next.js viewer, and a Python + Rust reference implementation of the tree.
 
-## Why
+## What the paper says
 
-The current `Registry.sol` stores each module as its own row keyed by an IPFS CID. With 200+ modules and agent-driven publishing on the horizon, the linear per-row gas cost is the binding constraint. This module proposes (and demonstrates) replacing the per-module hash table with a single Merkle root anchored on chain. The full tree lives off chain in IPFS manifests; authenticity is preserved via Merkle inclusion proofs.
+The paper is in three parts:
+
+| Part | Contents |
+|------|----------|
+| — How to read | Live-vs-proposed status table for every component |
+| I — The Registry Protocol | Merkle-root registry: construction, StakeTime publisher, priority, gas analysis, verifiability, off-chain storage |
+| II — The Mod Protocol | What the registry registers: the module and path-derived names (src/ transparent, dotted submodules), the three call surfaces + null call, the URL rule, generated routes, 308 aliases, private=unrouted, DNS, nix + pm runtime, socket activation, passport identity (six key families, single-use sign-in), owner/peer model, storage and content addressing, MCP + the agent contract, and the ten protocol invariants |
+| III — Adoption | Migration path, related work, conclusion |
+
+## Why (Part I)
+
+The current `Registry.sol` stores each module as its own row keyed by an IPFS CID. With 300+ modules and agent-driven publishing on the horizon, the linear per-row gas cost is the binding constraint. This module proposes (and demonstrates) replacing the per-module hash table with a single Merkle root anchored on chain. The full tree lives off chain in IPFS manifests; authenticity is preserved via Merkle inclusion proofs.
 
 ## Layout
 
@@ -13,7 +24,7 @@ mod/orbit/whitepaper/
   mod.py              # anchor class — Mod (Python protocol surface)
   config.json         # ports + proxy routing
   Caddyfile           # :3000 → /whitepaper (app) + /api/whitepaper (api)
-  whitepaper.tex      # LaTeX source
+  whitepaper.tex      # LaTeX source (v0.4 — Parts I/II/III)
   src/api/            # Rust API (axum + tiny-keccak)
     Cargo.toml
     src/main.rs       # routes + state
@@ -36,7 +47,7 @@ The Python `Mod` class and the Rust binary share one source of truth:
 
 | Service | Port  | Proxy path          |
 |---------|-------|---------------------|
-| API     | 50106 | `/api/whitepaper/*` |
+| API     | 50106 | `/whitepaper/api/*` (canonical since 2026-09-20; `/api/whitepaper/*` is a permanent legacy alias) |
 | App     | 3106  | `/whitepaper`       |
 
 ## Usage (Python)
@@ -111,13 +122,7 @@ Build the binary:
 m whitepaper/build_api          # or: cd src/api && cargo build --release
 ```
 
-Build the binary:
-
-```bash
-m whitepaper/build_api          # or: cd src/api && cargo build --release
-```
-
-All endpoints are exposed under `/api/whitepaper/*` via the Caddy stanza.
+All endpoints are exposed under `/whitepaper/api/*` (canonical) and `/api/whitepaper/*` (permanent legacy alias) via the fleet Caddy; the standalone Caddyfile in this directory still uses the legacy form.
 
 ## Proxy
 

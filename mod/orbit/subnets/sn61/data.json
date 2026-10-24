@@ -1,0 +1,189 @@
+{
+  "netuid": 61,
+  "name": "RedTeam",
+  "symbol": "ر",
+  "owner": "5ECEsYL82fbXx9KfTZy7G2KXSurnScciJyAVMHZjekc8jUbn",
+  "description": "\"The RedTeam subnet by Innerworks is a decentralized platform designed to drive innovation in cybersecurity through competitive programming challenges. The subnet incentivizes miners to develop and submit code solutions to various technical challenges, with a focus on enhancing security. These solutions can be integrated into real-world products to improve their security features.\"",
+  "github": "https://github.com/RedTeamSubnet/RedTeam",
+  "url": "https://www.theredteam.io/",
+  "discord": "https://discord.com/channels/799672011265015819/1319313447435108413",
+  "logo": null,
+  "registered_at": 4457976,
+  "tempo": 360,
+  "active": true,
+  "block": 9322663,
+  "related": [],
+  "market": {
+    "price": 0.011483773,
+    "moving_price": 0.011492290999740362,
+    "market_cap": 72901.73493864694,
+    "tao_in": 14348.261911275,
+    "alpha_in": 1249437.998466026,
+    "alpha_out": 5098800.941701718,
+    "volume": 911886.245208807,
+    "vol_24h": 2649.356451781001,
+    "emission": 0.0,
+    "change_1h": 0.15616786763703594,
+    "change_24h": 0.24681596148714569,
+    "change_7d": -1.8492600814400628
+  },
+  "spark_24h": [
+    0.011455499,
+    0.011455193,
+    0.011297887,
+    0.011300128,
+    0.011332471,
+    0.01130097,
+    0.01130072,
+    0.011301013,
+    0.011301383,
+    0.011317546,
+    0.011317817,
+    0.011318147,
+    0.011616037,
+    0.011644402,
+    0.011639998,
+    0.011640324,
+    0.011640635,
+    0.011603467,
+    0.011607034,
+    0.011573735,
+    0.011529736,
+    0.011523598,
+    0.011524109,
+    0.011524521,
+    0.011525446,
+    0.011525903,
+    0.011526741,
+    0.011526972,
+    0.011447092,
+    0.011462993,
+    0.01145781,
+    0.011458306,
+    0.011458673,
+    0.011478734,
+    0.011479159,
+    0.011530846,
+    0.011547116,
+    0.011548356,
+    0.011553827,
+    0.011554308,
+    0.011558054,
+    0.011558381,
+    0.011558752,
+    0.011567369,
+    0.011567863,
+    0.011465867,
+    0.011402379,
+    0.011483773
+  ],
+  "trades_24h": {
+    "trades": 292,
+    "buys": 106,
+    "sells": 186,
+    "buy_tao": 1299.026361502,
+    "sell_tao": 1309.40449478,
+    "net_tao": -10.37813327799995,
+    "traders": 159
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5FJ8hukYBnJmVVvJ5TvtGJkH5ssUcUvu2WuJPUh7invjzToJ",
+      "net_tao": 9.746354117,
+      "gross_tao": 230.253645883,
+      "trades": 7
+    },
+    {
+      "coldkey": "5FRu1T5Rr6LVw3nu2RmRhxRyYnvJJ9o98a1DNvnZAyGuNMKu",
+      "net_tao": 200.0,
+      "gross_tao": 200.0,
+      "trades": 1
+    },
+    {
+      "coldkey": "5D31yczGiq9tVJwGgX87sWBks1g6RST5Tju5aajGycvvrijb",
+      "net_tao": -0.879766103999998,
+      "gross_tao": 180.879766104,
+      "trades": 9
+    },
+    {
+      "coldkey": "5GHfXPxrFpyPDVM7tUdqa7oeVpFfdH9CWiHyDMnsjjvd4pjR",
+      "net_tao": 0.36189896699999835,
+      "gross_tao": 179.638101033,
+      "trades": 7
+    },
+    {
+      "coldkey": "5GFASTQftoZcMXRuaML9brsMMZQJMqyTViMnYHQsN5mTi1hN",
+      "net_tao": -0.021355712999997056,
+      "gross_tao": 129.118170235,
+      "trades": 4
+    }
+  ],
+  "news": [
+    {
+      "ts": 1791886999,
+      "kind": "commit",
+      "source": "github",
+      "title": "docs: update changelog version '4.10.10'",
+      "url": "https://github.com/RedTeamSubnet/RedTeam/commit/1277ac54564042e20a2de0f3ce5c6468d172138b",
+      "publisher": "RedTeamSubnet/RedTeam"
+    },
+    {
+      "ts": 1791886970,
+      "kind": "release",
+      "source": "github",
+      "title": "4.10.10",
+      "url": "https://github.com/RedTeamSubnet/RedTeam/releases/tag/4.10.10",
+      "publisher": "RedTeamSubnet/RedTeam"
+    },
+    {
+      "ts": 1791886938,
+      "kind": "commit",
+      "source": "github",
+      "title": "version: bump version to '4.10.10'.",
+      "url": "https://github.com/RedTeamSubnet/RedTeam/commit/2cba914782a7e26f2cf5c3d93f4d296994204d56",
+      "publisher": "RedTeamSubnet/RedTeam"
+    },
+    {
+      "ts": 1791886867,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix: adjust challenge incentive weights and max unique commits for be…",
+      "url": "https://github.com/RedTeamSubnet/RedTeam/commit/39f70a5c561f6eaf3669e49109b66aa0beec8177",
+      "publisher": "RedTeamSubnet/RedTeam"
+    },
+    {
+      "ts": 1791197242,
+      "kind": "commit",
+      "source": "github",
+      "title": "docs: update changelog version '4.10.9'",
+      "url": "https://github.com/RedTeamSubnet/RedTeam/commit/e65f97cf2944c03246bd2e2a40a63b7acc2defbb",
+      "publisher": "RedTeamSubnet/RedTeam"
+    },
+    {
+      "ts": 1791197209,
+      "kind": "release",
+      "source": "github",
+      "title": "4.10.9",
+      "url": "https://github.com/RedTeamSubnet/RedTeam/releases/tag/4.10.9",
+      "publisher": "RedTeamSubnet/RedTeam"
+    },
+    {
+      "ts": 1791197167,
+      "kind": "commit",
+      "source": "github",
+      "title": "version: bump version to '4.10.9'.",
+      "url": "https://github.com/RedTeamSubnet/RedTeam/commit/549769ce4be5137909caab119189999fff8b0444",
+      "publisher": "RedTeamSubnet/RedTeam"
+    },
+    {
+      "ts": 1791197134,
+      "kind": "commit",
+      "source": "github",
+      "title": "refactor: increase max_unique_commits for ada_detection_v3 challenge",
+      "url": "https://github.com/RedTeamSubnet/RedTeam/commit/346139b7e119a1656be66377107dbe8deed84255",
+      "publisher": "RedTeamSubnet/RedTeam"
+    }
+  ],
+  "updated": 1792474861,
+  "updated_day": "2026-10-20"
+}

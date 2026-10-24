@@ -1,10 +1,11 @@
 {
     "name": "arweave",
-    "version": "0.1.0",
-    "description": "Arweave storage and retrieval \u2014 public gateway reads + optional wallet uploads, with FastAPI server and minimal web app.",
-    "port": 50151,
-    "app_port": 50151,
-    "api_port": 50151,
+    "version": "0.3.0",
+    "route": true,
+    "description": "Arweave permanent storage \u2014 gateway reads + wallet uploads (local fallback), with REST API, web app and MCP tools on one port.",
+    "port": 50153,
+    "app_port": 50153,
+    "api_port": 50153,
     "owner": "0xaF3e0796042aF79eA1642c919ac0ea6d165Bc6dB",
     "fns": [
         "forward",
@@ -20,7 +21,8 @@
         "rm",
         "tx",
         "price",
-        "call"
+        "call",
+        "mcp"
     ],
     "endpoints": {
         "/health": {
@@ -73,6 +75,11 @@
             "auth": false,
             "docs": "Arweave tx record"
         },
+        "/tx/{txid}/confirm": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Confirmation status for a tx id: confirmed (N confs + block_height), pending, not_found, or local (sha256-\u2026 ids)"
+        },
         "/price/{num_bytes}": {
             "method": "GET",
             "auth": false,
@@ -82,6 +89,36 @@
             "method": "GET",
             "auth": false,
             "docs": "Gateway network info"
+        },
+        "/query": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Search the permaweb via GraphQL \u2014 filter by owner, tag name/value, limit, and pagination cursor"
+        },
+        "/archive": {
+            "method": "POST",
+            "auth": false,
+            "docs": "Fetch a URL and store its content on Arweave",
+            "input": [
+                {
+                    "name": "url",
+                    "type": "string",
+                    "value": "_required"
+                }
+            ],
+            "output": {
+                "txid": "str"
+            }
+        },
+        "/mcp": {
+            "method": "POST",
+            "auth": false,
+            "docs": "MCP Streamable HTTP (JSON-RPC 2.0): initialize, tools/list, tools/call \u2014 arweave_status, arweave_info, arweave_put, arweave_get, arweave_list, arweave_rm, arweave_tx, arweave_tx_status, arweave_price, arweave_network, arweave_query, arweave_archive"
+        },
+        "/docs": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Swagger UI for the REST API"
         }
     },
     "env": {
@@ -89,8 +126,30 @@
         "ARWEAVE_WALLET": "Optional path to a wallet JSON file to enable uploads"
     },
     "urls": {
-        "api": "http://localhost:50151/api",
-        "app": "http://localhost:50151/"
+        "api": "http://localhost:50153/api",
+        "app": "http://localhost:50153",
+        "mcp": "http://localhost:50153/mcp"
     },
-    "schema": "QmdK3PLtC5Kb1jeQNtTEkEfkKTK8SDNCzYguqGVtbUBV1f"
+    "schema": "QmcU9nSaDx2s4PMkVKYPK2BTsECuFDbAmkoYHGm1mw6xmR",
+    "mcp": {
+        "protocol": "mcp/2025-06-18",
+        "transport": "http",
+        "http": "http://localhost:50153/mcp",
+        "public": "https://modc2.com/arweave/api/mcp",
+        "tools": [
+            "arweave_status",
+            "arweave_info",
+            "arweave_put",
+            "arweave_get",
+            "arweave_list",
+            "arweave_rm",
+            "arweave_tx",
+            "arweave_price",
+            "arweave_network",
+            "arweave_query",
+            "arweave_archive",
+            "arweave_tx_status"
+        ],
+        "claude": "claude mcp add --transport http arweave http://localhost:50153/mcp"
+    }
 }

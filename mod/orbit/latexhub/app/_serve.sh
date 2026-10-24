@@ -1,3 +1,5 @@
 #!/bin/bash
-cd /Users/broski/mod/mod/orbit/latexhub/app
-npm run dev -- -p 3200
+cd /root/mod/mod/orbit/latexhub/app
+# serve the production build; `next dev` has no build artifacts under pm2 and
+# recompiles on every restart
+exec npx next start -p 3200

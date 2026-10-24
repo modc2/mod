@@ -3172,7 +3172,7 @@ export default function Home() {
 
   const startApiServer = useCallback(async (): Promise<boolean> => {
     try {
-      const res = await fetch(`${DEFAULT_BASE_PATH}/api/service`, {
+      const res = await fetch(`${DEFAULT_BASE_PATH}/_api/service`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -3192,7 +3192,7 @@ export default function Home() {
   const stopApiServer = useCallback(async () => {
     try {
       const port = API_PORT;
-      await fetch(`${DEFAULT_BASE_PATH}/api/service`, {
+      await fetch(`${DEFAULT_BASE_PATH}/_api/service`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "stop", port }),
@@ -3215,7 +3215,7 @@ export default function Home() {
     // Try starting via start.sh (the Rust binary)
     const apiDir = `${anchorDir.replace("~", process.env.HOME || "/Users/broski")}/mod/orbit/build/src/api`;
     try {
-      const res = await fetch(`${DEFAULT_BASE_PATH}/api/service`, {
+      const res = await fetch(`${DEFAULT_BASE_PATH}/_api/service`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -5086,7 +5086,7 @@ export default function Home() {
         setAppRunning(null);
       } else {
         try {
-          const res = await fetch(`${DEFAULT_BASE_PATH}/api/service?port=${port}`, { signal: AbortSignal.timeout(2000) });
+          const res = await fetch(`${DEFAULT_BASE_PATH}/_api/service?port=${port}`, { signal: AbortSignal.timeout(2000) });
           const data = await res.json();
           setAppRunning(!!data.running);
         } catch {
@@ -5183,7 +5183,7 @@ export default function Home() {
     const port = m.app_url?.match(/:(\d+)/)?.[1];
     if (port) {
       try {
-        const r = await fetch(`${DEFAULT_BASE_PATH}/api/service?port=${port}`, { signal: AbortSignal.timeout(2500) });
+        const r = await fetch(`${DEFAULT_BASE_PATH}/_api/service?port=${port}`, { signal: AbortSignal.timeout(2500) });
         const d = await r.json();
         app = !!d.running;
       } catch { app = false; }
@@ -10876,7 +10876,7 @@ export default function Home() {
         "Sign to use the owner terminal on this server. This is a free signature, not a transaction.",
       ].join("\n");
       const signature = await signTerminalMessage(msg);
-      const res = await fetch(`${DEFAULT_BASE_PATH}/api/terminal/auth`, {
+      const res = await fetch(`${DEFAULT_BASE_PATH}/_api/terminal/auth`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ address, ts, signature }),
@@ -10923,7 +10923,7 @@ export default function Home() {
     setTerminalRecallIdx(null);
     setTerminalRunning(true);
     try {
-      const res = await fetch(`${DEFAULT_BASE_PATH}/api/terminal`, {
+      const res = await fetch(`${DEFAULT_BASE_PATH}/_api/terminal`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

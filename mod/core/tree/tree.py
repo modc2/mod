@@ -9,6 +9,13 @@ class Tree:
     orbit2depth = { 'orbit': 1, 'core': 10, 'mods': 2}
     ignore_suffixes = ['/src', '/core']
     tree_cache = {}
+    # Nested mods: a dir inside a mod that carries its own config.json/mod.py
+    # (orbit/defi/polycopy -> "defi.polycopy"). `mods/` and `src/` are
+    # transparent containers, so starknet/mods/cairo is "starknet.cairo".
+    nested_containers = ['mods', 'src']
+    nested_skip = {'node_modules', 'target', 'vendor', 'data', 'dist', 'build',
+                   'app', 'api', 'tests', 'test', 'docs', '__pycache__'}
+    nested_max_depth = 3
 
     def __init__(self, mod):
         self.mod = mod
@@ -70,7 +77,85 @@ class Tree:
         if depth is None:
             depth = self.orbit2depth.get(orbit, 1)
         kwargs['depth'] = depth or kwargs.get('depth', self.orbit2depth.get(orbit, 1))
-        return self.get_tree(self.mod.paths['orbit'][orbit], search=search, **kwargs)
+        if orbit != 'orbit' or kwargs.get('key') is not None:
+            return self.get_tree(self.mod.paths['orbit'][orbit], search=search, **kwargs)
+        tree = self.get_tree(self.mod.paths['orbit'][orbit], **kwargs)
+        tree = self.with_nested(tree, update=kwargs.get('update', False))
+        if search:
+            tree = self.search(search=search, tree=tree, **kwargs)
+        return tree
+
+    # ── Nested mods & aliases ────────────────────────────────────────────
+
+    @staticmethod
+    def is_mod_dir(path) -> bool:
+        return os.path.isfile(os.path.join(path, 'config.json'))
+
+    def nested_mods(self, root=None, update=False) -> Dict[str, str]:
+        """{"parent.child": path} for every mod nested inside a top-level orbit mod."""
+        root = root or self.mod.paths['orbit']['orbit']
+        cache_path = self.mod.abspath(f'~/.mod/tree/{self.mod.hash(self.mod.relpath(root))}/nested.json')
+        if not update and cache_path in self.tree_cache:
+            return self.tree_cache[cache_path]
+        found = None if update else self.mod.get(cache_path, None)
+        if not isinstance(found, dict):
+            found = {}
+            for top in sorted(os.listdir(root)):
+                top_path = os.path.join(root, top)
+                if top.startswith(('.', '_')) or not os.path.isdir(top_path):
+                    continue
+                self._walk_nested(top_path, top.lower(), self.nested_max_depth, found)
+            found = {k: self.mod.relpath(v) for k, v in sorted(found.items())}
+            self.mod.put(cache_path, found)
+        found = {k: self.mod.abspath(v) for k, v in found.items()}
+        self.tree_cache[cache_path] = found
+        return found
+
+    def _walk_nested(self, path, prefix, depth, out, container=False):
+        if depth <= 0:
+            return
+        try:
+            children = sorted(os.listdir(path))
+        except OSError:
+            return
+        for c in children:
+            cp = os.path.join(path, c)
+            if c.startswith(('.', '_')) or os.path.islink(cp) or not os.path.isdir(cp):
+                continue
+            if c in self.nested_containers:
+                if not container or c != 'src':
+                    self._walk_nested(cp, prefix, depth, out, container=True)
+                continue
+            # polycopy/polycopy is the package of the mod above, not a child
+            if (c.lower() in self.nested_skip or c.lower() == prefix.split('.')[-1]
+                    or not self.is_mod_dir(cp)):
+                continue
+            name = f'{prefix}.{c.lower()}'
+            out.setdefault(name, cp)
+            self._walk_nested(cp, name, depth - 1, out)
+
+    def nested_aliases(self, nested: Dict[str, str], taken) -> Dict[str, str]:
+        """Bare leaf aliases ("polycopy" for "defi.polycopy"): only when no
+        top-level/core mod already owns the name and the leaf is unique."""
+        by_leaf = {}
+        for name, path in nested.items():
+            by_leaf.setdefault(name.split('.')[-1], set()).add(path)
+        return {leaf: paths.pop() for leaf, paths in by_leaf.items()
+                if len(paths) == 1 and leaf not in taken}
+
+    def with_nested(self, tree: Dict[str, str], update=False) -> Dict[str, str]:
+        nested = self.nested_mods(update=update)
+        if not nested:
+            return tree
+        core_path = self.mod.paths['orbit']['core']
+        taken = set(tree) | {n.lower() for n in os.listdir(core_path)
+                             if os.path.isdir(os.path.join(core_path, n))}
+        out = dict(tree)
+        for k, v in nested.items():
+            out.setdefault(k, v)
+        for k, v in self.nested_aliases(nested, taken).items():
+            out.setdefault(k, v)
+        return out
 
     def operational_tree(self, **kwargs) -> Dict[str, str]:
         """Filter tree to only include operational modules."""

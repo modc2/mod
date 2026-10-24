@@ -1,0 +1,385 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<base href="/zkapi/">
+<link rel="icon" href="data:,">
+<title>zkapi · private API credits on Ethereum</title>
+<style>
+  :root { --bg:#0d0f14; --panel:#151922; --line:#232a36; --text:#e6e9ef; --dim:#8a93a6; --acc:#7c9cff; --ok:#3ecf8e; --bad:#ff6b6b; --warn:#f5b84b; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:14px/1.45 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif; }
+  header { padding:22px 28px 10px; display:flex; align-items:baseline; gap:14px; flex-wrap:wrap; }
+  header h1 { margin:0; font-size:22px; letter-spacing:.3px; }
+  header .sub { color:var(--dim); }
+  main { padding:6px 28px 40px; display:grid; gap:18px; grid-template-columns:repeat(auto-fit,minmax(420px,1fr)); max-width:1500px; }
+  section { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px 18px; min-width:0; }
+  section.wide { grid-column:1/-1; }
+  h2 { margin:0 0 10px; font-size:15px; text-transform:uppercase; letter-spacing:1px; color:var(--dim); display:flex; gap:10px; align-items:center; }
+  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin:6px 0; }
+  .kv { display:grid; grid-template-columns:max-content 1fr; gap:3px 14px; font-size:13px; }
+  .kv div:nth-child(odd) { color:var(--dim); }
+  .kv div { min-width:0; overflow-wrap:anywhere; }
+  .mono { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; word-break:break-all; }
+  .pill { display:inline-block; padding:1px 8px; border-radius:999px; font-size:12px; border:1px solid var(--line); }
+  .pill.ok { color:var(--ok); border-color:#1f5e44; } .pill.bad { color:var(--bad); border-color:#6b2a2a; } .pill.warn { color:var(--warn); border-color:#6b5320; }
+  button { background:#1d2433; color:var(--text); border:1px solid #2c3546; border-radius:8px; padding:6px 12px; font:inherit; cursor:pointer; }
+  button:hover { border-color:var(--acc); } button.primary { background:var(--acc); color:#0b0e14; border-color:var(--acc); font-weight:600; }
+  button:disabled { opacity:.5; cursor:wait; }
+  input, select, textarea { background:#0f131b; color:var(--text); border:1px solid #2c3546; border-radius:8px; padding:6px 10px; font:inherit; }
+  textarea { width:100%; min-height:70px; resize:vertical; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  td, th { text-align:left; padding:6px 6px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--dim); font-weight:500; }
+  .checks div { padding:2px 0; font-size:12.5px; } .checks .x { color:var(--bad); } .checks .v { color:var(--ok); }
+  .out { background:#0f131b; border:1px solid var(--line); border-radius:8px; padding:10px; white-space:pre-wrap; max-height:340px; overflow:auto; }
+  .msg { color:var(--dim); font-size:12.5px; min-height:18px; } .msg.err { color:var(--bad); }
+  .flow { color:var(--dim); font-size:12.5px; margin:4px 0 10px; }
+  details summary { cursor:pointer; color:var(--dim); }
+  .bubble { background:#1a2030; border-radius:10px; padding:10px 12px; margin:8px 0; }
+  .bubble .meta { color:var(--dim); font-size:12px; margin-top:6px; }
+  .tabs { display:flex; gap:6px; padding:0 28px 8px; }
+  .tabs button { border-radius:999px; padding:5px 14px; letter-spacing:1px; font-size:12px; text-transform:uppercase; }
+  .tabs button.on { background:var(--acc); color:#0b0e14; border-color:var(--acc); font-weight:600; }
+  .tab[hidden] { display:none; }
+  .form { display:grid; grid-template-columns:max-content 1fr; gap:8px 14px; align-items:center; }
+  .form label { color:var(--dim); font-size:12.5px; text-transform:uppercase; letter-spacing:.8px; }
+  .form input, .form select { width:100%; }
+  .form textarea { min-height:140px; }
+  .agents { display:grid; gap:10px; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); }
+  .acard { border:1px solid var(--line); border-radius:12px; padding:12px 14px; background:#121722; cursor:pointer; }
+  .acard.on { border-color:var(--acc); box-shadow:0 0 0 1px var(--acc) inset; }
+  .acard .ic { display:inline-grid; place-items:center; width:26px; height:26px; border-radius:8px; font-weight:700; color:#0b0e14; margin-right:8px; }
+  .acard .d { color:var(--dim); font-size:12.5px; margin-top:6px; }
+  .steps div { font-size:12.5px; padding:2px 0; color:var(--dim); } .steps b { color:var(--text); font-weight:500; }
+</style>
+</head>
+<body>
+<header>
+  <h1>zkapi</h1>
+  <span class="sub">pay for APIs from an Ethereum deposit, without the server learning which deposit is yours</span>
+  <span id="ver" class="pill"></span>
+</header>
+<nav class="tabs">
+  <button data-tab="app" onclick="tab('app')">app</button>
+  <button data-tab="params" onclick="tab('params')">params</button>
+  <button data-tab="agents" onclick="tab('agents')">agents</button>
+</nav>
+<main class="tab" id="tab-params" hidden>
+  <section>
+    <h2>Params <span id="pagent" class="pill"></span> <span id="pedit" class="pill"></span></h2>
+    <div class="form">
+      <label for="p-name">name</label><input id="p-name">
+      <label for="p-description">about</label><input id="p-description">
+      <label for="p-brain">brain</label><select id="p-brain"><option value="zkapi">zkapi · each call is a proof-paid request</option><option value="claude">claude · Claude Code (owner only)</option></select>
+      <label for="p-model">model</label><input id="p-model" list="p-models"><datalist id="p-models"></datalist>
+      <label for="p-max_tokens">max tokens</label><input id="p-max_tokens" type="number" min="16" max="8192">
+      <label for="p-temperature">temperature</label><input id="p-temperature" type="number" step="0.1" min="0" max="2">
+      <label for="p-deposit_gwei">deposit</label><select id="p-deposit_gwei"><option value="1000000">0.001 ETH</option><option value="10000000">0.01 ETH</option><option value="100000000">0.1 ETH</option></select>
+      <label for="p-icon">icon · color</label><div class="row" style="margin:0"><input id="p-icon" maxlength="2" style="width:60px"><input id="p-color" type="color" style="width:60px;padding:2px"></div>
+    </div>
+    <label for="p-prompt" style="display:block;margin:12px 0 6px;color:var(--dim);font-size:12.5px;letter-spacing:.8px">SYSTEM PROMPT</label>
+    <textarea id="p-prompt"></textarea>
+    <div class="row"><button class="primary" id="psave" onclick="saveAgent()">save</button><button id="preset" onclick="resetAgent()">reset to shipped</button><span id="pmsg" class="msg"></span></div>
+  </section>
+  <section>
+    <h2>Try it</h2>
+    <textarea id="q" placeholder="Ask the agent. On the zkapi brain each answer is paid by its own vault deposit, anonymously."></textarea>
+    <div class="row"><button class="primary" id="qsend" onclick="runAgent()">run</button><span id="qmsg" class="msg"></span></div>
+    <div id="qanswer"></div>
+    <div id="qsteps" class="steps"></div>
+  </section>
+</main>
+<main class="tab" id="tab-agents" hidden>
+  <section class="wide">
+    <h2>Agents <span class="pill" id="pubpill"></span></h2>
+    <div class="flow">Each agent is its params. They are served on the fleet's agent protocol (<span class="mono">GET /agents</span>, <span class="mono">POST /run/stream</span>), so the build console can mount zkapi and pick any of them.</div>
+    <div id="agentlist" class="agents"></div>
+    <div class="row" style="margin-top:12px">
+      <input id="newid" placeholder="new agent name" size="18"><button onclick="newAgent()">+ new agent</button>
+      <span style="flex:1"></span>
+      <button class="primary" id="pubbtn" onclick="publishAgents()">publish to build</button>
+    </div>
+    <div id="amsg" class="msg"></div>
+    <details style="margin-top:8px"><summary>agent protocol</summary><div class="out mono" id="contract"></div></details>
+  </section>
+</main>
+<main class="tab" id="tab-app">
+  <section class="wide">
+    <h2>How it works</h2>
+    <div class="flow">Deposit ETH into the zkAPI vault once. Each request carries a Groth16 proof that some deposit in the vault can cover it, so the server issues a short-lived, spend-capped API key without learning which deposit paid. After the call, the server signs your new balance. You can withdraw the rest at any time, and you can still get it out even if the server stops cooperating. This module runs the official zkAPI stack (<span class="mono" id="up"></span>): the vault and verifier contracts, <span class="mono">zkapi serverd</span>, the indexer, the challenger and the production wallet core. It runs them on a local devnet, and it checks the live Ethereum deployments against their pinned values.</div>
+  </section>
+
+  <section>
+    <h2>Live deployments</h2>
+    <div id="nets">checking mainnet and Sepolia...</div>
+  </section>
+
+  <section>
+    <h2>Devnet <span id="devpill" class="pill"></span></h2>
+    <div id="devnet" class="kv"></div>
+    <div class="row">
+      <button onclick="act('devnet/price',{})">new price round</button>
+      <button onclick="act('devnet/mine',{blocks:1})">mine block</button>
+      <button onclick="act('devnet/up',{})">start</button>
+      <button onclick="act('devnet/fast_forward',{seconds:86401})">+24h (finish escapes)</button>
+    </div>
+    <div id="devmsg" class="msg"></div>
+  </section>
+
+  <section>
+    <h2>Your wallets</h2>
+    <div class="row">
+      <input id="wname" placeholder="name (optional)" size="14">
+      <select id="wdep">
+        <option value="10000000">deposit 0.01 ETH</option>
+        <option value="1000000">deposit 0.001 ETH</option>
+        <option value="100000000">deposit 0.1 ETH</option>
+      </select>
+      <button class="primary" onclick="createWallet()">create + deposit</button>
+    </div>
+    <div id="wmsg" class="msg"></div>
+    <table><thead><tr><th>wallet</th><th>note</th><th>balance</th><th>requests</th><th></th></tr></thead><tbody id="wallets"></tbody></table>
+  </section>
+
+  <section>
+    <h2>Ask anonymously</h2>
+    <div class="row">
+      <select id="cw"></select>
+      <select id="cm"></select>
+    </div>
+    <textarea id="prompt" placeholder="Say something. Each message is one zero-knowledge-paid request."></textarea>
+    <div class="row"><button class="primary" id="send" onclick="chat()">send</button><span id="cmsg" class="msg"></span></div>
+    <div id="chatlog"></div>
+  </section>
+
+  <section class="wide">
+    <h2>Last result</h2>
+    <div id="out" class="out mono">-</div>
+  </section>
+</main>
+<script>
+const API = '/zkapi/api/';
+const tokens = JSON.parse(localStorage.getItem('zkapi.tokens') || '{}');
+const $ = id => document.getElementById(id);
+const eth = g => (Number(g) / 1e9).toFixed(9) + ' ETH';
+const short = s => s ? String(s).slice(0, 10) + '...' + String(s).slice(-6) : '';
+
+async function call(path, body) {
+  const headers = { 'content-type': 'application/json', accept: 'application/json' };
+  const m = path.match(/^wallets\/([^/]+)\//);
+  if (m && tokens[m[1]]) headers['x-zkapi-wallet-token'] = tokens[m[1]];
+  const r = await fetch(API + path, body === undefined ? { headers } : { method: 'POST', headers, body: JSON.stringify(body) });
+  const v = await r.json().catch(() => ({ error: 'bad response ' + r.status }));
+  if (!r.ok) throw new Error(v.error || ('HTTP ' + r.status));
+  return v;
+}
+function show(v) { $('out').textContent = JSON.stringify(v, null, 2); }
+
+async function act(path, body, msgEl = 'devmsg') {
+  const el = $(msgEl); el.className = 'msg'; el.textContent = 'working...';
+  try { const v = await call(path, body); show(v); el.textContent = 'done'; refresh(); return v; }
+  catch (e) { el.className = 'msg err'; el.textContent = e.message; }
+}
+
+async function loadNets() {
+  const out = [];
+  for (const n of ['mainnet', 'sepolia']) {
+    try {
+      const v = await call('networks/' + n);
+      const s = v.summary;
+      const bad = v.checks.filter(c => !c.ok);
+      out.push(`<div style="margin-bottom:12px"><div class="row"><b>${n}</b>
+        <span class="pill ${v.ok ? 'ok' : 'bad'}">${v.passed}/${v.total} checks</span>
+        <span class="pill">${s.notes} notes</span><span class="pill">${(s.vault_balance_eth || 0).toFixed(4)} ETH locked</span>
+        <span class="pill">ETH $${(s.eth_usd || 0).toFixed(2)}</span></div>
+        <div class="mono" style="color:var(--dim)">vault ${s.vault} · block ${s.block}</div>
+        <details><summary>what was checked</summary><div class="checks">${v.checks.map(c =>
+          `<div class="${c.ok ? 'v' : 'x'}">${c.ok ? 'pass' : 'FAIL'} · ${c.check}</div>`).join('')}</div></details>
+        ${bad.length ? `<div class="msg err">${bad.map(b => b.check).join('; ')}</div>` : ''}</div>`);
+    } catch (e) { out.push(`<div><b>${n}</b> <span class="pill bad">unreachable</span> <span class="msg err">${e.message}</span></div>`); }
+  }
+  $('nets').innerHTML = out.join('');
+}
+
+async function refresh() {
+  try {
+    const info = await call('info');
+    $('ver').textContent = 'v' + info.version + ' · ' + info.circuit_id;
+    $('up').textContent = 'vbuterin/zkapi @ ' + info.upstream_commit.slice(0, 8);
+    const d = await call('devnet');
+    $('devpill').className = 'pill ' + (d.running ? 'ok' : 'bad');
+    $('devpill').textContent = d.running ? 'running' : 'stopped';
+    const c = d.chain || {}, p = d.price || {}, dep = d.deployment || {};
+    $('devnet').innerHTML = d.running ? [
+      ['vault', `<span class="mono">${dep.vault}</span>`], ['block', c.block], ['notes', c.next_note_id],
+      ['locked', (c.vault_balance_eth || 0).toFixed(6) + ' ETH'], ['root', `<span class="mono">${short(c.current_root)}</span>`],
+      ['ETH/USD', `$${(p.usd || 0).toFixed(2)} · round ${p.round_id} · ${p.age_seconds}s old`], ['price source', escapeHtml(p.source || '-')],
+      ['lease provider', d.provider ? `${d.provider.engine} · ${d.provider.active_keys} live keys` : '-'],
+      ['services', Object.entries(d.processes || {}).map(([k, v]) => `${k} ${v.alive ? 'up' : 'down'}`).join(' · ')],
+      ['challenge period', (dep.challenge_period / 3600) + 'h · charge cap ' + dep.request_charge_cap + ' gwei/request'],
+    ].map(([k, v]) => `<div>${k}</div><div>${v}</div>`).join('') : `<div>status</div><div>${d.last_error || 'not running'}</div>`;
+    const ws = await call('wallets');
+    const mine = ws.filter(w => tokens[w.wallet]);
+    $('wallets').innerHTML = mine.map(w => {
+      const n = w.state.note || {};
+      const closed = w.closed ? `<span class="pill warn">${w.closed.mode.replace('_', ' ')}</span>` : '';
+      return `<tr><td><b>${w.wallet}</b> ${closed}</td><td>${n.note_id ?? '-'}</td><td>${n.current_balance !== undefined ? eth(n.current_balance) : '-'}</td>
+        <td>${w.settlements.length}</td><td>
+        <button onclick="act('wallets/${w.wallet}/withdraw',{},'wmsg')" title="cooperative close: server clearance + withdrawal proof">withdraw</button>
+        <button onclick="act('wallets/${w.wallet}/escape',{},'wmsg')" title="exit without the server; 24h challenge window">escape</button>
+        ${w.settlements.length ? `<button onclick="act('wallets/${w.wallet}/escape',{history_index:${w.settlements.length - 1}},'wmsg')" title="try to exit with an older, already-spent balance; the challenger should stop it">cheat</button>` : ''}
+        ${w.pending_request ? `<button onclick="act('wallets/${w.wallet}/recover',{},'wmsg')">recover</button>` : ''}
+        ${n.note_id !== undefined ? `<button onclick="noteView(${n.note_id})">note</button>` : ''}</td></tr>`;
+    }).join('') || '<tr><td colspan="5" class="msg">no wallets yet in this browser</td></tr>';
+    const sel = $('cw'), cur = sel.value;
+    sel.innerHTML = mine.filter(w => !w.closed && w.state.note).map(w => `<option>${w.wallet}</option>`).join('');
+    if (cur) sel.value = cur;
+    const models = await call('v1/models');
+    if (!$('cm').options.length) $('cm').innerHTML = models.data.map(m => `<option>${m.id}</option>`).join('');
+  } catch (e) { $('devmsg').className = 'msg err'; $('devmsg').textContent = e.message; }
+}
+
+async function noteView(id) { try { show(await call('notes/' + id)); } catch (e) { show({ error: e.message }); } }
+
+async function createWallet() {
+  $('wmsg').className = 'msg'; $('wmsg').textContent = 'creating wallet, depositing into the vault...';
+  try {
+    const v = await call('wallets', { name: $('wname').value.trim() || undefined, deposit_gwei: Number($('wdep').value) });
+    tokens[v.wallet] = v.wallet_token; localStorage.setItem('zkapi.tokens', JSON.stringify(tokens));
+    show(v); $('wmsg').textContent = `wallet ${v.wallet}: note ${v.deposit.note_id} deposited (${eth(v.deposit.amount_gwei)})`;
+    $('wname').value = ''; refresh();
+  } catch (e) { $('wmsg').className = 'msg err'; $('wmsg').textContent = e.message; }
+}
+
+async function chat() {
+  const w = $('cw').value, text = $('prompt').value.trim();
+  if (!w) { $('cmsg').textContent = 'create a wallet first'; return; }
+  if (!text) return;
+  $('send').disabled = true; $('cmsg').className = 'msg'; $('cmsg').textContent = 'proving solvency, opening a lease, settling...';
+  try {
+    const v = await call(`wallets/${w}/chat`, { model: $('cm').value, messages: [{ role: 'user', content: text }] });
+    show(v);
+    const reply = v.completion?.choices?.[0]?.message?.content ?? JSON.stringify(v.completion);
+    const s = v.settlement, l = v.lease;
+    $('chatlog').insertAdjacentHTML('afterbegin', `<div class="bubble"><div><b>you</b> ${escapeHtml(text)}</div>
+      <div style="margin-top:6px">${escapeHtml(reply)}</div>
+      <div class="meta">charged ${s.charge_gwei} gwei · balance ${eth(s.balance_gwei)} · bound ${l.solvency_bound_gwei} gwei · nullifier <span class="mono">${short(l.request_nullifier)}</span> · ${v.elapsed_s}s</div></div>`);
+    $('prompt').value = ''; $('cmsg').textContent = ''; refresh();
+  } catch (e) { $('cmsg').className = 'msg err'; $('cmsg').textContent = e.message; }
+  $('send').disabled = false;
+}
+function escapeHtml(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+
+
+// ---- tabs + agents --------------------------------------------------------------------------
+const PKEYS = ['name', 'description', 'brain', 'model', 'max_tokens', 'temperature', 'deposit_gwei', 'icon', 'color', 'prompt'];
+let agentsState = { agents: [], can_edit: false }, current = localStorage.getItem('zkapi.agent') || 'zeke';
+function tab(t) {
+  for (const id of ['app', 'params', 'agents']) $('tab-' + id).hidden = id !== t;
+  document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
+  try { localStorage.setItem('zkapi.tab', t); } catch (e) {}
+  if (t !== 'app') loadAgents();
+}
+function authHeaders() {
+  const h = { 'content-type': 'application/json', accept: 'application/json' };
+  const t = localStorage.getItem('build_jobs_token');
+  if (t) h.authorization = 'Bearer ' + t;
+  return h;
+}
+async function acall(path, body, method) {
+  const r = await fetch(API + path, { method: method || (body === undefined ? 'GET' : 'POST'), headers: authHeaders(),
+    body: body === undefined ? undefined : JSON.stringify(body) });
+  const v = await r.json().catch(() => ({ error: 'bad response ' + r.status }));
+  if (!r.ok || v.error) throw new Error(v.error || ('HTTP ' + r.status));
+  return v;
+}
+async function loadAgents() {
+  try {
+    agentsState = await acall('agents');
+    if (!agentsState.agents.find(a => a.id === current)) current = agentsState.default || 'zeke';
+    $('p-models').innerHTML = (agentsState.models || []).map(m => `<option value="${escapeHtml(m)}">`).join('');
+    renderAgents(); fillParams();
+    $('contract').textContent = JSON.stringify(await acall('.well-known/agent.json'), null, 2);
+    const pub = await acall('agents/published');
+    $('pubpill').className = 'pill ' + (pub.mounted ? 'ok' : 'warn');
+    $('pubpill').textContent = pub.mounted ? 'published in build' : 'not in build yet';
+    $('pubbtn').textContent = pub.mounted ? 'published' : 'publish to build';
+  } catch (e) { $('amsg').className = 'msg err'; $('amsg').textContent = e.message; }
+}
+function renderAgents() {
+  $('agentlist').innerHTML = agentsState.agents.map(a => `<div class="acard ${a.id === current ? 'on' : ''}" onclick="pick('${a.id}')">
+    <div><span class="ic" style="background:${escapeHtml(a.color)}">${escapeHtml(a.icon)}</span><b>${escapeHtml(a.name)}</b>
+    <span class="pill">${escapeHtml(a.brain)}</span> <span class="pill">${escapeHtml(a.model)}</span></div>
+    <div class="d">${escapeHtml(a.description || 'no description')}</div>
+    <div class="row"><button onclick="event.stopPropagation();pick('${a.id}');tab('params')">edit params</button>
+    ${a.shipped ? '' : `<button onclick="event.stopPropagation();delAgent('${a.id}')">delete</button>`}</div></div>`).join('');
+}
+function pick(id) { current = id; try { localStorage.setItem('zkapi.agent', id); } catch (e) {} renderAgents(); fillParams(); }
+function fillParams() {
+  const a = agentsState.agents.find(x => x.id === current); if (!a) return;
+  for (const k of PKEYS) { const el = $('p-' + k); if (el) el.value = a.params[k] ?? ''; }
+  $('pagent').textContent = a.id;
+  $('pedit').className = 'pill ' + (agentsState.can_edit ? 'ok' : 'warn');
+  $('pedit').textContent = agentsState.can_edit ? (agentsState.is_owner ? 'owner · editable' : 'editable') : 'read only';
+  for (const k of PKEYS) { const el = $('p-' + k); if (el) el.disabled = !agentsState.can_edit; }
+  $('psave').disabled = $('preset').disabled = !agentsState.can_edit;
+  $('preset').hidden = !a.shipped;
+}
+async function saveAgent() {
+  const body = {};
+  for (const k of PKEYS) body[k] = $('p-' + k).value;
+  $('pmsg').className = 'msg'; $('pmsg').textContent = 'saving...';
+  try { await acall('agents/' + current, body); $('pmsg').textContent = 'saved'; loadAgents(); }
+  catch (e) { $('pmsg').className = 'msg err'; $('pmsg').textContent = e.message; }
+}
+async function resetAgent() {
+  try { await acall('agents/' + current, { reset: true }); $('pmsg').className = 'msg'; $('pmsg').textContent = 'reset'; loadAgents(); }
+  catch (e) { $('pmsg').className = 'msg err'; $('pmsg').textContent = e.message; }
+}
+async function newAgent() {
+  const name = $('newid').value.trim(); if (!name) { $('amsg').textContent = 'give it a name'; return; }
+  try { const a = await acall('agents', { id: name, name }); $('newid').value = ''; current = a.id; await loadAgents(); tab('params'); }
+  catch (e) { $('amsg').className = 'msg err'; $('amsg').textContent = e.message; }
+}
+async function delAgent(id) {
+  try { await acall('agents/' + id + '/delete', {}); if (current === id) current = 'zeke'; loadAgents(); }
+  catch (e) { $('amsg').className = 'msg err'; $('amsg').textContent = e.message; }
+}
+async function publishAgents() {
+  $('amsg').className = 'msg'; $('amsg').textContent = 'mounting zkapi in the build agent roster...';
+  try { const v = await acall('agents/publish', {}); $('amsg').textContent = v.already ? 'already published' : `published: build sees ${v.probe?.agents ?? '?'} agents`; loadAgents(); }
+  catch (e) { $('amsg').className = 'msg err'; $('amsg').textContent = e.message; }
+}
+async function runAgent() {
+  const query = $('q').value.trim(); if (!query) return;
+  $('qsend').disabled = true; $('qmsg').className = 'msg'; $('qmsg').textContent = 'running...';
+  $('qsteps').innerHTML = ''; $('qanswer').innerHTML = '';
+  try {
+    const r = await fetch(API + 'agents/' + current + '/run/stream', { method: 'POST', headers: authHeaders(), body: JSON.stringify({ query }) });
+    const reader = r.body.getReader(), dec = new TextDecoder(); let buf = '';
+    for (;;) {
+      const { value, done } = await reader.read(); if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let i; while ((i = buf.indexOf('\n\n')) >= 0) {
+        const line = buf.slice(0, i).trim(); buf = buf.slice(i + 2);
+        if (!line.startsWith('data:')) continue;
+        const ev = JSON.parse(line.slice(5));
+        if (ev.type === 'step') { const s = ev.step;
+          if (s.tool !== 'finish') $('qsteps').insertAdjacentHTML('beforeend', `<div><b>${escapeHtml(s.tool)}</b> ${escapeHtml(JSON.stringify(s.params || {})).slice(0, 220)}</div>`); }
+        else if (ev.type === 'done') {
+          const u = ev.usage || {};
+          $('qanswer').innerHTML = `<div class="bubble"><div>${escapeHtml(ev.answer ?? '')}</div><div class="meta">${u.charge_gwei !== undefined ? `charged ${u.charge_gwei} gwei · balance ${eth(u.balance_gwei)} · ${u.elapsed_s}s` : 'done'}</div></div>`;
+          $('qmsg').textContent = '';
+        } else if (ev.type === 'error') { $('qmsg').className = 'msg err'; $('qmsg').textContent = ev.error; }
+      }
+    }
+  } catch (e) { $('qmsg').className = 'msg err'; $('qmsg').textContent = e.message; }
+  $('qsend').disabled = false; refresh();
+}
+tab(localStorage.getItem('zkapi.tab') || 'app');
+refresh(); loadNets(); setInterval(refresh, 8000);
+</script>
+</body>
+</html>

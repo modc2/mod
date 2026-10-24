@@ -1,0 +1,27 @@
+{
+    "name": "factors_halo2",
+    "title": "FactorsHalo2",
+    "description": "FactorsHalo2 \u2014 a Rust project.",
+    "version": "0.1.0",
+    "submod_of": "zkworld",
+    "framework": "halo2",
+    "kind": "halo2-project",
+    "template": "factors",
+    "anchor": "mod.py",
+    "fns": [
+        "forward",
+        "info",
+        "build",
+        "test",
+        "vibe",
+        "abi",
+        "tree",
+        "read",
+        "write",
+        "clean",
+        "app",
+        "witness"
+    ],
+    "statement": "factors",
+    "schema": "QmPBkc4rYZm38RSpqHrQxdJUMebPVswhAQcRL7tzDrNYvv"
+}

@@ -1,0 +1,10 @@
+[package]
+name = "ztensor_prover"
+version = "0.1.0"
+edition = "2024_07"
+
+[dependencies]
+ztensor = { path = "../../networks/starknet/contract" }
+
+[cairo]
+enable-gas = true

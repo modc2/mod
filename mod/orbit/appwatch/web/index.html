@@ -1,0 +1,864 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>APPWATCH</title>
+<link rel="stylesheet" href="kit.css" />
+<style>
+@keyframes aw-pulse{0%,100%{opacity:1}50%{opacity:.35}}
+.aw-live{animation:aw-pulse 2s ease-in-out infinite}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div id="hdr"></div>
+  <div class="grid">
+    <div class="card wide">
+      <h2>Build app <span class="sp"></span><span id="tick" class="faint"></span><span id="live_dot" style="display:none;margin-left:8px;font-size:12px;vertical-align:middle"></span></h2>
+      <div id="stats" class="stats"></div>
+      <div id="down" style="margin-top:12px"></div>
+      <div id="last_log"></div>
+    </div>
+    <div class="card wide" id="probes_card">
+      <h2>Watched URLs</h2>
+      <div style="display:flex;gap:6px;margin-bottom:10px;align-items:center">
+        <input id="probe_url" type="url" placeholder="https://example.com" style="flex:1;background:var(--bg2,#1a1a1a);border:1px solid var(--line2,#333);border-radius:4px;color:inherit;font-family:monospace;font-size:11px;padding:5px 8px;outline:none">
+        <input id="probe_label" type="text" placeholder="label (optional)" style="width:120px;background:var(--bg2,#1a1a1a);border:1px solid var(--line2,#333);border-radius:4px;color:inherit;font-family:monospace;font-size:11px;padding:5px 8px;outline:none">
+        <button class="btn sm" onclick="addProbe()" style="font-size:10px;padding:4px 9px;white-space:nowrap">add</button>
+      </div>
+      <div id="probe_list"></div>
+    </div>
+    <div class="card wide">
+      <h2>Uptime this session <span class="sp"></span><span class="faint" id="upPct"></span></h2>
+      <div id="strip" style="display:flex;gap:2px;height:34px;align-items:stretch"></div>
+      <div id="strip_chips" style="display:flex;gap:4px;margin-top:6px">
+        <button class="strip-chip" data-n="120" onclick="setStripN(120)" style="background:none;border:none;cursor:pointer;font-size:11px;padding:2px 6px;border-radius:3px;color:inherit;font-weight:600">10m</button>
+        <button class="strip-chip" data-n="240" onclick="setStripN(240)" style="background:none;border:none;cursor:pointer;font-size:11px;padding:2px 6px;border-radius:3px;color:inherit;opacity:0.45">20m</button>
+        <button class="strip-chip" data-n="500" onclick="setStripN(500)" style="background:none;border:none;cursor:pointer;font-size:11px;padding:2px 6px;border-radius:3px;color:inherit;opacity:0.45">all</button>
+      </div>
+      <div style="display:flex;gap:4px;margin-top:6px">
+        <button id="embed_chip" class="strip-chip" onclick="toggleEmbed()" style="background:none;border:none;cursor:pointer;font-size:11px;padding:2px 6px;border-radius:3px;color:inherit;opacity:0.45">embed</button>
+        <button id="alerts_chip" class="strip-chip" onclick="toggleAlerts()" style="background:none;border:none;cursor:pointer;font-size:11px;padding:2px 6px;border-radius:3px;color:inherit;opacity:0.45">alerts</button>
+      </div>
+      <div id="embed_panel" style="display:none;margin-top:8px">
+        <img src="/appwatch/badge.svg" alt="appwatch status" style="display:block;margin-bottom:8px;height:20px">
+        <div style="display:flex;gap:6px;align-items:center">
+          <pre class="log" style="flex:1;margin:0;font-size:11px">![appwatch status](/appwatch/badge.svg)</pre>
+          <button class="btn sm" onclick="copyEmbed()" style="font-size:10px;padding:4px 7px;white-space:nowrap">copy</button>
+        </div>
+        <div style="margin-top:8px">
+          <a href="/appwatch/public" target="_blank" class="btn sm" style="font-size:10px;padding:4px 9px;text-decoration:none;display:inline-flex;align-items:center;gap:4px">status page ↗</a>
+        </div>
+      </div>
+      <div id="alerts_panel" style="display:none;margin-top:8px">
+        <div class="faint" style="font-size:12px;margin-bottom:6px">POST to a webhook on down/recovery. Slack and Discord incoming webhooks work out of the box. Custom endpoints need <code>Access-Control-Allow-Origin: *</code>.</div>
+        <div style="display:flex;gap:6px;align-items:center">
+          <input id="webhook_url" type="url" placeholder="https://hooks.slack.com/services/…" style="flex:1;background:var(--bg2,#1a1a1a);border:1px solid var(--line2,#333);border-radius:4px;color:inherit;font-family:monospace;font-size:11px;padding:5px 8px;outline:none">
+          <button class="btn sm" onclick="saveWebhook()" style="font-size:10px;padding:4px 7px;white-space:nowrap">save</button>
+          <button class="btn sm" onclick="testWebhook()" style="font-size:10px;padding:4px 7px;white-space:nowrap">test</button>
+        </div>
+        <div id="webhook_status" style="font-size:11px;margin-top:4px;min-height:14px;color:var(--green)"></div>
+      </div>
+      <div class="faint" style="margin-top:8px;font-size:12px">One bar per check this page saw (newest right). Kept in this browser only.</div>
+    </div>
+    <div class="card wide">
+      <h2>Latency trend <span class="sp"></span><span class="faint" id="latencyWin"></span></h2>
+      <div id="latency_chart"></div>
+      <div class="faint" style="margin-top:8px;font-size:12px">Response latency over time (ms, capped at 500). Red bands = outage periods.</div>
+    </div>
+    <div class="card wide" id="hourly_card">
+      <h2>24h hourly</h2>
+      <div id="hourly_chart"></div>
+      <div class="faint" style="margin-top:8px;font-size:12px">Uptime by hour (UTC, last 24h). Green ≥99.9%, amber ≥99%, red below.</div>
+    </div>
+    <div class="card wide" id="incidents_card"></div>
+    <div class="card wide" id="daily_card">
+      <h2>uptime calendar</h2>
+      <div id="daily_chart"></div>
+      <div class="faint" style="margin-top:8px;font-size:12px">Uptime by calendar day (UTC). Green ≥99.9%, amber ≥99%, red below.</div>
+    </div>
+    <div class="card wide">
+      <h2>How it works</h2>
+      <div class="muted" style="font-size:13px">Build's API checks the console's app port every few seconds. When it goes dark for a couple of ticks, the API starts the app again itself and backs off between attempts. Switch it off with <span class="mono">BUILD_APPWATCH=0</span> on build's API — read-only here on purpose.</div>
+    </div>
+  </div>
+</div>
+<script src="kit.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+const HIST = "appwatch_hist";
+const WEBHOOK_KEY = "appwatch_webhook";
+let hist = [];
+let stripN = 120;
+try { hist = JSON.parse(localStorage.getItem(HIST) || "[]"); } catch {}
+
+let lastUp = null;
+let lastA = null;
+let upSince = null;
+let streakTimer = null;
+let incidentFreeTimer = null;
+let downAt = null;
+let serverIncidents = null;
+
+let probes = {};
+let probeHist = {};
+
+function getWebhook() { return localStorage.getItem(WEBHOOK_KEY) || ""; }
+function fireWebhook(payload) {
+  const url = getWebhook();
+  if (!url) return;
+  fetch(url, { method: 'POST', body: JSON.stringify(payload), headers: { 'Content-Type': 'application/json' } }).catch(() => {});
+}
+
+function computeIncidents(hist, tickSec) {
+  const tolerance = (tickSec || 15) * 2;
+  const incidents = [];
+  let cur = null;
+  for (const h of hist) {
+    if (h.up === false) {
+      if (!cur) {
+        cur = { start: h.t, _last: h.t };
+      } else if (h.t - cur._last > tolerance) {
+        incidents.push({ start: cur.start, end: cur._last, duration: cur._last - cur.start });
+        cur = { start: h.t, _last: h.t };
+      } else {
+        cur._last = h.t;
+      }
+    } else if (cur) {
+      incidents.push({ start: cur.start, end: h.t, duration: h.t - cur.start });
+      cur = null;
+    }
+  }
+  if (cur) incidents.push({ start: cur.start, end: null, duration: Math.floor(Date.now() / 1000) - cur.start });
+  return incidents;
+}
+
+function notifChip() {
+  if (!("Notification" in window)) return "";
+  const on = Notification.permission === "granted";
+  const tip = Notification.permission === "denied" ? "blocked in browser settings" : "click to enable notifications";
+  return ` <span class="pill${on ? "" : " bad"}" style="cursor:pointer" onclick="askNotif()" title="${tip}">🔔 ${on ? "on" : "off"}</span>`;
+}
+
+async function askNotif() {
+  if (!("Notification" in window)) return;
+  await Notification.requestPermission();
+  if (lastA) render(lastA);
+}
+
+const SND_KEY = "appwatch_sound";
+function soundOn() { return localStorage.getItem(SND_KEY) === "true"; }
+function soundChip() {
+  const on = soundOn();
+  return ` <span class="pill${on ? "" : " bad"}" style="cursor:pointer" onclick="toggleSound()" title="click to toggle audio alerts">snd: ${on ? "on" : "off"}</span>`;
+}
+function toggleSound() { localStorage.setItem(SND_KEY, soundOn() ? "false" : "true"); if (lastA) render(lastA); }
+function _playTone(ctx, freq, type, dur, t0) {
+  const osc = ctx.createOscillator(), g = ctx.createGain();
+  osc.connect(g); g.connect(ctx.destination);
+  osc.type = type; osc.frequency.value = freq;
+  g.gain.setValueAtTime(0.15, t0); g.gain.linearRampToValueAtTime(0, t0 + dur);
+  osc.start(t0); osc.stop(t0 + dur);
+}
+function playAlert(down) {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const now = ctx.currentTime;
+    if (down) { _playTone(ctx, 440, "sawtooth", 0.12, now); _playTone(ctx, 280, "sawtooth", 0.12, now + 0.13); }
+    else       { _playTone(ctx, 330, "sine",     0.10, now); _playTone(ctx, 660, "sine",     0.10, now + 0.11); }
+  } catch {}
+}
+
+function updateTabStatus(up, unknown) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 32; canvas.height = 32;
+  const ctx = canvas.getContext("2d");
+  ctx.beginPath();
+  ctx.arc(16, 16, 14, 0, Math.PI * 2);
+  ctx.fillStyle = unknown ? "#888" : (up ? "#5ee08a" : "#dc3c3c");
+  ctx.fill();
+  const last_ms = hist.filter(h => h.ms != null).at(-1)?.ms;
+  if (up && last_ms != null) {
+    ctx.fillStyle = "#fff";
+    ctx.font = "bold 9px monospace";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(last_ms > 999 ? "999+" : last_ms + "ms", 16, 16);
+  }
+  let link = document.querySelector("link[rel=icon]") || Object.assign(document.createElement("link"), {rel: "icon"});
+  link.href = canvas.toDataURL("image/png");
+  document.head.appendChild(link);
+  if (up) document.title = "✓ Appwatch · " + (last_ms != null ? last_ms + "ms" : "up");
+  else if (unknown) document.title = "Appwatch · checking";
+  else document.title = "✗ Appwatch · DOWN";
+}
+
+function setStripN(n) { stripN = n; renderStrip(); renderLatency(); }
+function renderStrip() {
+  const win = hist.slice(-stripN);
+  const pct = win.length ? Math.round((win.filter((h) => h.up).length / win.length) * 100) : null;
+  $("upPct").textContent = pct == null ? "" : `${pct}% of ${win.length} checks`;
+  $("strip").innerHTML = win.map((h) => {
+    let bg;
+    if (h.up === false) bg = "var(--red)";
+    else if (h.up == null) bg = "var(--line2)";
+    else if (h.ms == null || h.ms < 150) bg = "var(--green)";
+    else if (h.ms < 500) bg = "#b8e896";
+    else bg = "#e8c45e";
+    const tip = `${new Date(h.t * 1000).toLocaleTimeString()} ${h.up ? "up" : "down"}${h.ms != null ? " · " + h.ms + "ms" : ""}`;
+    return `<i title="${tip}" style="flex:1;border-radius:2px;background:${bg};opacity:${h.up ? .75 : 1}"></i>`;
+  }).join("");
+  document.querySelectorAll(".strip-chip").forEach(el => {
+    const active = Number(el.dataset.n) === stripN;
+    el.style.opacity = active ? "1" : "0.45";
+    el.style.fontWeight = active ? "600" : "400";
+  });
+}
+
+function render(A) {
+  lastA = A;
+  const up = A.up === true, unknown = A.up == null;
+  updateTabStatus(up, unknown);
+  K.setState(K.pill(A.enabled, "on", "off") + " " + (unknown ? `<span class="pill">checking</span>` : K.pill(up, "app up", "app down", up ? "" : "bad")) + notifChip() + soundChip());
+  $("tick").textContent = `:${A.port} · every ${K.dur(A.tick_seconds)} · last check ${K.ago(A.last_check)}`;
+  const incidents = computeIncidents(hist, A.tick_seconds);
+  const si = serverIncidents;
+  const incidentCount = si ? si.total_incidents : incidents.length;
+  const totalDown = si ? si.total_down_s : incidents.reduce((s, i) => s + i.duration, 0);
+  const mttr = si ? si.mttr_s : (() => {
+    const resolved = incidents.filter(i => i.end !== null);
+    return resolved.length ? Math.round(resolved.reduce((s, i) => s + i.duration, 0) / resolved.length) : null;
+  })();
+  const p95 = si ? si.p95_ms : (() => {
+    const msVals = hist.filter(h => h.ms != null).map(h => h.ms).sort((a, b) => a - b);
+    return msVals.length >= 20 ? msVals[Math.floor(msVals.length * 0.95)] : null;
+  })();
+  $("stats").innerHTML = [["misses", A.misses], ["restarts tried", A.starts], ["recovered", A.recovered], ["attempts", A.attempts ?? "—"]]
+    .map(([k, v]) => `<div class="stat"><b>${v ?? 0}</b><span>${k}</span></div>`).join("")
+    + `<div class="stat"><b id="streak">—</b><span id="streak_lbl">uptime</span></div>`
+    + `<div class="stat"><b>${incidentCount}</b><span>incidents</span></div>`
+    + `<div class="stat"><b>${totalDown ? K.dur(totalDown) : "—"}</b><span>total down</span></div>`
+    + `<div class="stat"><b>${mttr !== null ? K.dur(mttr) : "—"}</b><span>avg recovery</span></div>`
+    + `<div class="stat"><b>${p95 !== null ? p95 + "ms" : "—"}</b><span>p95 latency</span></div>`
+    + `<div class="stat"><b id="incident_free">—</b><span>incident-free</span></div>`;
+  const incCard = $("incidents_card");
+  if (incCard) {
+    const useServer = si && Array.isArray(si.incidents);
+    const incList = useServer ? si.incidents : incidents;
+    let ih = `<h2>Incidents ${useServer ? "(all time)" : "this session"}</h2>`;
+    if (!incList.length) {
+      ih += `<div class="empty">no outages recorded</div>`;
+    } else {
+      ih += `<div class="rows">` +
+        [...incList].reverse().map(inc => {
+          const durSec = useServer ? inc.duration_s : inc.duration;
+          const ongoing = inc.end === null;
+          return `<div class="row"><div class="inline" style="gap:8px">` +
+            `<span class="pill${ongoing ? " bad" : ""}">${ongoing ? "ongoing" : "resolved"}</span>` +
+            `<span class="muted" style="font-size:12px">${new Date(inc.start * 1000).toLocaleString()}</span>` +
+            `<span class="muted" style="font-size:12px">${K.dur(durSec)}</span>` +
+            (ongoing ? "" : `<span class="muted" style="font-size:12px">recovered ${K.ago(inc.end)}</span>`) +
+            `</div></div>`;
+        }).join("") +
+        `</div>`;
+    }
+    incCard.innerHTML = ih;
+  }
+  if (incidentFreeTimer) { clearInterval(incidentFreeTimer); incidentFreeTimer = null; }
+  if (streakTimer) { clearInterval(streakTimer); streakTimer = null; }
+  if (A.up === true) {
+    if (A.last_start?.at && A.last_start?.ok === true) {
+      upSince = A.last_start.at;
+    } else if (hist.length) {
+      upSince = hist[0].t;
+    } else {
+      upSince = Math.floor(Date.now() / 1000);
+    }
+    const tick = () => { const el = $("streak"); if (el) el.textContent = K.dur(Math.floor(Date.now() / 1000) - upSince); };
+    tick();
+    streakTimer = setInterval(tick, 1000);
+    const lbl = $("streak_lbl"); if (lbl) { lbl.textContent = "uptime"; lbl.style.color = ""; }
+  } else {
+    if (A.down_since) {
+      upSince = A.down_since;
+      const tick = () => { const el = $("streak"); if (el) el.textContent = K.dur(Math.floor(Date.now() / 1000) - upSince); };
+      tick();
+      streakTimer = setInterval(tick, 1000);
+      const lbl = $("streak_lbl"); if (lbl) { lbl.textContent = "outage"; lbl.style.color = "var(--red)"; }
+    } else {
+      upSince = null;
+      const lbl = $("streak_lbl"); if (lbl) { lbl.textContent = "uptime"; lbl.style.color = ""; }
+    }
+  }
+  const ife = si && si.last_incident_end && !A.down_since;
+  if (ife) {
+    const tickFree = () => { const el = $("incident_free"); if (el) el.textContent = K.dur(Math.floor(Date.now() / 1000) - si.last_incident_end); };
+    tickFree();
+    incidentFreeTimer = setInterval(tickFree, 1000);
+  }
+  $("down").innerHTML = A.down_since
+    ? `<div class="notice bad">dark since ${K.ago(A.down_since)}${A.in_progress ? " · restart in progress" : ""}${A.next_attempt ? ` · next attempt ${K.ago(A.next_attempt)}` : ""}</div>`
+    : `<div class="inline"><span class="muted">${A.last_start ? `last restart ${K.ago(A.last_start.at)}` : "never needed a restart this run"}</span><span class="sp" style="flex:1"></span><a class="btn sm" style="padding:6px 9px;font-size:10px" href="${K.BUILD_APP}">open build ↗</a></div>`;
+  const hist_rows = A.history && A.history.length ? A.history : (A.last_start ? [A.last_start] : []);
+  if (hist_rows.length) {
+    $("last_log").innerHTML = `<div class="rows" style="margin-top:12px;max-height:340px;overflow:auto">` +
+      hist_rows.slice().reverse().map((e, i) => {
+        const id = "hl" + i;
+        return `<div class="row" style="flex-direction:column;align-items:stretch;gap:0;cursor:${e.output ? "pointer" : "default"}" onclick="var el=document.getElementById('${id}');if(el)el.style.display=el.style.display==='none'?'':'none'">` +
+          `<div class="inline" style="gap:8px">` +
+          `<span class="muted" style="font-size:12px">${K.ago(e.at)}</span>` +
+          K.pill(e.ok, "✓", "✗", e.ok ? "" : "bad") +
+          `<span class="muted" style="font-size:12px">attempt ${e.attempt ?? "—"}</span>` +
+          `</div>` +
+          (e.output ? `<pre class="log" id="${id}" style="display:none">${K.esc(e.output)}</pre>` : "") +
+          `</div>`;
+      }).join("") +
+      `</div>`;
+  } else {
+    $("last_log").innerHTML = `<div class="muted" style="font-size:12px;margin-top:10px">no restarts yet</div>`;
+  }
+  renderStrip();
+  renderLatency();
+}
+
+function renderLatency() {
+  const el = $("latency_chart");
+  if (!el) return;
+  const W = 600, H = 110, PT = 8, PR = 52, PB = 18, PL = 6;
+  const cw = W - PL - PR, ch = H - PT - PB;
+  const ns = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(ns, "svg");
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.setAttribute("width", "100%");
+  svg.style.display = "block";
+  const win = hist.slice(-stripN);
+  const windowStart = win.length ? win[0].t : 0;
+  const winLabel = $("latencyWin");
+  if (winLabel) winLabel.textContent = stripN === 120 ? "last 10m" : stripN === 240 ? "last 20m" : "all";
+  const pts = hist.filter(h => h.ms != null && h.t >= windowStart);
+  if (pts.length < 2) {
+    const msg = document.createElementNS(ns, "text");
+    msg.setAttribute("x", W / 2); msg.setAttribute("y", H / 2 + 4);
+    msg.setAttribute("text-anchor", "middle"); msg.setAttribute("font-size", "11");
+    msg.setAttribute("fill", "#888");
+    msg.textContent = "waiting for latency data…";
+    svg.appendChild(msg);
+    el.innerHTML = ""; el.appendChild(svg);
+    return;
+  }
+  const tMin = pts[0].t, tMax = pts[pts.length - 1].t;
+  const tRange = Math.max(tMax - tMin, 1);
+  const xOf = t => PL + ((t - tMin) / tRange) * cw;
+  const yOf = ms => PT + (1 - Math.min(ms, 500) / 500) * ch;
+  for (const h of hist) {
+    if (h.up === false && h.t >= windowStart && h.t >= tMin && h.t <= tMax) {
+      const bx = xOf(h.t), bw = Math.max(2, cw / 300);
+      const band = document.createElementNS(ns, "rect");
+      band.setAttribute("x", (bx - bw / 2).toFixed(1)); band.setAttribute("y", PT);
+      band.setAttribute("width", bw.toFixed(1)); band.setAttribute("height", ch);
+      band.setAttribute("fill", "rgba(220,60,60,0.28)");
+      svg.appendChild(band);
+    }
+  }
+  let d = "";
+  for (let i = 0; i < pts.length; i++) {
+    const x = xOf(pts[i].t).toFixed(1), y = yOf(pts[i].ms).toFixed(1);
+    d += i === 0 ? `M${x},${y}` : ` L${x},${y}`;
+  }
+  const xN = (PL + cw).toFixed(1), xF = String(PL), yB = PT + ch;
+  const area = document.createElementNS(ns, "path");
+  area.setAttribute("d", `${d} L${xN},${yB} L${xF},${yB} Z`);
+  area.setAttribute("fill", "rgba(94,224,138,0.20)");
+  area.setAttribute("stroke", "none");
+  svg.appendChild(area);
+  const line = document.createElementNS(ns, "path");
+  line.setAttribute("d", d);
+  line.setAttribute("fill", "none");
+  line.setAttribute("stroke", "#5ee08a");
+  line.setAttribute("stroke-width", "1.5");
+  line.setAttribute("stroke-linejoin", "round");
+  svg.appendChild(line);
+  const sma = pts.map((p, i) => {
+    const window = pts.slice(Math.max(0, i - 4), i + 1);
+    return { ...p, ms: Math.round(window.reduce((s, q) => s + q.ms, 0) / window.length) };
+  });
+  let ds = "";
+  for (let i = 0; i < sma.length; i++) {
+    const x = xOf(sma[i].t).toFixed(1), y = yOf(sma[i].ms).toFixed(1);
+    ds += i === 0 ? `M${x},${y}` : ` L${x},${y}`;
+  }
+  const smaLine = document.createElementNS(ns, "path");
+  smaLine.setAttribute("d", ds);
+  smaLine.setAttribute("fill", "none");
+  smaLine.setAttribute("stroke", "#e8c45e");
+  smaLine.setAttribute("stroke-width", "1");
+  smaLine.setAttribute("stroke-linejoin", "round");
+  smaLine.setAttribute("opacity", "0.7");
+  svg.appendChild(smaLine);
+  const last = pts[pts.length - 1];
+  const lx = xOf(last.t), ly = yOf(last.ms);
+  const dot = document.createElementNS(ns, "circle");
+  dot.setAttribute("cx", lx.toFixed(1)); dot.setAttribute("cy", ly.toFixed(1));
+  dot.setAttribute("r", "3"); dot.setAttribute("fill", "#5ee08a");
+  svg.appendChild(dot);
+  const lbl = document.createElementNS(ns, "text");
+  lbl.setAttribute("x", (lx - 6).toFixed(1));
+  lbl.setAttribute("y", Math.min(PT + ch - 2, Math.max(PT + 10, ly + 4)).toFixed(1));
+  lbl.setAttribute("fill", "#5ee08a"); lbl.setAttribute("font-size", "11");
+  lbl.setAttribute("font-family", "monospace"); lbl.setAttribute("text-anchor", "end");
+  lbl.textContent = last.ms + "ms";
+  svg.appendChild(lbl);
+  for (const [ms, txt] of [[500, "500ms"], [0, "0"]]) {
+    const tl = document.createElementNS(ns, "text");
+    tl.setAttribute("x", W - PR + 4);
+    tl.setAttribute("y", (yOf(ms) + (ms === 0 ? -2 : 4)).toFixed(1));
+    tl.setAttribute("fill", "#888"); tl.setAttribute("font-size", "9");
+    tl.textContent = txt;
+    svg.appendChild(tl);
+  }
+  const xhair = document.createElementNS(ns, "line");
+  xhair.setAttribute("x1", "0"); xhair.setAttribute("y1", PT);
+  xhair.setAttribute("x2", "0"); xhair.setAttribute("y2", PT + ch);
+  xhair.setAttribute("stroke", "var(--line2)");
+  xhair.setAttribute("stroke-width", "1");
+  xhair.setAttribute("stroke-dasharray", "3,3");
+  xhair.style.display = "none";
+  svg.appendChild(xhair);
+  const xdot = document.createElementNS(ns, "circle");
+  xdot.setAttribute("r", "4");
+  xdot.setAttribute("fill", "var(--accent)");
+  xdot.style.display = "none";
+  svg.appendChild(xdot);
+  const xtip = document.createElementNS(ns, "text");
+  xtip.setAttribute("font-size", "11");
+  xtip.setAttribute("font-family", "monospace");
+  xtip.setAttribute("fill", "var(--green)");
+  xtip.setAttribute("text-anchor", "end");
+  xtip.style.display = "none";
+  svg.appendChild(xtip);
+  for (let i = 0; i < 4; i++) {
+    const t = tMin + tRange * (i / 3);
+    const tx = xOf(t);
+    const tickLine = document.createElementNS(ns, "line");
+    tickLine.setAttribute("x1", tx.toFixed(1)); tickLine.setAttribute("x2", tx.toFixed(1));
+    tickLine.setAttribute("y1", PT); tickLine.setAttribute("y2", PT + ch);
+    tickLine.setAttribute("stroke", "#888"); tickLine.setAttribute("stroke-width", "1");
+    tickLine.setAttribute("stroke-dasharray", "2,3"); tickLine.setAttribute("opacity", "0.18");
+    svg.appendChild(tickLine);
+    const lx = i === 0 ? Math.max(tx, PL) : (i === 3 ? Math.min(tx, PL + cw) : tx);
+    const tlbl = document.createElementNS(ns, "text");
+    tlbl.setAttribute("x", lx.toFixed(1));
+    tlbl.setAttribute("y", PT + ch + PB - 3);
+    tlbl.setAttribute("text-anchor", "middle");
+    tlbl.setAttribute("font-size", "9");
+    tlbl.setAttribute("fill", "#888");
+    tlbl.textContent = new Date(t * 1000).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+    svg.appendChild(tlbl);
+  }
+  const overlay = document.createElementNS(ns, "rect");
+  overlay.setAttribute("x", PL); overlay.setAttribute("y", PT);
+  overlay.setAttribute("width", cw); overlay.setAttribute("height", ch);
+  overlay.setAttribute("fill", "none");
+  overlay.setAttribute("pointer-events", "all");
+  overlay.addEventListener("mousemove", (e) => {
+    const rect = svg.getBoundingClientRect();
+    const scale = W / rect.width;
+    const cursorX = (e.clientX - rect.left) * scale;
+    let nearest = pts[0], minDist = Infinity;
+    for (const pt of pts) {
+      const dist = Math.abs(xOf(pt.t) - cursorX);
+      if (dist < minDist) { minDist = dist; nearest = pt; }
+    }
+    const nx = xOf(nearest.t), ny = yOf(nearest.ms);
+    xhair.setAttribute("x1", nx.toFixed(1)); xhair.setAttribute("x2", nx.toFixed(1));
+    xdot.setAttribute("cx", nx.toFixed(1)); xdot.setAttribute("cy", ny.toFixed(1));
+    xtip.textContent = `${new Date(nearest.t * 1000).toLocaleTimeString()} · ${nearest.ms}ms`;
+    xtip.setAttribute("x", Math.min(nx, PL + cw - 2).toFixed(1));
+    xtip.setAttribute("y", Math.max(PT + 10, ny - 6).toFixed(1));
+    xhair.style.display = ""; xdot.style.display = ""; xtip.style.display = "";
+  });
+  overlay.addEventListener("mouseleave", () => {
+    xhair.style.display = "none"; xdot.style.display = "none"; xtip.style.display = "none";
+  });
+  svg.appendChild(overlay);
+  el.innerHTML = ""; el.appendChild(svg);
+}
+
+function renderCalendar(days) {
+  const el = $("daily_chart");
+  if (!el) return;
+  const card = $("daily_card");
+  if (card) { const h2 = card.querySelector("h2"); if (h2) h2.textContent = `uptime calendar · ${days.length}d`; }
+  if (!days.length) {
+    el.innerHTML = '<div class="faint" style="font-size:12px;padding:8px 0">no data yet…</div>';
+    return;
+  }
+  const byDate = {};
+  for (const d of days) byDate[d.key] = d;
+  const MS = 86400000, CELL = 12, GAP = 2;
+  const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const firstDate = new Date(days[0].key + "T00:00:00Z");
+  const lastDate = new Date(days[days.length - 1].key + "T00:00:00Z");
+  const startDow = (firstDate.getUTCDay() + 6) % 7;
+  const gridStart = new Date(firstDate.getTime() - startDow * MS);
+  const endDow = (lastDate.getUTCDay() + 6) % 7;
+  const gridEnd = new Date(lastDate.getTime() + (6 - endDow) * MS);
+  const nDays = Math.round((gridEnd - gridStart) / MS) + 1;
+  const wrap = document.createElement("div");
+  wrap.style.cssText = "position:relative;overflow:visible;padding-top:14px";
+  const tooltip = document.createElement("div");
+  tooltip.style.cssText = "position:absolute;background:rgba(30,30,30,0.92);color:#eee;font-size:11px;font-family:monospace;padding:4px 8px;border-radius:4px;pointer-events:none;display:none;white-space:nowrap;z-index:10";
+  const grid = document.createElement("div");
+  grid.style.cssText = `display:grid;grid-template-rows:repeat(7,${CELL}px);grid-auto-flow:column;grid-auto-columns:${CELL}px;gap:${GAP}px`;
+  for (let i = 0; i < nDays; i++) {
+    const d = new Date(gridStart.getTime() + i * MS);
+    const key = d.toISOString().slice(0, 10);
+    const data = byDate[key];
+    const cell = document.createElement("div");
+    cell.style.cssText = `width:${CELL}px;height:${CELL}px;border-radius:2px;cursor:default`;
+    if (!data) cell.style.background = "#2a2a2a";
+    else if (data.uptime_pct >= 99.9) cell.style.background = "#5ee08a";
+    else if (data.uptime_pct >= 99) cell.style.background = "#e8c45e";
+    else cell.style.background = "#dc3c3c";
+    if (data) {
+      const tipText = `${data.date}: ${data.uptime_pct}%  avg ${data.avg_ms != null ? data.avg_ms + "ms" : "—"}  p95 ${data.p95_ms != null ? data.p95_ms + "ms" : "—"}`;
+      cell.addEventListener("mouseover", () => { tooltip.textContent = tipText; tooltip.style.display = ""; });
+      cell.addEventListener("mousemove", (e) => {
+        const rect = wrap.getBoundingClientRect();
+        tooltip.style.left = (e.clientX - rect.left + 10) + "px";
+        tooltip.style.top = (e.clientY - rect.top - 28) + "px";
+      });
+      cell.addEventListener("mouseleave", () => { tooltip.style.display = "none"; });
+    }
+    grid.appendChild(cell);
+  }
+  for (let i = 0; i < nDays; i++) {
+    const d = new Date(gridStart.getTime() + i * MS);
+    if (d.getUTCDate() === 1) {
+      const col = Math.floor(i / 7);
+      const x = col * (CELL + GAP);
+      const lbl = document.createElement("span");
+      lbl.textContent = MONTHS[d.getUTCMonth()];
+      lbl.style.cssText = `position:absolute;left:${x}px;top:0;font-size:9px;font-family:monospace;color:#888;white-space:nowrap`;
+      wrap.appendChild(lbl);
+    }
+  }
+  wrap.appendChild(grid);
+  wrap.appendChild(tooltip);
+  el.innerHTML = "";
+  el.appendChild(wrap);
+}
+
+async function loadDaily() {
+  try {
+    const r = await K.api("/appwatch/daily");
+    if (r.ok && Array.isArray(r.data)) renderCalendar(r.data);
+  } catch {}
+}
+
+function renderHourly(hours) {
+  const el = $("hourly_chart");
+  if (!el) return;
+  if (!hours || hours.length < 2) {
+    el.innerHTML = '<div class="faint" style="font-size:12px;padding:8px 0">waiting for multi-hour data…</div>';
+    return;
+  }
+  const tooltip = document.createElement("div");
+  tooltip.style.cssText = "position:absolute;background:rgba(30,30,30,0.92);color:#eee;font-size:11px;font-family:monospace;padding:4px 8px;border-radius:4px;pointer-events:none;display:none;white-space:nowrap;z-index:10";
+  const wrap = document.createElement("div");
+  wrap.style.cssText = "position:relative;overflow:visible";
+  const row = document.createElement("div");
+  row.style.cssText = "display:flex;gap:2px;height:40px";
+  for (const h of hours) {
+    let bg;
+    if (h.uptime_pct >= 99.9) bg = "#5ee08a";
+    else if (h.uptime_pct >= 99) bg = "#e8c45e";
+    else bg = "#dc3c3c";
+    const cell = document.createElement("div");
+    cell.style.cssText = `flex:1;border-radius:2px;background:${bg};display:flex;align-items:center;justify-content:center;cursor:default`;
+    const lbl = document.createElement("span");
+    lbl.style.cssText = "color:#fff;font-size:9px;font-family:monospace;opacity:0.85;pointer-events:none";
+    lbl.textContent = h.label.slice(0, 2) + "h";
+    cell.appendChild(lbl);
+    const tipText = `${h.uptime_pct}%  avg ${h.avg_ms != null ? h.avg_ms + "ms" : "—"}  ${h.total} checks`;
+    cell.addEventListener("mouseover", () => { tooltip.textContent = tipText; tooltip.style.display = ""; });
+    cell.addEventListener("mousemove", (e) => {
+      const rect = wrap.getBoundingClientRect();
+      tooltip.style.left = (e.clientX - rect.left + 10) + "px";
+      tooltip.style.top = (e.clientY - rect.top - 28) + "px";
+    });
+    cell.addEventListener("mouseleave", () => { tooltip.style.display = "none"; });
+    row.appendChild(cell);
+  }
+  wrap.appendChild(row);
+  wrap.appendChild(tooltip);
+  el.innerHTML = "";
+  el.appendChild(wrap);
+}
+
+async function loadHourly() {
+  try {
+    const r = await K.api("/appwatch/hourly");
+    if (r.ok && Array.isArray(r.data)) renderHourly(r.data);
+  } catch {}
+}
+
+async function loadIncidents() {
+  try {
+    const r = await K.api("/appwatch/incidents");
+    if (r.ok && r.data && Array.isArray(r.data.incidents)) {
+      serverIncidents = r.data;
+      if (lastA) render(lastA);
+    }
+  } catch {}
+}
+
+async function load() {
+  const t0 = performance.now();
+  const r = await K.api("/appwatch/status");
+  const ms = Math.round(performance.now() - t0);
+  if (!r.ok) { K.setState(`<span class="pill bad">build unreachable</span>`); return; }
+  const A = r.data;
+  if (!hist.length || hist[hist.length - 1].c !== A.last_check) {
+    hist.push({ t: Math.floor(Date.now() / 1000), c: A.last_check, up: A.up, ms: A.up ? ms : null });
+    hist = hist.slice(-500);
+    try { localStorage.setItem(HIST, JSON.stringify(hist)); } catch {}
+  }
+  if (lastUp !== null && "Notification" in window && Notification.permission === "granted") {
+    if (lastUp === true && A.up === false) {
+      new Notification("⚠ Build app went dark", { body: "Port :" + A.port + " is down — restart in progress", icon: "/appwatch/favicon.ico" });
+    } else if (lastUp === false && A.up === true) {
+      new Notification("✓ Build app recovered", { body: "Port :" + A.port + " is back up", icon: "/appwatch/favicon.ico" });
+    }
+  }
+  if (lastUp !== null && soundOn()) {
+    if (lastUp === true && A.up === false) playAlert(true);
+    else if (lastUp === false && A.up === true) playAlert(false);
+  }
+  if (lastUp !== null) {
+    if (lastUp === true && A.up === false) {
+      downAt = Math.floor(Date.now() / 1000);
+      fireWebhook({ event: 'down', port: A.port, at: Date.now(), misses: A.misses, duration_s: 0 });
+    } else if (lastUp === false && A.up === true) {
+      fireWebhook({ event: 'up', port: A.port, at: Date.now(), misses: A.misses, duration_s: downAt !== null ? Math.floor(Date.now() / 1000) - downAt : null });
+      downAt = null;
+    }
+  }
+  lastUp = A.up;
+  render(A);
+}
+
+function toggleEmbed() {
+  const panel = document.getElementById('embed_panel');
+  const chip = document.getElementById('embed_chip');
+  const shown = panel.style.display !== 'none';
+  panel.style.display = shown ? 'none' : '';
+  chip.style.opacity = shown ? '0.45' : '1';
+  chip.style.fontWeight = shown ? '400' : '600';
+}
+function copyEmbed() {
+  navigator.clipboard.writeText('![appwatch status](/appwatch/badge.svg)').catch(() => {});
+}
+
+function toggleAlerts() {
+  const panel = document.getElementById('alerts_panel');
+  const chip = document.getElementById('alerts_chip');
+  const shown = panel.style.display !== 'none';
+  panel.style.display = shown ? 'none' : '';
+  chip.style.opacity = shown ? '0.45' : '1';
+  chip.style.fontWeight = shown ? '400' : '600';
+}
+function saveWebhook() {
+  const v = (document.getElementById('webhook_url').value || '').trim();
+  localStorage.setItem(WEBHOOK_KEY, v);
+  const st = $('webhook_status');
+  if (st) { st.textContent = 'saved'; setTimeout(() => { st.textContent = ''; }, 1500); }
+}
+function testWebhook() {
+  const urlEl = document.getElementById('webhook_url');
+  const url = (urlEl ? urlEl.value : '').trim() || getWebhook();
+  const st = $('webhook_status');
+  if (!url) { if (st) { st.textContent = 'enter a URL first'; setTimeout(() => { st.textContent = ''; }, 2000); } return; }
+  fetch(url, { method: 'POST', body: JSON.stringify({ event: 'test', at: Date.now() }), headers: { 'Content-Type': 'application/json' } })
+    .then(r => { if (st) { st.textContent = r.ok ? 'sent' : 'sent (HTTP ' + r.status + ')'; setTimeout(() => { st.textContent = ''; }, 2000); } })
+    .catch(err => { if (st) { st.textContent = 'error: ' + err.message; setTimeout(() => { st.textContent = ''; }, 3000); } });
+}
+
+function renderProbeStrip(entries) {
+  const win = (entries || []).slice(-40);
+  return win.map(h => {
+    let bg;
+    if (h.up === false) bg = "var(--red)";
+    else if (h.up == null) bg = "var(--line2)";
+    else if (h.ms == null || h.ms < 150) bg = "var(--green)";
+    else if (h.ms < 500) bg = "#b8e896";
+    else bg = "#e8c45e";
+    const tip = `${new Date(h.t * 1000).toLocaleTimeString()} ${h.up ? "up" : "down"}${h.ms != null ? " · " + h.ms + "ms" : ""}`;
+    return `<i title="${tip}" style="display:inline-block;width:6px;border-radius:2px;background:${bg};opacity:${h.up ? .75 : 1}"></i>`;
+  }).join("");
+}
+
+function renderProbeRow(p, entries) {
+  const last = entries && entries.length ? entries[entries.length - 1] : null;
+  const up = last ? last.up : null;
+  const ms = last ? last.ms : null;
+  let pill;
+  if (up === true) pill = `<span class="pill" style="background:var(--green,#5ee08a);color:#000">up${ms != null ? " · " + ms + "ms" : ""}</span>`;
+  else if (up === false) pill = `<span class="pill bad">down</span>`;
+  else pill = `<span class="pill">checking</span>`;
+  const displayLabel = K.esc(p.label && p.label !== p.url ? p.label : p.url);
+  return `<div class="row" id="probe_row_${p.id}" style="align-items:center;gap:8px">` +
+    `<div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0">` +
+    pill +
+    `<span style="font-size:12px;font-family:monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex-shrink:0;max-width:220px" title="${K.esc(p.url)}">${displayLabel}</span>` +
+    `<div style="display:flex;gap:1px;height:20px;align-items:stretch;flex:1">${renderProbeStrip(entries)}</div>` +
+    `</div>` +
+    `<button class="btn sm" onclick="removeProbe('${p.id}')" style="font-size:10px;padding:2px 7px;flex-shrink:0">×</button>` +
+    `</div>`;
+}
+
+function renderProbes() {
+  const el = $("probe_list");
+  if (!el) return;
+  const ids = Object.keys(probes);
+  if (!ids.length) {
+    el.innerHTML = '<div class="faint" style="font-size:12px">No URLs watched yet.</div>';
+    return;
+  }
+  el.innerHTML = '<div class="rows">' + ids.map(id => renderProbeRow(probes[id], probeHist[id] || [])).join("") + '</div>';
+}
+
+async function loadProbes() {
+  try {
+    const r = await K.api("/appwatch/probes");
+    if (r.ok && Array.isArray(r.data)) {
+      for (const p of r.data) {
+        probes[p.id] = p;
+        if (!probeHist[p.id]) probeHist[p.id] = [];
+        if (p.last && !probeHist[p.id].length) probeHist[p.id].push(p.last);
+      }
+      renderProbes();
+    }
+  } catch {}
+}
+
+async function addProbe() {
+  const urlEl = $("probe_url"), labelEl = $("probe_label");
+  const url = (urlEl ? urlEl.value : "").trim();
+  if (!url) return;
+  const label = (labelEl ? labelEl.value : "").trim();
+  try {
+    const resp = await fetch("/appwatch/probes", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({url, label})
+    });
+    if (resp.ok) {
+      const p = await resp.json();
+      probes[p.id] = p;
+      probeHist[p.id] = [];
+      if (urlEl) urlEl.value = "";
+      if (labelEl) labelEl.value = "";
+      renderProbes();
+    }
+  } catch {}
+}
+
+async function removeProbe(id) {
+  try { await fetch("/appwatch/probes/" + id, {method: "DELETE"}); } catch {}
+  delete probes[id];
+  delete probeHist[id];
+  renderProbes();
+}
+
+function startSSE() {
+  const dot = $('live_dot');
+  const es = new EventSource('/appwatch/stream');
+  es.onmessage = function(e) {
+    try {
+      const data = JSON.parse(e.data);
+      if (data.entry) {
+        const en = data.entry;
+        if (!hist.length || hist[hist.length - 1].c !== en.c) {
+          hist.push(en);
+          hist = hist.slice(-500);
+          try { localStorage.setItem(HIST, JSON.stringify(hist)); } catch {}
+        }
+      }
+      const A = data.status;
+      if (A) {
+        if (lastUp !== null && "Notification" in window && Notification.permission === "granted") {
+          if (lastUp === true && A.up === false) new Notification("⚠ Build app went dark", { body: "Port :" + A.port + " is down — restart in progress", icon: "/appwatch/favicon.ico" });
+          else if (lastUp === false && A.up === true) new Notification("✓ Build app recovered", { body: "Port :" + A.port + " is back up", icon: "/appwatch/favicon.ico" });
+        }
+        if (lastUp !== null && soundOn()) {
+          if (lastUp === true && A.up === false) playAlert(true);
+          else if (lastUp === false && A.up === true) playAlert(false);
+        }
+        if (lastUp !== null) {
+          if (lastUp === true && A.up === false) {
+            downAt = Math.floor(Date.now() / 1000);
+            fireWebhook({ event: 'down', port: A.port, at: Date.now(), misses: A.misses, duration_s: 0 });
+          } else if (lastUp === false && A.up === true) {
+            fireWebhook({ event: 'up', port: A.port, at: Date.now(), misses: A.misses, duration_s: downAt !== null ? Math.floor(Date.now() / 1000) - downAt : null });
+            downAt = null;
+          }
+        }
+        lastUp = A.up;
+        render(A);
+      }
+    } catch {}
+    if (dot) { dot.style.display = ""; dot.style.color = "#5ee08a"; dot.className = "aw-live"; dot.textContent = "● live"; }
+  };
+  es.onerror = function() {
+    if (dot) { dot.style.display = ""; dot.style.color = "#888"; dot.className = ""; dot.textContent = "○ reconnecting"; }
+  };
+  es.addEventListener('probe', function(e) {
+    try {
+      const data = JSON.parse(e.data);
+      const pid = data.id;
+      if (!pid || !probes[pid]) return;
+      if (!probeHist[pid]) probeHist[pid] = [];
+      probeHist[pid].push(data.entry);
+      if (probeHist[pid].length > 200) probeHist[pid] = probeHist[pid].slice(-200);
+      const rowEl = document.getElementById('probe_row_' + pid);
+      if (rowEl) {
+        const tmp = document.createElement('div');
+        tmp.innerHTML = renderProbeRow(probes[pid], probeHist[pid]);
+        rowEl.outerHTML = tmp.firstChild.outerHTML;
+      }
+    } catch {}
+  });
+}
+
+K.init({ glyph: "♥", title: "Appwatch", accent: "#5ee08a", sub: "Keeps the build console's app up — notices when its port goes dark and starts it again." })
+  .then(async () => {
+    const wuEl = document.getElementById('webhook_url');
+    if (wuEl) wuEl.value = getWebhook();
+    try {
+      const r = await K.api("/appwatch/history");
+      if (r.ok && Array.isArray(r.data) && r.data.length) {
+        const existingC = new Set(hist.map(h => h.c));
+        for (const e of r.data) {
+          if (!existingC.has(e.c)) { hist.push(e); existingC.add(e.c); }
+        }
+        hist.sort((a, b) => a.t - b.t);
+        hist = hist.slice(-500);
+        try { localStorage.setItem(HIST, JSON.stringify(hist)); } catch {}
+      }
+    } catch {}
+    await loadDaily();
+    await loadHourly();
+    await loadIncidents();
+    await loadProbes();
+    if (typeof EventSource !== "undefined") {
+      load();
+      startSSE();
+    } else {
+      K.poll(load, 5000);
+    }
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,50 @@
+[package]
+name = "ztao_ink"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.88"
+authors = ["ztao"]
+# explicit: cargo-contract rewrites [package] build to an absolute path
+build = "build.rs"
+description = "ztao on Substrate: the anonymous subnet as an ink! 5 contract (pallet-contracts). Verifies the same LSAG-over-STARK-curve ring signatures as every other chain; lsag/fp/poseidon are the NEAR contract's files, pulled in by build.rs."
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+ink = { version = "5.1.1", default-features = false }
+starknet-types-core = { version = "0.2.4", default-features = false, features = ["curve", "hash", "alloc"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+num-bigint = "0.4"
+
+[dev-dependencies]
+serde_json = "1"
+
+[features]
+default = ["std"]
+std = ["ink/std"]
+ink-as-dependency = []
+e2e-tests = []
+
+[profile.release]
+codegen-units = 1
+opt-level = 3
+lto = true
+debug = false
+panic = "abort"
+# off for the same reason as near/contract: checked u64 muls in the inlined
+# field code become __multi3 calls; the contract's own sums are checked.
+overflow-checks = false
+
+# lambdaworks-math 0.13 pulls getrandom (feature js -> js-sys -> std) for
+# wasm32 and never calls it; a no_std ink! contract can not link std.
+# cargo-contract builds from $TMPDIR/cargo-contract_*/Cargo.toml and does not
+# rewrite [patch] paths, so client.build() sets TMPDIR to networks/substrate:
+# the same "../tools" then resolves from here and from the temp copy.
+[patch.crates-io]
+getrandom = { path = "../tools/getrandom-stub" }
+
+[package.metadata.contract]
+# wasm-opt for speed, not size: weight is metered per wasm instruction
+optimization-passes = "3"

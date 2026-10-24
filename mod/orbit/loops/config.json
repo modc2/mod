@@ -1,0 +1,34 @@
+{
+  "name": "loops",
+  "title": "Loops \u00b7 build agent",
+  "version": "0.1.0",
+  "description": "Loop agents: run a command in a module, hand its output to an agent, wait, repeat \u2014 until it passes, the agent prints LOOP_DONE, or you stop it. App for build's \u27f3 LOOPS (owner-only).",
+  "icon": "\u27f3",
+  "color": "#5fd3b8",
+  "anchor": "mod.py",
+  "port": 51481,
+  "app_port": 51481,
+  "gateway_port": 51481,
+  "base_path": "/loops",
+  "route": true,
+  "deps": [
+    "build"
+  ],
+  "urls": {
+    "app": "http://localhost:51481/loops/"
+  },
+  "agent": {
+    "of": "build",
+    "status": null,
+    "console": "build \u25b8 ACCOUNT \u25b8 AGENT \u25b8 AGENTS"
+  },
+  "fns": [
+    "forward",
+    "info",
+    "status",
+    "serve",
+    "kill"
+  ],
+  "schema": "QmXC4YJEfv5AxDKbvuDkWyKL9RTGquamXPtaPHE24oyq4G",
+  "always_on": true
+}

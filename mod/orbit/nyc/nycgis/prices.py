@@ -59,6 +59,9 @@ PROPERTY_TYPES: Dict[str, Dict[str, Any]] = {
     'residential': {'label': 'All residential',
                     'prefixes': ['01', '02', '03', '04', '07', '08', '09', '10',
                                  '11', '12', '13', '14', '15', '17']},
+    # What a household buys to live in: residential minus whole rental buildings.
+    'homes': {'label': 'Homes (houses, condos, co-ops)',
+              'prefixes': ['01', '02', '03', '04', '09', '10', '12', '13', '15', '17']},
     'houses': {'label': 'Houses (1–3 family)', 'prefixes': ['01', '02', '03']},
     'one_family': {'label': 'One-family houses', 'prefixes': ['01']},
     'condo': {'label': 'Condos', 'prefixes': ['04', '12', '13', '15']},

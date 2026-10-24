@@ -1,0 +1,84 @@
+use snforge_std::{
+    ContractClassTrait, DeclareResultTrait, declare, start_cheat_caller_address,
+    stop_cheat_caller_address,
+};
+use starknet::ContractAddress;
+use {{PKG}}::{I{{NAME}}Dispatcher, I{{NAME}}DispatcherTrait, hash_pair, leaf, verify};
+
+fn addr(name: felt252) -> ContractAddress {
+    name.try_into().unwrap()
+}
+
+// A four-leaf tree, built the same way an off-chain script would:
+//            root
+//         /        \
+//      n01          n23
+//     /   \        /   \
+//   alice  bob  carol  dave
+fn tree() -> (felt252, Array<felt252>) {
+    let l = array![
+        leaf(addr('alice'), 100), leaf(addr('bob'), 200), leaf(addr('carol'), 300),
+        leaf(addr('dave'), 400),
+    ];
+    let n01 = hash_pair(*l[0], *l[1]);
+    let n23 = hash_pair(*l[2], *l[3]);
+    (hash_pair(n01, n23), l)
+}
+
+fn deploy(root: felt252) -> I{{NAME}}Dispatcher {
+    let contract = declare("{{NAME}}").unwrap().contract_class();
+    let (a, _) = contract.deploy(@array![root]).unwrap();
+    I{{NAME}}Dispatcher { contract_address: a }
+}
+
+#[test]
+fn test_verify_offchain() {
+    let (root, l) = tree();
+    let n23 = hash_pair(*l[2], *l[3]);
+    assert(verify(root, *l[1], array![*l[0], n23].span()), 'bob is in');
+    assert(!verify(root, *l[1], array![*l[2], n23].span()), 'wrong path');
+}
+
+#[test]
+fn test_claim() {
+    let (root, l) = tree();
+    let c = deploy(root);
+    let proof = array![*l[0], hash_pair(*l[2], *l[3])];
+    start_cheat_caller_address(c.contract_address, addr('bob'));
+    c.claim(200, proof.span());
+    stop_cheat_caller_address(c.contract_address);
+    assert(c.is_claimed(addr('bob')), 'bob claimed');
+    assert(c.claimed_of(addr('bob')) == 200, 'amount');
+    assert(c.total_claimed() == 200, 'total');
+}
+
+#[test]
+#[should_panic(expected: 'invalid proof')]
+fn test_inflated_amount_rejected() {
+    let (root, l) = tree();
+    let c = deploy(root);
+    start_cheat_caller_address(c.contract_address, addr('bob'));
+    c.claim(9999, array![*l[0], hash_pair(*l[2], *l[3])].span());
+}
+
+#[test]
+#[should_panic(expected: 'invalid proof')]
+fn test_stolen_proof_rejected() {
+    // mallory replays bob's exact proof and amount: the leaf is rebuilt from
+    // the caller, so it hashes to something not in the tree
+    let (root, l) = tree();
+    let c = deploy(root);
+    start_cheat_caller_address(c.contract_address, addr('mallory'));
+    c.claim(200, array![*l[0], hash_pair(*l[2], *l[3])].span());
+}
+
+#[test]
+#[should_panic(expected: 'already claimed')]
+fn test_double_claim_rejected() {
+    let (root, l) = tree();
+    let c = deploy(root);
+    let proof = array![*l[0], hash_pair(*l[2], *l[3])];
+    start_cheat_caller_address(c.contract_address, addr('bob'));
+    c.claim(200, proof.span());
+    c.claim(200, proof.span());
+}

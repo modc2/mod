@@ -1,5 +1,6 @@
 mod http;
 mod mcp;
+mod summary;
 mod x;
 
 #[tokio::main]

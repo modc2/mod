@@ -4,8 +4,10 @@ import { NextRequest, NextResponse } from 'next/server'
  * Federated routing middleware.
  *
  * Single gateway on port 3000:
- *   /{mod}/*       → module app server  (basePath /{mod})
- *   /api/{mod}/*   → module API server  (prefix stripped)
+ *   /{mod}/*       → module app server  (basePath /{mod}; app-internal
+ *                    Next API routes live under /{mod}/_api)
+ *   /{mod}/api/*   → module API server  (canonical; prefix stripped)
+ *   /api/{mod}/*   → module API server  (legacy alias; prefix stripped)
  *
  * Modules register via namespace. Main app routes are reserved.
  */
@@ -65,7 +67,9 @@ async function getAppNamespace(): Promise<Record<string, AppEntry>> {
 // Main app's own /api/* routes — never proxy these to modules
 const RESERVED_API_ROUTES = new Set([
   'proxy', 'logs', 'mods', 'mod-code', 'terminal', 'contract-source',
-  // the chain console's bridge to the chain module API (app/api/chain/…)
+  // legacy bridge to the chain module API (app/api/chain/…). The console
+  // itself calls /chain/api/* instead — the :3000 gateway hands every /api/*
+  // request to the protocol API, so nothing mounted here survives the hop.
   'chain',
 ])
 
@@ -122,6 +126,22 @@ export async function middleware(request: NextRequest) {
   const firstSegment = segments[0]
   if (MAIN_APP_ROUTES.has(firstSegment) || firstSegment.startsWith('_')) {
     return NextResponse.next()
+  }
+
+  // ── /{mod}/api/* → module API server (canonical form; prefix stripped) ──
+  // Falls through to the app proxy when the module has no registered API, so
+  // an app-only module still owns its whole /{mod}/* space.
+  if (segments[1] === 'api') {
+    if (ACTIVATOR_MODS.has(firstSegment)) {
+      return NextResponse.rewrite(new URL(`${ACTIVATOR_URL}${pathname}${request.nextUrl.search}`))
+    }
+    const namespace = await getAppNamespace()
+    const entry = namespace[firstSegment]
+    if (entry?.api_url) {
+      const apiPath = '/' + segments.slice(2).join('/')
+      const target = new URL(apiPath + request.nextUrl.search, entry.api_url)
+      return NextResponse.rewrite(target)
+    }
   }
 
   // Scale-to-zero modules → through the activator (wakes the app on demand).

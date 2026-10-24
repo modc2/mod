@@ -1,71 +1,43 @@
 /**
- * NES sprites, drawn on a 16×16 grid the way the originals were.
- *
- * `shapeRendering="crispEdges"` everywhere: these are pixel art, and letting
- * the renderer antialias a 1-unit rect turns a hard sprite edge into mush at
- * the sizes we actually draw them (13–22px).
+ * The HUD's small icon set. The exports keep the names they had under the old
+ * 8-bit theme (Coin, QuestionBlock, Mushroom) so no call site had to move,
+ * but they are ordinary line icons now: 1.5px strokes, rounded caps, drawn on
+ * a 16×16 grid.
  */
 
-/** Busy indicator. Wrap in `.coin-spin` to make it flip. */
+/** Busy indicator — a ring with a gap. Wrap in `.coin-spin` to rotate it. */
 export function Coin({ size = 14 }: { size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 16 16" aria-hidden>
-      <ellipse cx="8" cy="8" rx="5.5" ry="7" fill="#fbd000" stroke="#000" strokeWidth="1.5" />
-      <ellipse cx="8" cy="8" rx="2.4" ry="4" fill="none" stroke="#c88f00" strokeWidth="1.5" />
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" aria-hidden>
+      <circle cx="8" cy="8" r="6" stroke="rgba(232,182,76,0.25)" strokeWidth="2" />
+      <path d="M8 2a6 6 0 0 1 6 6" stroke="#e8b64c" strokeWidth="2" strokeLinecap="round" />
     </svg>
   )
 }
 
-/** The layer-rail toggle, and the per-layer "what is this?" affordance. */
+/** The layer-rail toggle: a stack of map layers. */
 export function QuestionBlock({ size = 18 }: { size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 16 16" shapeRendering="crispEdges" aria-hidden>
-      <rect width="16" height="16" fill="#000" />
-      <rect x="1" y="1" width="14" height="14" fill="#e39d25" />
-      <rect x="1" y="1" width="14" height="2" fill="#f7c95c" />
-      <rect x="1" y="13" width="14" height="2" fill="#a85f0d" />
-      {/* corner rivets */}
-      <g fill="#000">
-        <rect x="2" y="2" width="2" height="2" />
-        <rect x="12" y="2" width="2" height="2" />
-        <rect x="2" y="12" width="2" height="2" />
-        <rect x="12" y="12" width="2" height="2" />
-      </g>
-      {/* the ? — drawn twice, black underneath, for the sprite's drop shadow */}
-      <g fill="#000" transform="translate(0,1)">
-        <QMark />
-      </g>
-      <g fill="#fff">
-        <QMark />
-      </g>
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" aria-hidden>
+      <path d="M8 1.8 14.6 5.4 8 9 1.4 5.4 8 1.8Z"
+            fill="rgba(232,182,76,0.35)" stroke="#e8b64c" strokeWidth="1.3"
+            strokeLinejoin="round" />
+      <path d="M1.4 8.6 8 12.2l6.6-3.6" stroke="#e8b64c" strokeWidth="1.3"
+            strokeLinecap="round" strokeLinejoin="round" opacity="0.7" />
+      <path d="M1.4 11.6 8 15.2l6.6-3.6" stroke="#e8b64c" strokeWidth="1.3"
+            strokeLinecap="round" strokeLinejoin="round" opacity="0.4" />
     </svg>
   )
 }
 
-function QMark() {
-  return (
-    <>
-      <rect x="6" y="3" width="4" height="1" />
-      <rect x="5" y="4" width="1" height="2" />
-      <rect x="10" y="4" width="1" height="2" />
-      <rect x="9" y="6" width="2" height="1" />
-      <rect x="8" y="7" width="2" height="1" />
-      <rect x="7" y="8" width="2" height="2" />
-      <rect x="7" y="11" width="2" height="2" />
-    </>
-  )
-}
-
-/** Shown when the map can't reach its API — a lost life. */
+/** Shown when the map can't reach its API. */
 export function Mushroom({ size = 40 }: { size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 16 16" aria-hidden>
-      <path d="M1.5 8.5a6.5 6 0 0 1 13 0v1h-13z" fill="#e52521" stroke="#000" strokeWidth="1.2"
-            strokeLinejoin="round" />
-      <circle cx="5.2" cy="6.2" r="1.5" fill="#fff" />
-      <circle cx="10.8" cy="6.2" r="1.5" fill="#fff" />
-      <path d="M4.5 9.5h7v2.5a2 2 0 0 1-2 2H6.5a2 2 0 0 1-2-2z" fill="#f7d9b0" stroke="#000"
-            strokeWidth="1.2" strokeLinejoin="round" />
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path d="M12 3 2.8 19.5a1 1 0 0 0 .87 1.5h16.66a1 1 0 0 0 .87-1.5L12 3Z"
+            stroke="#f0564a" strokeWidth="1.6" strokeLinejoin="round" />
+      <path d="M12 9.5v5" stroke="#f0564a" strokeWidth="1.8" strokeLinecap="round" />
+      <circle cx="12" cy="17.6" r="1.1" fill="#f0564a" />
     </svg>
   )
 }

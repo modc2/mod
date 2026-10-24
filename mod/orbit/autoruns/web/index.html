@@ -1,0 +1,927 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AUTO RUNS</title>
+<link rel="stylesheet" href="kit.css" />
+<style>
+  /* autoruns-only styles; kit.css is shared with the other agent apps */
+  .stats { margin-top: 14px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+  .stat b { font-size: 22px; }
+  .stat small { display: block; color: var(--dim); font-size: 11.5px; margin-top: 2px; }
+  .stat.hot b { color: var(--accent); }
+  .spark { display: flex; gap: 2px; align-items: flex-end; height: 24px; margin-top: 6px; }
+  .spark i { flex: 1; border-radius: 2px; min-height: 2px; }
+
+  .start { display: grid; gap: 10px; grid-template-columns: minmax(0, 1.4fr) auto auto minmax(0, 1fr); align-items: end; }
+  .start .goal { grid-column: 1 / -1; }
+  .stepper { display: inline-flex; align-items: center; border: 1px solid var(--line2); border-radius: 10px; background: #060d0b; height: 38px; }
+  .stepper button { border: 0; background: none; padding: 0 12px; height: 100%; font-size: 15px !important; color: var(--dim); }
+  .stepper b { font: 600 14px var(--sans); color: var(--text); min-width: 26px; text-align: center; font-variant-numeric: tabular-nums; }
+  .seg { height: 38px; }
+  .seg button { padding: 0 13px; height: 100%; color: var(--dim); }
+  .startbar { display: flex; gap: 12px; align-items: center; margin-top: 12px; }
+  .startbar .hint { flex: 1; font-size: 12px; color: var(--faint); }
+  .startbar .primary { padding: 11px 20px; }
+
+  .bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+  .bar .sp { flex: 1; }
+  .bar .seg { height: 32px; }
+  .bar .seg button { padding: 0 11px; font-size: 10px !important; }
+  .bar input { max-width: 200px; padding: 7px 10px; }
+  .card h2 .n { color: var(--faint); letter-spacing: .1em; }
+
+  .mod-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  .mod-chip { font: 600 11px var(--sans); padding: 4px 10px; border-radius: 8px; border: 1px solid var(--line2); background: var(--panel2); cursor: pointer; color: var(--dim); }
+  .mod-chip:hover { background: var(--panel3, #0e1a16); }
+  .mod-chip.active { border-color: var(--accent); }
+
+  .day { font-size: 10px; letter-spacing: .2em; text-transform: uppercase; color: var(--faint); margin: 14px 2px 2px; display: flex; gap: 10px; }
+  .day:first-child { margin-top: 0; }
+  .day span:last-child { margin-left: auto; letter-spacing: .08em; }
+
+  .run { border: 1px solid var(--line); border-radius: 12px; background: var(--panel2); cursor: pointer; }
+  .run:hover { border-color: var(--line2); }
+  .run.open { border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
+  .run .top { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 12px; }
+  .run .t { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .run .s { font-size: 12px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 2px; }
+  .run .mod { color: var(--accent); font-weight: 700; margin-right: 6px; }
+  .run .right { display: flex; gap: 10px; align-items: center; }
+  .run .usd { font: 12px var(--mono); color: var(--dim); min-width: 46px; text-align: right; }
+
+  .track { display: flex; gap: 3px; width: 56px; }
+  .track i { flex: 1 1 0; min-width: 3px; height: 8px; border-radius: 3px; background: var(--line); }
+  .track i.ok { background: var(--green); }
+  .track i.miss { background: var(--red); }
+  .track i.meh { background: var(--amber); }
+  .track i.now { background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: .35; } }
+
+  .run.fresh { animation: land-glow 3s ease-out forwards; }
+  @keyframes land-glow {
+    0%   { border-color: var(--accent); box-shadow: 0 0 14px color-mix(in srgb, var(--accent) 45%, transparent); }
+    60%  { border-color: color-mix(in srgb, var(--accent) 50%, transparent); }
+    100% { border-color: var(--line); }
+  }
+
+  .tag { font: 700 9.5px/1 var(--sans); letter-spacing: .14em; text-transform: uppercase; padding: 5px 8px; border-radius: 6px;
+    border: 1px solid var(--line2); color: var(--dim); white-space: nowrap; }
+  .tag.ok { color: var(--green); border-color: color-mix(in srgb, var(--green) 40%, transparent); }
+  .tag.miss { color: var(--red); border-color: color-mix(in srgb, var(--red) 40%, transparent); }
+  .tag.meh { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 40%, transparent); }
+  .tag.now { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 50%, transparent); }
+
+  .steps { border-top: 1px solid var(--line); padding: 6px 12px 10px; cursor: default; }
+  .st { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 10px; padding: 7px 0; align-items: start; }
+  .st + .st { border-top: 1px dashed var(--line); }
+  .st .k { font: 12px var(--mono); color: var(--faint); padding-top: 1px; }
+  .st .t { white-space: normal; font-weight: 500; }
+  .st .s { white-space: normal; }
+  .foot { display: flex; gap: 8px; align-items: center; padding-top: 8px; border-top: 1px solid var(--line); margin-top: 4px; font-size: 12px; color: var(--faint); }
+  .foot .sp { flex: 1; }
+  .foot .btn, .foot button { padding: 6px 10px; font-size: 10px !important; border-radius: 8px; }
+
+  .timeline { display: flex; gap: 2px; align-items: stretch; height: 7px; margin-bottom: 8px; overflow: visible; position: relative; }
+  .tl-seg { flex-grow: 1; min-width: 6px; border-radius: 3px; background: var(--line); position: relative; cursor: default; }
+  .tl-seg.ok { background: var(--green); }
+  .tl-seg.miss { background: var(--red); }
+  .tl-seg.meh { background: var(--amber); }
+  .tl-seg.now { background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
+  .tl-seg[title]:hover::after { content: attr(title); position: absolute; bottom: calc(100% + 5px); left: 50%; transform: translateX(-50%); white-space: nowrap; font: 11px var(--sans); background: var(--panel3, #0e1a16); color: var(--text); border: 1px solid var(--line2); padding: 3px 8px; border-radius: 5px; z-index: 10; pointer-events: none; }
+  .tl-end { font: 11px var(--mono); color: var(--faint); padding-left: 6px; white-space: nowrap; flex-shrink: 0; align-self: center; }
+
+  .live .run { border-color: color-mix(in srgb, var(--accent) 30%, transparent); }
+  .live .track { width: 120px; }
+  .live .track i { height: 10px; }
+  .live h2 { display: flex; align-items: center; gap: 8px; }
+  .live h2 .sp { flex: 1; }
+  button.sm { padding: 5px 10px; font-size: 10px !important; border-radius: 8px; }
+  .more { display: block; margin: 12px auto 0; }
+  .live-elapsed { font: 12px var(--mono); color: var(--accent); }
+  .run-elapsed { color: var(--dim); }
+
+  .ev { display: flex; gap: 10px; align-items: center; padding: 7px 0; font-size: 13px; }
+  .ev + .ev { border-top: 1px solid var(--line); }
+  .ev.live { border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); border-radius: 8px; padding: 5px 0; }
+  .ev .mod { color: var(--accent); font-weight: 700; white-space: nowrap; }
+  .ev.live .mod { animation: pulse 1.2s ease-in-out infinite; }
+  .ev .etitle { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dim); }
+  .ev .when { font: 12px var(--mono); color: var(--faint); white-space: nowrap; }
+
+  #mod_stats { font-size: 12px; color: var(--dim); margin-top: 3px; }
+  .mod-chip-tray { display: flex; flex-wrap: wrap; gap: 5px; }
+  .mod-chip-tray:not(:empty) { margin-top: 5px; }
+  .mod-sel-chip { font: 600 11px var(--sans); padding: 3px 6px 3px 9px; border-radius: 8px; border: 1px solid color-mix(in srgb, var(--accent) 50%, transparent); background: color-mix(in srgb, var(--accent) 10%, var(--panel2)); cursor: default; color: var(--accent); display: inline-flex; align-items: center; gap: 4px; }
+  .mod-sel-chip .rm { cursor: pointer; color: color-mix(in srgb, var(--accent) 60%, transparent); font-size: 14px; line-height: 1; }
+  .mod-sel-chip .rm:hover { color: var(--accent); }
+
+  @media (max-width: 640px) {
+    .start { grid-template-columns: 1fr 1fr; }
+    .start .modf { grid-column: 1 / -1; }
+    .startbar { flex-direction: column; align-items: stretch; }
+    .run .usd, .run .track { display: none; }
+    .run .top { grid-template-columns: minmax(0, 1fr) auto; }
+    .live .run .top { grid-template-columns: auto minmax(0, 1fr) auto; }
+    .live .run .track { display: flex; width: 40px; }
+    .seg button { white-space: nowrap; padding: 0 10px; }
+    .start .modeseg { grid-column: span 1; }
+  }
+  #topbar { position:fixed; top:0; left:0; right:0; height:3px; z-index:1000; pointer-events:none; }
+  #topbar .fill { height:100%; background:var(--accent); transition:width .6s ease,opacity .4s ease; width:0; opacity:0; }
+  #topbar.active .fill { opacity:1; }
+  #topbar.done .fill { width:100% !important; opacity:0; transition:width .2s ease,opacity .8s .3s ease; }
+
+  .away-banner { display: flex; align-items: center; gap: 10px; font-size: 11px; letter-spacing: .05em; text-transform: uppercase;
+    color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent); border-radius: 8px;
+    padding: 7px 10px; margin-bottom: 10px; }
+  .away-banner span { flex: 1; }
+  .away-banner .close { background: none; border: 0; color: var(--faint); font-size: 14px; padding: 0 2px; cursor: pointer; line-height: 1; }
+  .away-banner .close:hover { color: var(--text); }
+
+  .wins-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; margin-top: 4px; }
+  .win-tile { background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; padding: 12px; cursor: pointer; }
+  .win-tile:hover { border-color: var(--line2); }
+  .win-tile .wt-mod { color: var(--accent); font: 700 11px var(--sans); display: block; margin-bottom: 4px; }
+  .win-tile .wt-title { font-size: 13px; font-weight: 500; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; margin-bottom: 8px; }
+  .win-tile .wt-foot { display: flex; gap: 6px; align-items: center; }
+  .win-tile .wt-usd { font: 11px var(--mono); color: var(--faint); margin-left: auto; }
+</style>
+</head>
+<body>
+<div id="topbar"><div class="fill" id="topfill"></div></div>
+<div class="wrap">
+  <div id="hdr"></div>
+  <div id="stats" class="stats"></div>
+
+  <div class="grid">
+    <div class="card wide">
+      <h2>Start a run</h2>
+      <div class="start">
+        <label class="f modf">module<input id="a_mod" list="mods" placeholder="add a module…" autocomplete="off" /><div id="mod_chip_tray" class="mod-chip-tray"></div><div id="mod_stats"></div></label>
+        <label class="f">steps
+          <span class="stepper"><button data-d="-1" aria-label="fewer">−</button><b id="a_steps">3</b><button data-d="1" aria-label="more">+</button></span>
+        </label>
+        <label class="f">mode
+          <span class="seg" id="a_mode"><button class="sel" data-v="play">build it</button><button data-v="ideas">ideas only</button></span>
+        </label>
+        <label class="f">model<input id="a_model" list="models" placeholder="default" autocomplete="off" /></label>
+        <label class="f goal">goal · optional<input id="a_goal" placeholder="e.g. polish the mobile layout — leave empty and the agent picks" />
+        <div class="mod-chips" id="goal_chips"></div></label>
+      </div>
+      <datalist id="mods"></datalist>
+      <datalist id="models"></datalist>
+      <div class="startbar">
+        <span class="hint" id="hint"></span>
+        <button id="startBtn" class="primary">start run</button>
+      </div>
+    </div>
+
+    <div class="card wide">
+      <h2>By module <span class="n" id="lbN"></span></h2>
+      <div class="bar"><span class="seg" id="lb_sort"><button class="sel" data-v="rate">rate</button><button data-v="stale">stale first</button></span></div>
+      <div id="leaderboard" class="rows"></div>
+    </div>
+
+    <div class="card wide live">
+      <h2>Running now <span class="n" id="liveN"></span><span class="sp"></span><button id="stopAllBtn" class="danger sm" hidden>stop all</button></h2>
+      <div id="live" class="rows"></div>
+    </div>
+
+    <div class="card wide" id="wins">
+      <h2>Landed ideas <span class="n" id="winsN"></span></h2>
+      <div id="winsGrid" class="wins-grid"></div>
+      <button id="winsMore" class="more" hidden></button>
+    </div>
+
+    <div class="card wide">
+      <h2>Recent events</h2>
+      <div id="events" class="rows"></div>
+    </div>
+
+    <div class="card wide">
+      <h2>History <span class="n" id="doneN"></span></h2>
+      <div class="bar">
+        <span class="seg" id="show"><button class="sel" data-v="all">all</button><button data-v="ok">landed</button><button data-v="miss">missed</button></span>
+        <span class="sp"></span>
+        <input id="filter" placeholder="search by module, goal, or idea…" />
+      </div>
+      <div id="awayBanner" class="away-banner" hidden></div>
+      <div id="done" class="rows"></div>
+      <button id="moreBtn" class="more" hidden>show more</button>
+    </div>
+  </div>
+</div>
+<script src="kit.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+let runs = [];
+let limit = 40;
+let elapsedTimer = null;
+let show = "all";
+let steps = 3;
+let mode = "play";
+let modAvgCostPerStep = null;
+const open = new Set();
+const justCompleted = new Set();
+const prevLive = new Set();
+let _sessionShown = false;
+const lastVisit = parseInt(localStorage.getItem('ar_last_visit') || '0', 10);
+let _awayBannerDismissed = false;
+let _barWasActive = false;
+let _barDoneTimer = null;
+let winsAll = false;
+let lbSort = "rate";
+let selectedMods = [];
+let modelRates = {};
+const isLive = (r) => r.status === "running" || r.status === "stopping";
+const landed = (o) => o === "played" || o === "filed";
+
+// outcome → plain words + colour
+const OUT = {
+  played: ["landed", "ok"], filed: ["idea filed", "ok"],
+  test_failed: ["tests failed", "miss"], play_failed: ["build failed", "miss"], idea_failed: ["idea agent failed", "miss"],
+  no_idea: ["no idea found", "meh"], duplicate: ["duplicate idea", "meh"], blocked: ["blocked", "meh"],
+  timeout: ["timed out", "meh"], capped: ["spend cap hit", "meh"], stopped: ["stopped", "meh"],
+};
+const PHASE = { ideating: "writing an idea", implementing: "implementing" };
+const outOf = (s) => OUT[s.outcome] || [s.outcome || PHASE[s.phase] || s.phase || "", s.outcome ? "" : "now"];
+const model = (m) => String(m || "default").replace(/^claude-/, "");
+const usd = (v) => (+v ? `$${(+v).toFixed(2)}` : "");
+
+function verdict(r) {
+  const h = r.history || [];
+  if (isLive(r)) return [r.status === "stopping" ? "stopping" : `step ${h.length}/${r.steps}`, "now"];
+  if (!h.length) return [r.status, "meh"];
+  const ok = h.filter((s) => landed(s.outcome)).length;
+  if (h.length === 1) return outOf(h[0]);
+  if (ok === h.length) return [`${ok}/${h.length} landed`, "ok"];
+  if (!ok) return [r.status === "stopped" ? "stopped" : "nothing landed", "miss"];
+  return [`${ok}/${h.length} landed`, "meh"];
+}
+
+function notify(module, word) {
+  if (Notification.permission === "granted") new Notification("Auto run · " + module, { body: word });
+}
+
+function showSessionSummary(ids) {
+  if (_sessionShown) return;
+  _sessionShown = true;
+  const completedRuns = [...ids].map(id => runs.find(r => r.id === id)).filter(Boolean);
+  let landedN = 0, totalSteps = 0, totalUsd = 0;
+  const mods = new Set();
+  const landedItems = [];
+  for (const r of completedRuns) {
+    for (const s of (r.history || [])) {
+      if (!s.outcome) continue;
+      totalSteps++;
+      if (landed(s.outcome)) {
+        landedN++;
+        if (s.title) landedItems.push({ mod: r.module, title: s.title });
+      }
+    }
+    totalUsd += +r.usd || 0;
+    mods.add(r.module);
+  }
+  const kind = totalSteps === 0 ? "meh" : landedN === totalSteps ? "ok" : landedN === 0 ? "miss" : "meh";
+  const v = document.createElement("div");
+  v.className = "veil";
+  const landedList = landedN > 0 ? (() => {
+    const show = landedItems.slice(0, 5);
+    const more = landedItems.length - show.length;
+    const items = show.map(x => `<li><span class="mod">${K.esc(x.mod)}</span> ${K.esc(x.title)}</li>`).join("");
+    const tail = more > 0 ? `<li style="list-style:none">and ${more} more…</li>` : "";
+    return `<ul style="margin:4px 0 8px;padding:0 0 0 1em;font-size:12px;color:var(--dim);max-height:120px;overflow:auto">${items}${tail}</ul>`;
+  })() : "";
+  v.innerHTML = `<div class="dlg">
+    <p><span class="tag ${kind}">Session complete</span></p>
+    <p>${landedN} of ${totalSteps} step${totalSteps !== 1 ? "s" : ""} landed</p>${landedList}
+    <p style="font-size:12px;color:var(--dim)">modules: ${K.esc([...mods].join(" · "))}</p>
+    <p style="font-size:12px;color:var(--dim)">${totalUsd > 0 ? "$" + totalUsd.toFixed(2) + " spent" : "no spend recorded"}</p>
+    <div class="inline"><button data-a="results">view results</button><button data-a="new" class="primary">new run</button></div>
+  </div>`;
+  v.addEventListener("click", e => {
+    if (e.target === v) { v.remove(); return; }
+    const a = e.target.closest("button")?.dataset.a;
+    if (!a) return;
+    v.remove();
+    if (a === "results") {
+      $("done")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    } else {
+      document.querySelector(".card.wide")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      $("a_mod")?.focus();
+    }
+  });
+  document.body.appendChild(v);
+}
+
+function track(r) {
+  const h = r.history || [];
+  const n = Math.max(r.steps || 0, h.length);
+  let out = "";
+  for (let i = 0; i < n; i++) {
+    const s = h[i];
+    const k = !s ? "" : s.outcome ? (landed(s.outcome) ? "ok" : OUT[s.outcome]?.[1] || "miss") : "now";
+    out += `<i class="${k}" title="${s ? K.esc(outOf(s)[0]) : "not started"}"></i>`;
+  }
+  return `<span class="track">${out}</span>`;
+}
+
+function timeline(r) {
+  const h = r.history || [];
+  const n = Math.max(r.steps || 0, h.length);
+  if (!n) return "";
+  const durs = h.map((s) => s.ended_at && s.started_at ? s.ended_at - s.started_at : null).filter(Boolean);
+  const median = durs.length ? [...durs].sort((a, b) => a - b)[Math.floor(durs.length / 2)] : 120;
+  let segs = "";
+  for (let i = 0; i < n; i++) {
+    const s = h[i];
+    if (!s) { segs += `<span class="tl-seg" style="flex-grow:${median}"></span>`; continue; }
+    const dur = s.ended_at && s.started_at ? s.ended_at - s.started_at : null;
+    const isActive = isLive(r) && !s.outcome;
+    const [, k] = outOf(s);
+    const tip = K.esc((s.title || "(no idea yet)") + (dur ? " \xB7 " + K.dur(dur) : isActive ? " \xB7 running…" : ""));
+    if (isActive && s.started_at) {
+      segs += `<span class="tl-seg now" style="flex-grow:${median}" data-start="${s.started_at}" data-baseline="${median}" title="${tip}"></span>`;
+    } else {
+      segs += `<span class="tl-seg ${k}" style="flex-grow:${dur || median}" title="${tip}"></span>`;
+    }
+  }
+  const lastEnd = h.reduce((m, s) => s.ended_at ? Math.max(m, s.ended_at) : m, 0);
+  const rightEl = isLive(r) && r.started_at
+    ? `<span class="tl-end live-elapsed" data-start="${r.started_at}"></span>`
+    : (lastEnd && r.started_at ? `<span class="tl-end">${K.dur(lastEnd - r.started_at)}</span>` : "");
+  return `<div class="timeline">${segs}${rightEl}</div>`;
+}
+
+function run(r) {
+  const h = r.history || [];
+  const [word, kind] = verdict(r);
+  const cur = h[h.length - 1];
+  const landedTitles = h.filter((s) => landed(s.outcome) && s.title).map((s) => s.title);
+  const title = (isLive(r) && cur ? cur.title || `${PHASE[cur.phase] || cur.phase}…` : (!isLive(r) && landedTitles.length > 0 ? landedTitles.join(" · ") : h.find((s) => s.title)?.title)) || r.goal || r.note || "free pick";
+  const mine = K.address && r.started_by && r.started_by.toLowerCase() === K.address.toLowerCase();
+  const canStop = isLive(r) && r.status !== "stopping" && (K.isOwner || mine);
+  const who = r.source === "evolver" ? "evolver" : r.started_by ? K.short(r.started_by) : "host";
+  const meta = [r.goal ? `goal: ${r.goal}` : "", model(r.model), who, K.ago(r.updated_at)].filter(Boolean).map(K.esc).join(" · ");
+  const isOpen = open.has(r.id);
+  const body = !isOpen ? "" : `<div class="steps">${timeline(r)}${h.map((s) => {
+    const [w, k] = outOf(s);
+    const isActive = isLive(r) && !s.outcome;
+    const took = s.ended_at && s.started_at
+      ? ` · ${K.dur(s.ended_at - s.started_at)}`
+      : isActive && s.started_at
+        ? ` · <span class="live-elapsed" data-start="${s.started_at}"></span>`
+        : "";
+    return `<div class="st"><span class="k">${s.step}</span>
+      <div><div class="t">${K.esc(s.title || "(no idea yet)")}</div>
+      <div class="s">${s.cid ? `snapshot <span class="mono">${K.esc(s.cid.slice(0, 12))}</span>` : ""}${took}</div></div>
+      <span class="tag ${k}">${K.esc(w)}</span></div>`;
+  }).join("") || `<div class="empty">no steps yet</div>`}
+    <div class="foot"><span>${K.esc(r.note || "")}</span><span class="sp"></span>
+      ${canStop ? `<button class="danger" data-a="stop">stop</button>` : ""}
+      ${!isLive(r) ? `<button class="btn" data-a="rerun">rerun ▶</button>` : ""}
+      <button class="btn" data-a="copylink">copy link</button>
+      <a class="btn" href="${K.BUILD_APP}?mod=${encodeURIComponent(r.module)}">open ${K.esc(r.module)} ↗</a></div></div>`;
+  const runElapsed = isLive(r) && r.started_at
+    ? ` · <span class="live-elapsed run-elapsed" data-start="${r.started_at}"></span>`
+    : "";
+  return `<div class="run${isOpen ? " open" : ""}${justCompleted.has(r.id) ? " fresh" : ""}" data-id="${r.id}">
+    <div class="top">${track(r)}
+      <div><div class="t"><span class="mod">${K.esc(r.module)}</span>${K.esc(title)}</div><div class="s">${meta}${runElapsed}</div></div>
+      <div class="right"><span class="usd">${usd(r.usd)}</span><span class="tag ${kind}">${K.esc(word)}</span></div></div>
+    ${body}</div>`;
+}
+
+function dayLabel(ts) {
+  const d = new Date(ts * 1000), t = new Date();
+  const k = (x) => x.toDateString();
+  if (k(d) === k(t)) return "today";
+  t.setDate(t.getDate() - 1);
+  if (k(d) === k(t)) return "yesterday";
+  return d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+}
+
+function grouped(list) {
+  let out = "", cur = null, buf = [];
+  const flush = () => {
+    if (!buf.length) return;
+    const spent = buf.reduce((a, r) => a + (+r.usd || 0), 0);
+    out += `<div class="day"><span>${cur}</span><span>${buf.length} run${buf.length > 1 ? "s" : ""}${spent ? ` · $${spent.toFixed(2)}` : ""}</span></div>` + buf.map(run).join("");
+    buf = [];
+  };
+  for (const r of list) { const d = dayLabel(r.updated_at); if (d !== cur) { flush(); cur = d; } buf.push(r); }
+  flush();
+  return out;
+}
+
+function renderEvents() {
+  const liveEvts = runs
+    .filter(r => isLive(r))
+    .map(r => {
+      const cur = (r.history || []).slice().reverse().find(s => !s.outcome);
+      if (!cur) return null;
+      return {...cur, module: r.module, runId: r.id};
+    })
+    .filter(Boolean);
+  const evts = runs
+    .flatMap(r => (r.history || []).filter(s => s.outcome && s.ended_at).map(s => ({...s, module: r.module, runId: r.id})))
+    .sort((a, b) => b.ended_at - a.ended_at)
+    .slice(0, 10);
+  const el = $("events");
+  if (!liveEvts.length && !evts.length) { el.innerHTML = '<div class="empty">no completed steps yet</div>'; return; }
+  const liveHtml = liveEvts.map(s =>
+    `<div class="ev live" data-run-id="${K.esc(s.runId)}" style="cursor:pointer"><span class="mod">${K.esc(s.module)}</span><span class="etitle">${K.esc(s.title || "implementing…")}</span><span class="live-elapsed" data-start="${s.started_at || ""}"></span><span class="tag now">running</span></div>`
+  ).join("");
+  const doneHtml = evts.map(s => {
+    const [word, kind] = outOf(s);
+    return `<div class="ev" data-run-id="${K.esc(s.runId)}" style="cursor:pointer"><span class="mod">${K.esc(s.module)}</span><span class="etitle">${K.esc(s.title || "(no idea yet)")}</span><span class="tag ${kind}">${K.esc(word)}</span><span class="when">${K.ago(s.ended_at)}</span></div>`;
+  }).join("");
+  el.innerHTML = liveHtml + doneHtml;
+}
+
+function renderStats() {
+  const now = Date.now() / 1000;
+  const day = runs.filter((r) => now - r.updated_at < 86400);
+  const stepsOf = (l) => l.flatMap((r) => r.history || []).filter((s) => s.outcome);
+  const all = stepsOf(runs), d = stepsOf(day);
+  const rate = (l) => (l.length ? Math.round((100 * l.filter((s) => landed(s.outcome)).length) / l.length) : 0);
+  const spent = (l) => l.reduce((a, r) => a + (+r.usd || 0), 0);
+  const live = runs.filter(isLive).length;
+  const spark = (() => {
+    const bars = [];
+    for (let i = 6; i >= 0; i--) {
+      const d2 = new Date(Date.now() - i * 86400000);
+      const ds = d2.toDateString();
+      const dayRuns = runs.filter((r) => new Date(r.updated_at * 1000).toDateString() === ds);
+      const steps = stepsOf(dayRuns);
+      const r2 = rate(steps);
+      const hasData = steps.length > 0;
+      const bg = !hasData ? "var(--line)" : r2 >= 50 ? "var(--green)" : "var(--amber)";
+      const h = hasData ? Math.max(2, Math.round((r2 / 100) * 24)) : 2;
+      const label = d2.toLocaleDateString(undefined, { weekday: "short" }) + ": " + (hasData ? r2 + "%" : "no data");
+      bars.push(`<i style="height:${h}px;background:${bg}" title="${label}"></i>`);
+    }
+    return `<div class="spark">${bars.join("")}</div>`;
+  })();
+  $("stats").innerHTML = [
+    [live, "running now", live ? "agents at work" : "idle", live > 0, ""],
+    [day.length, "runs · 24h", `${runs.length} all time`, false, ""],
+    [`${rate(d)}%`, "landed · 24h", `${rate(all)}% all time`, false, spark],
+    [`$${spent(day).toFixed(0)}`, "spent · 24h", `$${spent(runs).toFixed(0)} all time`, false, ""],
+  ].map(([b, l, s, hot, extra]) => `<div class="stat${hot ? " hot" : ""}"><span>${l}</span><b>${b}</b><small>${s}</small>${extra}</div>`).join("");
+}
+
+function tickElapsed() {
+  const now = Math.floor(Date.now() / 1000);
+  document.querySelectorAll(".live-elapsed[data-start]").forEach((el) => {
+    el.textContent = K.dur(now - +el.dataset.start);
+  });
+  document.querySelectorAll(".tl-seg.now[data-start]").forEach((seg) => {
+    const elapsed = now - +seg.dataset.start;
+    const baseline = +(seg.dataset.baseline) || 120;
+    seg.style.flexGrow = Math.max(baseline, elapsed);
+  });
+}
+
+function modSparkline(modRuns) {
+  const stepsOf = (l) => l.flatMap(r => r.history || []).filter(s => s.outcome);
+  const rate = (l) => l.length ? Math.round(100 * l.filter(s => landed(s.outcome)).length / l.length) : 0;
+  const bars = [];
+  for (let i = 4; i >= 0; i--) {
+    const d2 = new Date(Date.now() - i * 86400000);
+    const ds = d2.toDateString();
+    const dayRuns = modRuns.filter(r => new Date(r.updated_at * 1000).toDateString() === ds);
+    const steps = stepsOf(dayRuns);
+    const hasData = steps.length > 0;
+    const r2 = rate(steps);
+    const bg = !hasData ? "var(--line)" : r2 >= 50 ? "var(--green)" : "var(--amber)";
+    const h = hasData ? Math.max(2, Math.round(r2 / 100 * 24)) : 2;
+    bars.push(`<i style="height:${h}px;background:${bg}"></i>`);
+  }
+  return `<div class="spark" style="margin-top:0;width:40px;flex-shrink:0">${bars.join("")}</div>`;
+}
+
+function renderLeaderboard() {
+  const map = {};
+  for (const r of runs) {
+    if (!map[r.module]) map[r.module] = { runs: 0, completed: 0, landedN: 0, usd: 0, last_run: 0 };
+    const m = map[r.module];
+    m.runs++;
+    m.usd += +r.usd || 0;
+    m.last_run = Math.max(m.last_run || 0, r.updated_at);
+    for (const s of (r.history || [])) {
+      if (!s.outcome) continue;
+      m.completed++;
+      if (landed(s.outcome)) m.landedN++;
+    }
+  }
+  const rows = Object.entries(map)
+    .filter(([, m]) => m.completed > 0)
+    .map(([mod, m]) => ({ mod, runs: m.runs, rate: Math.round(100 * m.landedN / m.completed), usd: m.usd, last_run: m.last_run }))
+    .sort((a, b) => lbSort === "stale" ? a.last_run - b.last_run : (b.rate - a.rate || b.runs - a.runs));
+  $("lbN").textContent = rows.length ? `· ${rows.length}` : "";
+  const el = $("leaderboard");
+  if (!rows.length) { el.innerHTML = '<div class="empty">no completed steps yet</div>'; return; }
+  const liveModules = new Set(runs.filter(isLive).map(rv => rv.module));
+  el.innerHTML = rows.map(r => {
+    const kind = r.rate >= 60 ? "ok" : r.rate >= 30 ? "meh" : "miss";
+    const cost = r.usd ? `<span class="when">${usd(r.usd)}</span>` : "";
+    const modRuns = runs.filter(rv => rv.module === r.mod);
+    const recentCompleted = modRuns.slice(0, 3).flatMap(rv => (rv.history||[]).filter(s => s.outcome));
+    const recentRate = recentCompleted.length >= 3 ? Math.round(100 * recentCompleted.filter(s => landed(s.outcome)).length / recentCompleted.length) : null;
+    const diff = (r.runs >= 3 && recentRate !== null) ? recentRate - r.rate : null;
+    const trendEl = diff !== null && diff >= 15
+      ? `<span class="trend" style="color:#22c55e;font-size:.85em;margin-left:2px" title="recent ${recentRate}% vs overall ${r.rate}%">↑</span>`
+      : diff !== null && diff <= -15
+      ? `<span class="trend" style="color:#ef4444;font-size:.85em;margin-left:2px" title="recent ${recentRate}% vs overall ${r.rate}%">↓</span>`
+      : '';
+    const spark = modSparkline(modRuns);
+    const hasLive = liveModules.has(r.mod);
+    const daysSince = Math.floor((Date.now()/1000 - r.last_run) / 86400);
+    const staleTag = `<span class="tag${daysSince >= 7 ? " miss" : daysSince >= 3 ? " meh" : ""}">·${daysSince}d</span>`;
+    return `<div class="ev${hasLive ? " live" : ""}"><span class="mod" style="cursor:pointer" data-lb-mod="${K.esc(r.mod)}">${K.esc(r.mod)}</span>${trendEl}${spark}<span style="flex:1"></span><span class="tag ${kind}">${r.rate}%</span><span class="when">${r.runs} run${r.runs !== 1 ? "s" : ""}</span>${cost}${staleTag}<button class="btn" style="padding:4px 8px;font-size:10px" data-lb-run="${K.esc(r.mod)}" title="run ${K.esc(r.mod)} now">▶</button></div>`;
+  }).join("");
+}
+
+function renderWinsWall() {
+  const wins = runs
+    .flatMap(r => (r.history || []).filter(s => landed(s.outcome) && s.title).map(s => ({...s, module: r.module, runId: r.id, rusd: r.usd})))
+    .sort((a, b) => (b.ended_at || 0) - (a.ended_at || 0));
+  const total = wins.length;
+  $("winsN").textContent = total ? `\xB7 ${total}` : "";
+  const el = $("winsGrid");
+  if (!total) { el.innerHTML = '<div class="empty">no landed ideas yet</div>'; $("winsMore").hidden = true; return; }
+  const visible = winsAll ? wins : wins.slice(0, 15);
+  el.innerHTML = visible.map(s =>
+    `<div class="win-tile" data-run-id="${K.esc(s.runId)}">
+      <span class="wt-mod">${K.esc(s.module)}</span>
+      <div class="wt-title">${K.esc(s.title)}</div>
+      <div class="wt-foot"><span class="tag ok">${K.esc(K.ago(s.ended_at))}</span>${s.rusd ? `<span class="wt-usd">${usd(s.rusd)}</span>` : ""}</div>
+    </div>`
+  ).join("");
+  const moreBtn = $("winsMore");
+  moreBtn.hidden = total <= 15 || winsAll;
+  if (!moreBtn.hidden) moreBtn.textContent = `show all ${total}`;
+}
+
+function renderAwayBanner() {
+  const el = $('awayBanner');
+  if (!el) return;
+  if (_awayBannerDismissed || !lastVisit || (Math.floor(Date.now() / 1000) - lastVisit) < 300) {
+    el.hidden = true;
+    return;
+  }
+  const away = runs.filter(r => r.updated_at > lastVisit && !isLive(r));
+  if (!away.length) { el.hidden = true; return; }
+  const totalSteps = away.reduce((s, r) => s + (r.history || []).length, 0);
+  const landedSteps = away.reduce((s, r) => s + (r.history || []).filter(h => landed(h.outcome)).length, 0);
+  const totalUsd = away.reduce((s, r) => s + (+r.usd || 0), 0);
+  const costStr = totalUsd > 0 ? ` · ${usd(totalUsd)}` : '';
+  el.hidden = false;
+  el.innerHTML = `<span>While you were away · ${away.length} run${away.length !== 1 ? 's' : ''} · ${landedSteps}/${totalSteps} steps landed${costStr}</span><button class="close" onclick="_awayBannerDismissed=true;document.getElementById('awayBanner').hidden=true">×</button>`;
+}
+
+function render() {
+  const f = $("filter").value.trim().toLowerCase();
+  const vis = runs.filter((r) => !f
+    || r.module.toLowerCase().includes(f)
+    || (r.goal || "").toLowerCase().includes(f)
+    || (r.history || []).some(s => (s.title || "").toLowerCase().includes(f)));
+  const live = vis.filter(isLive);
+  const bar = $("topbar"), fill = $("topfill");
+  if (bar && fill) {
+    const totalSteps = live.reduce((s, r) => s + (r.steps || 0), 0);
+    const doneSteps = live.reduce((s, r) => s + (r.history || []).filter(st => st.outcome).length, 0);
+    fill.style.width = (totalSteps > 0 ? Math.round(100 * doneSteps / totalSteps) : 0) + '%';
+    if (live.length > 0) {
+      bar.className = "active";
+      _barWasActive = true;
+      if (_barDoneTimer) { clearTimeout(_barDoneTimer); _barDoneTimer = null; }
+    } else if (_barWasActive) {
+      _barWasActive = false;
+      bar.className = "done";
+      if (_barDoneTimer) clearTimeout(_barDoneTimer);
+      _barDoneTimer = setTimeout(() => { bar.className = ""; _barDoneTimer = null; }, 1500);
+    } else {
+      bar.className = "";
+    }
+  }
+  let done = vis.filter((r) => !isLive(r));
+  if (show !== "all") done = done.filter((r) => verdict(r)[1] === show || (show === "miss" && verdict(r)[1] === "meh"));
+  K.setState(K.pill(live.length > 0, `${live.length} running`, "quiet"));
+  renderStats();
+  renderWinsWall();
+  renderEvents();
+  renderLeaderboard();
+  $("liveN").textContent = live.length ? `· ${live.length}` : "";
+  $("doneN").textContent = done.length ? `· ${done.length}` : "";
+  const stoppable = live.filter(r => r.status !== "stopping" && (K.isOwner || (K.address && r.started_by?.toLowerCase() === K.address?.toLowerCase())));
+  const sab = $("stopAllBtn");
+  if (sab) { sab.hidden = stoppable.length < 2; if (!sab.hidden) sab.textContent = `stop all (${stoppable.length})`; }
+  for (const id of justCompleted) {
+    const r = runs.find((x) => x.id === id);
+    if (r) { const [, k] = verdict(r); if (k === "ok" || k === "meh") open.add(id); }
+  }
+  $("live").innerHTML = live.map(run).join("") || `<div class="empty">Nothing running. Start one above, or let the evolver pick.</div>`;
+  $("done").innerHTML = grouped(done.slice(0, limit)) || `<div class="empty">${f || show !== "all" ? "no runs match" : "no finished runs yet"}</div>`;
+  renderAwayBanner();
+  $("moreBtn").hidden = done.length <= limit;
+  $("moreBtn").textContent = `show more (${done.length - limit} left)`;
+  if (live.length > 0) {
+    tickElapsed();
+    if (!elapsedTimer) elapsedTimer = setInterval(tickElapsed, 1000);
+  } else if (elapsedTimer) {
+    clearInterval(elapsedTimer);
+    elapsedTimer = null;
+  }
+}
+
+function renderHint() {
+  $("a_steps").textContent = steps;
+  const costEst = (modAvgCostPerStep && modAvgCostPerStep > 0) ? ` · ~$${(modAvgCostPerStep * steps).toFixed(2)} est.` : "";
+  const chosenModel = $("a_model").value.trim();
+  const rateEntry = chosenModel ? (modelRates[chosenModel] || modelRates["claude-" + chosenModel]) : null;
+  const rateNote = rateEntry ? ` · ${model(chosenModel)} ~$${((rateEntry.measured_usd_per_min || rateEntry.expected_usd_per_min) || 0).toFixed(2)}/min` : "";
+  $("hint").textContent = mode === "play"
+    ? `${steps} step${steps > 1 ? "s" : ""}: each one, an agent writes an idea and a second builds it. Pre-approves ${steps} build${steps > 1 ? "s" : ""} on your account.${costEst}${rateNote}`
+    : `${steps} idea${steps > 1 ? "s" : ""} filed under your name — nothing gets built.${costEst}${rateNote}`;
+}
+
+const DEFAULT_CHIPS = ["polish the UI", "fix a bug", "improve error handling", "write tests", "improve performance", "add mobile support"];
+
+function renderGoalChips(mod) {
+  const el = $("goal_chips");
+  if (!el) return;
+  const activeText = $("a_goal").value.trim();
+  let chips = DEFAULT_CHIPS;
+  if (mod) {
+    const modRuns = runs.filter(r => r.module === mod && !isLive(r));
+    const runsWithLanded = modRuns.filter(r => (r.history || []).some(s => landed(s.outcome)));
+    const seen = new Set();
+    const goals = [];
+    for (const r of runsWithLanded) {
+      const g = (r.goal || "").trim();
+      if (g && !seen.has(g)) { seen.add(g); goals.push(g); }
+    }
+    const titles = [];
+    for (const r of runsWithLanded) {
+      for (const s of (r.history || [])) {
+        if (landed(s.outcome) && s.title) {
+          const t = s.title.trim();
+          if (t && !seen.has(t)) { seen.add(t); titles.push(t); }
+        }
+      }
+    }
+    const combined = [...goals, ...titles].slice(0, 6);
+    if (combined.length >= 2) chips = combined;
+  }
+  el.innerHTML = chips.map(c => `<span class="mod-chip${c === activeText ? " active" : ""}">${K.esc(c)}</span>`).join("");
+}
+
+function renderModChips() {
+  const tray = $("mod_chip_tray");
+  if (!tray) return;
+  tray.innerHTML = selectedMods.map((m, i) =>
+    `<span class="mod-sel-chip" data-chip-mod="${K.esc(m)}">${K.esc(m)}<span class="rm" data-rm="${i}" aria-label="remove">×</span></span>`
+  ).join("");
+  const btn = $("startBtn");
+  if (btn) btn.textContent = selectedMods.length > 1 ? `start ${selectedMods.length} runs` : "start run";
+}
+
+function addModChip(name) {
+  if (!name) return;
+  if (selectedMods.includes(name)) { K.toast(`${name} already in list`, true); return; }
+  selectedMods.push(name);
+  $("a_mod").value = "";
+  $("a_mod").placeholder = selectedMods.length ? "add another…" : "add a module…";
+  renderModChips();
+  _previewMod("");
+}
+
+function _previewMod(mod) {
+  const el = $("mod_stats");
+  if (!el) return;
+  if (!mod) { modAvgCostPerStep = null; renderHint(); el.textContent = ""; return; }
+  const modRuns = runs.filter(r => r.module === mod && !isLive(r));
+  if (!modRuns.length) { modAvgCostPerStep = null; renderHint(); el.textContent = "no history — first run"; return; }
+  const allSteps = modRuns.flatMap(r => r.history || []).filter(s => s.outcome);
+  const landedCount = allSteps.filter(s => landed(s.outcome)).length;
+  const landedPct = allSteps.length ? Math.round(100 * landedCount / allSteps.length) : 0;
+  const totalUsd = modRuns.reduce((a, r) => a + (+r.usd || 0), 0);
+  modAvgCostPerStep = allSteps.length ? totalUsd / allSteps.length : null;
+  renderHint();
+  el.textContent = `${modRuns.length} run${modRuns.length !== 1 ? "s" : ""} · ${landedPct}% landed · $${totalUsd.toFixed(2)} total`;
+}
+
+function updateModStats() {
+  const mod = $("a_mod").value.trim();
+  renderGoalChips(mod);
+  _previewMod(mod);
+}
+
+async function load() {
+  const [r, allMods, rates] = await Promise.all([K.api("/auto"), K.api("/modules"), K.api("/costs/rates")]);
+  if (!r.ok) return;
+  const fresh = (r.data.runs || []).sort((a, b) => b.updated_at - a.updated_at);
+  prevLive.forEach((id) => { const x = fresh.find((f) => f.id === id); if (x && !isLive(x)) { notify(x.module, verdict(x)[0]); justCompleted.add(id); } });
+  runs = fresh;
+  localStorage.setItem('ar_last_visit', Math.floor(Date.now() / 1000));
+  prevLive.clear(); runs.filter(isLive).forEach((x) => prevLive.add(x.id));
+  const mods = [...new Set([...runs.map((x) => x.module), ...(allMods.data?.modules || []).map((m) => m.name)])].sort();
+  $("mods").innerHTML = mods.map((m) => `<option value="${K.esc(m)}">`).join("");
+  const ratesList = rates.data?.models || [];
+  modelRates = {};
+  ratesList.forEach((m) => { modelRates[m.model] = m; });
+  $("models").innerHTML = ratesList.map((m) => {
+    const rate = m.measured_usd_per_min || m.expected_usd_per_min;
+    const label = `${model(m.model)} · $${rate ? rate.toFixed(2) : "??"}/min`;
+    return `<option value="${K.esc(m.model)}">${K.esc(label)}</option>`;
+  }).join("");
+  render();
+  if (justCompleted.size === 1) {
+    const id = [...justCompleted][0];
+    requestAnimationFrame(() => {
+      document.querySelector(`.run[data-id="${id}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+  }
+  if (justCompleted.size > 0 && runs.filter(isLive).length === 0) {
+    showSessionSummary(justCompleted);
+  }
+  justCompleted.clear();
+  updateModStats();
+}
+
+document.body.addEventListener("click", async (e) => {
+  const el = e.target.closest(".run[data-id]");
+  if (!el || e.target.closest("a")) return;
+  const id = el.dataset.id;
+  if (e.target.closest("[data-a=stop]")) {
+    if (await K.ask("Stop this run? It stops between phases; a job already in flight finishes.", "Stop", true)) { await K.act(`/auto/${id}/stop`, {}, "stopping"); load(); }
+    return;
+  }
+  if (e.target.closest("[data-a=rerun]")) {
+    const r = runs.find((x) => x.id === id);
+    if (!r) return;
+    $("a_mod").value = r.module;
+    $("a_goal").value = r.goal || "";
+    $("a_model").value = r.model || "";
+    steps = r.steps;
+    mode = (r.play ?? true) ? "play" : "ideas";
+    $("a_mode").querySelectorAll("button").forEach((x) => x.classList.toggle("sel", x.dataset.v === mode));
+    renderHint();
+    document.querySelector(".card.wide").scrollIntoView({ behavior: "smooth", block: "start" });
+    $("startBtn").focus();
+    return;
+  }
+  if (e.target.closest("[data-a=copylink]")) {
+    const r = runs.find((x) => x.id === id);
+    const url = location.origin + location.pathname + "?run=" + id + (r ? "&mod=" + encodeURIComponent(r.module) : "");
+    navigator.clipboard.writeText(url);
+    K.toast("link copied");
+    return;
+  }
+  if (e.target.closest(".steps") && !e.target.closest(".foot")) return;
+  open.has(id) ? open.delete(id) : open.add(id);
+  const qs = new URLSearchParams(location.search);
+  if (open.has(id)) { qs.set("run", id); } else { qs.delete("run"); }
+  history.replaceState(null, "", location.pathname + (qs.toString() ? "?" + qs.toString() : ""));
+  render();
+});
+document.querySelector(".stepper").onclick = (e) => {
+  const d = +e.target.closest("button")?.dataset.d || 0;
+  e.preventDefault();
+  steps = Math.min(20, Math.max(1, steps + d));
+  renderHint();
+};
+const seg = (id, set) => ($(id).onclick = (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  e.preventDefault();
+  $(id).querySelectorAll("button").forEach((x) => x.classList.toggle("sel", x === b));
+  set(b.dataset.v);
+});
+seg("a_mode", (v) => { mode = v; renderHint(); });
+seg("show", (v) => { show = v; limit = 40; render(); });
+seg("lb_sort", (v) => { lbSort = v; renderLeaderboard(); });
+$("winsMore").onclick = () => { winsAll = true; renderWinsWall(); };
+$("filter").oninput = () => { limit = 40; render(); };
+$("moreBtn").onclick = () => { limit += 40; render(); };
+$("stopAllBtn").onclick = async () => {
+  const stoppable = runs.filter(r => isLive(r) && r.status !== "stopping" && (K.isOwner || (K.address && r.started_by?.toLowerCase() === K.address?.toLowerCase())));
+  if (!stoppable.length) return;
+  if (!await K.ask(`Stop all ${stoppable.length} running run${stoppable.length > 1 ? "s" : ""}? Each stops between phases; jobs already in flight finish.`, "Stop all", true)) return;
+  for (const r of stoppable) await K.act(`/auto/${r.id}/stop`, {}, null);
+  K.toast(`stopping ${stoppable.length} run${stoppable.length > 1 ? "s" : ""}`);
+  load();
+};
+$("startBtn").onclick = async (e) => {
+  _sessionShown = false;
+  if (Notification.permission === "default") Notification.requestPermission();
+  const inputMod = $("a_mod").value.trim();
+  const modsToRun = selectedMods.length > 0 ? [...selectedMods] : (inputMod ? [inputMod] : []);
+  if (!modsToRun.length) { $("a_mod").focus(); return K.toast("pick a module", true); }
+  const body = { steps, goal: $("a_goal").value.trim(), play: mode === "play" };
+  if ($("a_model").value.trim()) body.model = $("a_model").value.trim();
+  const go = async () => {
+    for (const mod of modsToRun) {
+      await K.act(`/modules/${encodeURIComponent(mod)}/auto`, body, modsToRun.length > 1 ? null : "run started");
+    }
+    if (modsToRun.length > 1) K.toast(`${modsToRun.length} runs started`);
+    load();
+  };
+  if (body.play) {
+    const armMsg = modsToRun.length > 1
+      ? `sure? ${steps} build${steps > 1 ? "s" : ""} × ${modsToRun.length} modules`
+      : `sure? ${steps} build${steps > 1 ? "s" : ""}`;
+    K.armed(e.target, armMsg, go);
+  } else {
+    go();
+  }
+};
+document.body.addEventListener("click", e => {
+  const evRunId = e.target.closest("[data-run-id]")?.dataset.runId;
+  if (evRunId) {
+    open.add(evRunId);
+    const r = runs.find(x => x.id === evRunId);
+    if (r && $("filter").value.trim() && !r.module.toLowerCase().includes($("filter").value.trim().toLowerCase())) {
+      $("filter").value = "";
+    }
+    render();
+    document.querySelector(`.run[data-id="${evRunId}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    return;
+  }
+  const runMod = e.target.closest("[data-lb-run]")?.dataset.lbRun;
+  if (runMod) {
+    const body = { steps, goal: $("a_goal").value.trim(), play: mode === "play" };
+    if ($("a_model").value.trim()) body.model = $("a_model").value.trim();
+    const go = async () => { if (await K.act(`/modules/${encodeURIComponent(runMod)}/auto`, body, `run started · ${runMod}`)) load(); };
+    body.play ? K.armed(e.target, `sure? ${steps} build${steps > 1 ? "s" : ""}`, go) : go();
+    return;
+  }
+  const mod = e.target.closest("[data-lb-mod]")?.dataset.lbMod;
+  if (!mod) return;
+  $("filter").value = mod;
+  $("a_mod").value = mod;
+  const recentLanded = runs
+    .filter(r => r.module === mod && !isLive(r))
+    .flatMap(r => (r.history || []).filter(s => landed(s.outcome) && s.title).map(s => ({ title: s.title, ended_at: s.ended_at || 0 })))
+    .sort((a, b) => b.ended_at - a.ended_at)[0];
+  if (recentLanded) $("a_goal").value = recentLanded.title;
+  limit = 40;
+  render();
+  updateModStats();
+  document.querySelector(".card.wide")?.scrollIntoView({ behavior: "smooth", block: "start" });
+});
+$("a_mod").oninput = () => updateModStats();
+$("a_model").oninput = renderHint;
+$("a_mod").onkeydown = (e) => {
+  if (e.key !== "Enter") return;
+  const val = $("a_mod").value.trim();
+  if (val) { e.preventDefault(); addModChip(val); } else { $("startBtn").click(); }
+};
+$("a_goal").onkeydown = (e) => { if (e.key === "Enter") $("startBtn").click(); };
+$("goal_chips").onclick = (e) => {
+  const chip = e.target.closest(".mod-chip"); if (!chip) return;
+  $("a_goal").value = chip.textContent;
+  $("goal_chips").querySelectorAll(".mod-chip").forEach((c) => c.classList.toggle("active", c === chip));
+};
+$("a_goal").oninput = () => $("goal_chips").querySelectorAll(".mod-chip").forEach((c) => c.classList.remove("active"));
+$("mod_chip_tray").addEventListener("click", (e) => {
+  const rm = e.target.closest("[data-rm]");
+  if (!rm) return;
+  selectedMods.splice(+rm.dataset.rm, 1);
+  $("a_mod").placeholder = selectedMods.length ? "add another…" : "add a module…";
+  renderModChips();
+});
+$("mod_chip_tray").addEventListener("mouseover", (e) => {
+  const chip = e.target.closest("[data-chip-mod]");
+  if (chip) _previewMod(chip.dataset.chipMod);
+});
+$("mod_chip_tray").addEventListener("mouseout", (e) => {
+  if (!e.relatedTarget?.closest("[data-chip-mod]")) _previewMod($("a_mod").value.trim());
+});
+
+const q = new URLSearchParams(location.search);
+if (q.get("mod")) { $("a_mod").value = q.get("mod"); $("filter").value = q.get("mod"); }
+renderHint();
+renderGoalChips($("a_mod").value.trim());
+
+let _deepLinked = false;
+const _origLoad = load;
+load = async function () {
+  await _origLoad();
+  if (!_deepLinked && q.get("run")) {
+    _deepLinked = true;
+    const rid = q.get("run");
+    if (!open.has(rid)) { open.add(rid); render(); }
+    document.querySelector(`.run[data-id="${rid}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+};
+
+K.init({ glyph: "▶", title: "Auto runs", accent: "#63d4a8", sub: "Point agents at a mod and walk away: one proposes an idea, another builds it, N times." })
+  .then(() => { $("startBtn").disabled = !K.token; K.poll(load, 5000); });
+</script>
+</body>
+</html>

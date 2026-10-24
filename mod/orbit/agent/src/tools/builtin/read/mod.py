@@ -1,7 +1,6 @@
 """read - read files from disk"""
-import os
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 
 class Tool:
     description = "Read file contents with optional line range"

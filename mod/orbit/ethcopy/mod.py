@@ -1,27 +1,38 @@
+import json
 import os
-import mod as m
+import sys
+
+SELF = os.path.dirname(os.path.abspath(__file__))
+STRAT = os.path.join(os.path.dirname(SELF), "strat")
+
+
+def _protocol():
+    sys.path.insert(0, STRAT) if STRAT not in sys.path else None
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("strat_host", os.path.join(STRAT, "mod.py"))
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m.Mod()
+
 
 class Mod:
-    description = """ethcopy"""
-    path = r'/root/mod/mod/orbit/ethcopy'
+    description = "ethcopy — a strategy mod on the strat protocol"
+    path = SELF
 
     def forward(self, **kwargs):
-        """Default entry point."""
         return self.info()
 
     def info(self):
-        """Return module info."""
-        return {
-            'name': 'ethcopy',
-            'description': self.description,
-            'path': self.path,
-            'files': os.listdir(self.path),
-        }
+        with open(os.path.join(SELF, "config.json")) as f:
+            return json.load(f)
 
-    def readme(self):
-        """Return the project README."""
-        for name in ['README.md', 'readme.md', 'README.rst', 'README']:
-            p = os.path.join(self.path, name)
-            if os.path.exists(p):
-                return m.get_text(p)
-        return None
+    def code(self):
+        with open(os.path.join(SELF, "strat.py")) as f:
+            return f.read()
+
+    def verify(self):
+        return _protocol().verify("ethcopy")
+
+    def backtest(self, days=7, capital=1000.0, traders=None):
+        return _protocol().backtest("ethcopy", days=days, capital=capital,
+                                    traders=traders)

@@ -1,0 +1,112 @@
+// {{DESC}}
+//
+// Commit-reveal with Poseidon. Phase 1: everyone posts H(value, salt, who).
+// Phase 2: each reveals (value, salt) and the contract checks the hash. Until
+// the reveal, nobody (including the sequencer) learns the value: the
+// building block of sealed-bid auctions, private votes and fair coin flips.
+
+use core::poseidon::poseidon_hash_span;
+use starknet::ContractAddress;
+
+/// The commitment for `value` hidden under `salt`, bound to `who`. Binding the
+/// committer's address stops someone copying another's commitment and
+/// revealing it as their own after watching the reveal land.
+pub fn commitment(value: felt252, salt: felt252, who: ContractAddress) -> felt252 {
+    poseidon_hash_span(array![value, salt, who.into()].span())
+}
+
+#[starknet::interface]
+pub trait I{{NAME}}<TContractState> {
+    fn commit(ref self: TContractState, commitment: felt252);
+    fn reveal(ref self: TContractState, value: felt252, salt: felt252);
+    fn commitment_of(self: @TContractState, who: ContractAddress) -> felt252;
+    fn is_revealed(self: @TContractState, who: ContractAddress) -> bool;
+    fn value_of(self: @TContractState, who: ContractAddress) -> felt252;
+    fn commits(self: @TContractState) -> u32;
+    fn reveals(self: @TContractState) -> u32;
+}
+
+#[starknet::contract]
+pub mod {{NAME}} {
+    use starknet::{ContractAddress, get_caller_address};
+    use starknet::storage::{
+        Map, StorageMapReadAccess, StorageMapWriteAccess, StoragePointerReadAccess,
+        StoragePointerWriteAccess,
+    };
+
+    #[storage]
+    struct Storage {
+        commitments: Map<ContractAddress, felt252>,
+        // a separate flag, not "value != 0": revealing 0 is legitimate
+        revealed: Map<ContractAddress, bool>,
+        values: Map<ContractAddress, felt252>,
+        commits: u32,
+        reveals: u32,
+    }
+
+    #[event]
+    #[derive(Drop, starknet::Event)]
+    pub enum Event {
+        Committed: Committed,
+        Revealed: Revealed,
+    }
+
+    #[derive(Drop, starknet::Event)]
+    pub struct Committed {
+        #[key]
+        pub who: ContractAddress,
+        pub commitment: felt252,
+    }
+
+    #[derive(Drop, starknet::Event)]
+    pub struct Revealed {
+        #[key]
+        pub who: ContractAddress,
+        pub value: felt252,
+    }
+
+    #[abi(embed_v0)]
+    impl {{NAME}}Impl of super::I{{NAME}}<ContractState> {
+        fn commit(ref self: ContractState, commitment: felt252) {
+            let who = get_caller_address();
+            assert(commitment != 0, 'empty commitment');
+            assert(self.commitments.read(who) == 0, 'already committed');
+            self.commitments.write(who, commitment);
+            self.commits.write(self.commits.read() + 1);
+            self.emit(Committed { who, commitment });
+        }
+
+        fn reveal(ref self: ContractState, value: felt252, salt: felt252) {
+            let who = get_caller_address();
+            let c = self.commitments.read(who);
+            assert(c != 0, 'nothing committed');
+            assert(!self.revealed.read(who), 'already revealed');
+            assert(super::commitment(value, salt, who) == c, 'bad reveal');
+            self.revealed.write(who, true);
+            self.values.write(who, value);
+            self.reveals.write(self.reveals.read() + 1);
+            self.emit(Revealed { who, value });
+        }
+
+        fn commitment_of(self: @ContractState, who: ContractAddress) -> felt252 {
+            self.commitments.read(who)
+        }
+
+        fn is_revealed(self: @ContractState, who: ContractAddress) -> bool {
+            self.revealed.read(who)
+        }
+
+        fn value_of(self: @ContractState, who: ContractAddress) -> felt252 {
+            assert(self.revealed.read(who), 'not revealed');
+            self.values.read(who)
+        }
+
+        fn commits(self: @ContractState) -> u32 {
+            self.commits.read()
+        }
+
+        fn reveals(self: @ContractState) -> u32 {
+            self.reveals.read()
+        }
+    }
+}

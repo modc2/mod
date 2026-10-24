@@ -1,0 +1,39 @@
+{
+    "name": "sn118",
+    "version": "1.0.0",
+    "description": "SN118 Ditto \u2014 Open-Source Claude Cowork. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+    "icon": "\u2c81",
+    "chain": "bittensor",
+    "netuid": 118,
+    "subnet": "Ditto",
+    "symbol": "\u2c81",
+    "owner": "5HGXqHbQjEmwnQsnnMa8pm13VUv9PP2jB4Vuv9nw7NwUYiAN",
+    "github": "https://github.com/orgs/ditto-assistant/repositories",
+    "url": "https://heyditto.ai",
+    "discord": "https://discord.gg/qNKYZEMpkD",
+    "logo": "https://f005.backblazeb2.com/file/ditto-assets/ditto-logo.png",
+    "related": [],
+    "active": true,
+    "route": false,
+    "generated_by": "subnets",
+    "updated": "2026-10-20",
+    "urls": {
+        "bt": "/bt/markets?sn=118",
+        "news": "/bt/news?netuid=118"
+    },
+    "fns": [
+        "info",
+        "price",
+        "news",
+        "trades",
+        "daily",
+        "history",
+        "validators",
+        "neurons",
+        "links",
+        "snapshot",
+        "readme",
+        "refresh"
+    ],
+    "schema": "QmPS88qR7Eykf76Yc2zpChEazzjUhNT8nTPNRM9mCDUfYJ"
+}

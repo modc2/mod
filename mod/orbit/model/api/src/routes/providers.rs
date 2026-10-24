@@ -16,11 +16,11 @@ pub struct ProviderInfo {
 pub async fn list(State(s): State<Arc<AppState>>) -> Json<Vec<ProviderInfo>> {
     let mut out: Vec<_> = s.providers.iter().map(|(id, cfg)| ProviderInfo {
         id: id.to_string(),
-        label: cfg.label.into(),
-        url: cfg.url.into(),
-        default_model: cfg.default_model.into(),
-        key_hint: cfg.key_hint.into(),
-        docs: cfg.docs.into(),
+        label: cfg.label.clone(),
+        url: cfg.url.clone(),
+        default_model: cfg.default_model.clone(),
+        key_hint: cfg.key_hint.clone(),
+        docs: cfg.docs.clone(),
     }).collect();
     // Stable order matters for the UI.
     out.sort_by(|a, b| a.id.cmp(&b.id));

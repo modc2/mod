@@ -1,0 +1,189 @@
+{
+  "netuid": 78,
+  "name": "Umi",
+  "symbol": "و",
+  "owner": "5GvYz1tBVJdVGtdeJFAcDbiRQcmKDcXicT98pxnKzU3cxVQ3",
+  "description": "Universal motion to meaning",
+  "github": "https://github.com/Umi-BitSign/umi",
+  "url": "https://www.umi.vision",
+  "discord": "https://discord.gg/8pexneWef",
+  "logo": "https://www.umi.vision/logo-white.png",
+  "registered_at": 7966145,
+  "tempo": 360,
+  "active": true,
+  "block": 9322663,
+  "related": [],
+  "market": {
+    "price": 0.002458428,
+    "moving_price": 0.0026820094790309668,
+    "market_cap": 3948.108498666839,
+    "tao_in": 1185.154073445,
+    "alpha_in": 482078.065734838,
+    "alpha_out": 1123870.328388089,
+    "volume": 196182.738149976,
+    "vol_24h": 391.30133827900863,
+    "emission": 0.0,
+    "change_1h": -3.9687441040707094,
+    "change_24h": -12.47788297432254,
+    "change_7d": -32.313439390189146
+  },
+  "spark_24h": [
+    0.002808922,
+    0.002843153,
+    0.002783897,
+    0.002827085,
+    0.002827083,
+    0.00282708,
+    0.002791821,
+    0.00279182,
+    0.00279182,
+    0.002791799,
+    0.002791799,
+    0.002791799,
+    0.002789258,
+    0.00270813,
+    0.00270813,
+    0.002708088,
+    0.002706454,
+    0.002621695,
+    0.002621695,
+    0.002642134,
+    0.002560351,
+    0.002573836,
+    0.002599358,
+    0.002599358,
+    0.002567906,
+    0.002567811,
+    0.002567811,
+    0.002567811,
+    0.002567811,
+    0.002567811,
+    0.002567789,
+    0.002567789,
+    0.002567789,
+    0.002567789,
+    0.002567789,
+    0.002567785,
+    0.002563544,
+    0.002563544,
+    0.002563542,
+    0.002560059,
+    0.002560059,
+    0.002560059,
+    0.002560059,
+    0.002560055,
+    0.002560029,
+    0.002560029,
+    0.002538904,
+    0.002458428
+  ],
+  "trades_24h": {
+    "trades": 133,
+    "buys": 40,
+    "sells": 93,
+    "buy_tao": 154.852806007,
+    "sell_tao": 232.386694048,
+    "net_tao": -77.53388804100001,
+    "traders": 66
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5CY9b9tgGmSoec5pykbthbpG8ninVvYiZDYeznYxknqMAuix",
+      "net_tao": -14.997022988000001,
+      "gross_tao": 54.997022988,
+      "trades": 9
+    },
+    {
+      "coldkey": "5H1LrDBGzU8KVkry4vB3pa2zL2RU1aCooPtnHesZV6U3PSHp",
+      "net_tao": 1.2162139150000009,
+      "gross_tao": 28.783786085,
+      "trades": 3
+    },
+    {
+      "coldkey": "5Ew9Di2EwDPYMw9T9UTHXTiSALaVxEbdfSpxxiMcCiWDeCgV",
+      "net_tao": -14.505933268,
+      "gross_tao": 24.505933268,
+      "trades": 2
+    },
+    {
+      "coldkey": "5H62mYcRGPfqP4wo4Pg87zwxKVtXfz2M5EBvXBN3nLW7JV2m",
+      "net_tao": 0.021726821000000562,
+      "gross_tao": 23.978273179,
+      "trades": 4
+    },
+    {
+      "coldkey": "5FNuEwSB4LyYNPQi8zvN6XPEovYB7AoY5Kverkca9eNNjQyv",
+      "net_tao": -7.974719941,
+      "gross_tao": 23.813053875,
+      "trades": 3
+    }
+  ],
+  "news": [
+    {
+      "ts": 1792456671,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #321 from Umi-BitSign/retained-checkpoint-header-h…",
+      "url": "https://github.com/Umi-BitSign/umi/commit/e797fd71f5eb2cd743784d0a18249f6e1adfe6e8",
+      "publisher": "Umi-BitSign/umi"
+    },
+    {
+      "ts": 1792456648,
+      "kind": "commit",
+      "source": "github",
+      "title": "Restore completed control history from retained checkpoint header hints",
+      "url": "https://github.com/Umi-BitSign/umi/commit/fae0118a0f741c73dc5b1dcec78f818e183872b2",
+      "publisher": "Umi-BitSign/umi"
+    },
+    {
+      "ts": 1792453544,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #320 from Umi-BitSign/runtime-adoption-authenticat…",
+      "url": "https://github.com/Umi-BitSign/umi/commit/525ca54c4b27ce108ae7ee1d4778c4ab64d4a69f",
+      "publisher": "Umi-BitSign/umi"
+    },
+    {
+      "ts": 1792453415,
+      "kind": "commit",
+      "source": "github",
+      "title": "Authorize contained runtime code supersession without replacing signe…",
+      "url": "https://github.com/Umi-BitSign/umi/commit/95276f8d4da846fa6cfa8d8fe70f96858e66b0b5",
+      "publisher": "Umi-BitSign/umi"
+    },
+    {
+      "ts": 1792451868,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #319 from Umi-BitSign/qualify-runtime481-eligibility",
+      "url": "https://github.com/Umi-BitSign/umi/commit/2c127fa3c961536baf6b19ff7c30d769eecafdc0",
+      "publisher": "Umi-BitSign/umi"
+    },
+    {
+      "ts": 1792433445,
+      "kind": "commit",
+      "source": "github",
+      "title": "Reuse canonical retained bytes during checkpoint metadata loading (#318)",
+      "url": "https://github.com/Umi-BitSign/umi/commit/ba20e668c1e1aaae87444006087877f08c65aab1",
+      "publisher": "Umi-BitSign/umi"
+    },
+    {
+      "ts": 1792428241,
+      "kind": "commit",
+      "source": "github",
+      "title": "Batch checkpoint source identities within fresh SQL snapshots (#317)",
+      "url": "https://github.com/Umi-BitSign/umi/commit/662821998437948f60a8b2149d3ea86eb6e2b431",
+      "publisher": "Umi-BitSign/umi"
+    },
+    {
+      "ts": 1792414991,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #316 from Umi-BitSign/fix/canonical-small-document…",
+      "url": "https://github.com/Umi-BitSign/umi/commit/fa87e0add020be1ebd04837de75840d6b3c92f18",
+      "publisher": "Umi-BitSign/umi"
+    }
+  ],
+  "updated": 1792474861,
+  "updated_day": "2026-10-20"
+}

@@ -57,6 +57,7 @@ export default function LiveAutoResume() {
       filter: strat.filter,
       momentum: strat.momentum,
       ...(strat.maxUpscale !== undefined && { maxUpscale: strat.maxUpscale }),
+      ...(rec.autoExecute !== undefined && { autoExecute: rec.autoExecute }),
     });
   }, [auth.connected, auth.address, auth.clobCreds, isLive, startLive]);
 

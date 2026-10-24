@@ -1,0 +1,27 @@
+{
+    "name": "factors",
+    "title": "Factors",
+    "description": "Factors \u2014 a Circom 2 project.",
+    "version": "0.1.0",
+    "submod_of": "zkworld",
+    "framework": "circom",
+    "kind": "circom-project",
+    "template": "multiplier",
+    "anchor": "mod.py",
+    "fns": [
+        "forward",
+        "info",
+        "build",
+        "test",
+        "vibe",
+        "abi",
+        "tree",
+        "read",
+        "write",
+        "clean",
+        "app",
+        "witness"
+    ],
+    "statement": "factors",
+    "schema": "QmPBkc4rYZm38RSpqHrQxdJUMebPVswhAQcRL7tzDrNYvv"
+}

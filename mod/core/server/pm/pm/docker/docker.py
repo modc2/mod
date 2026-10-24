@@ -5,6 +5,7 @@ from typing import List, Dict, Union, Optional, Any
 import mod as m
 
 import subprocess
+import time
 import json
 from datetime import datetime
 import yaml  
@@ -898,6 +899,419 @@ class PM:
         """
         return p.replace('~', '/root').replace(m.homepath, '/root')
         
+
+    # ── the mod protocol sandbox ─────────────────────────────────────────
+    # One container that can run ANY mod in the tree. The image is a toolchain
+    # (python/node/rust/caddy); the tree itself is bind-mounted, so `m serve x`
+    # inside the box runs the same code you are editing on the host.
+
+    sandbox_name = 'mod'
+    sandbox_image = 'mod:latest'
+    sandbox_band = (50950, 50969)   # host ports compose publishes 1:1
+
+    def sandbox_root(self) -> str:
+        """Repo root — where the sandbox Dockerfile and compose file live."""
+        return m.abspath(m.lib_path)
+
+    def sh(self, cmd: str, timeout: int = 300, cwd: str = None):
+        """Run a shell command, never raise. -> (returncode, output)"""
+        try:
+            r = subprocess.run(cmd, shell=True, capture_output=True, text=True,
+                               timeout=timeout, cwd=cwd)
+            return r.returncode, ((r.stdout or '') + (r.stderr or '')).strip()
+        except subprocess.TimeoutExpired:
+            return 124, f'timeout after {timeout}s: {cmd}'
+        except Exception as e:
+            return 1, f'{type(e).__name__}: {e}'
+
+    def sandbox_running(self) -> bool:
+        code, out = self.sh(f'docker inspect -f "{{{{.State.Running}}}}" {self.sandbox_name}', timeout=30)
+        return code == 0 and out.strip().endswith('true')
+
+    def sandbox_image_exists(self, image: str = None) -> bool:
+        image = image or self.sandbox_image
+        code, _ = self.sh(f'docker image inspect {image}', timeout=60)
+        return code == 0
+
+    def status(self, mod: str = None) -> Dict[str, Any]:
+        """Where the sandbox stands right now. Safe to call any time."""
+        root = self.sandbox_root()
+        out = {
+            'root': root,
+            'image': self.sandbox_image,
+            'image_built': self.sandbox_image_exists(),
+            'container': self.sandbox_name,
+            'running': self.sandbox_running(),
+            'daemon': self.is_docker_daemon_on(),
+            'dockerfile': os.path.isfile(os.path.join(root, 'Dockerfile')),
+            'compose': os.path.isfile(os.path.join(root, 'docker-compose.yml')),
+        }
+        if out['running']:
+            code, tree = self.sh(f'docker exec {self.sandbox_name} python3 -c "import mod; print(mod.__file__)"', timeout=60)
+            out['tree_mounted'] = code == 0
+            out['tree'] = tree if code == 0 else None
+            out['serving'] = self.sandbox_serving()
+        if mod:
+            out['mod'] = self.ready(mod)
+        return out
+
+    def boot(self, rebuild: bool = False, wait: int = 90, no_cache: bool = False) -> Dict[str, Any]:
+        """
+        Start the mod sandbox: ensure the image, the network and the container,
+        then prove the tree is really importable inside it.
+
+        Anything that is not ready comes back as a report with a `fix` field —
+        hand that straight to `m docker/modify`.
+        """
+        self.ensure_docker()
+        self.ensure_network()
+        root = self.sandbox_root()
+        compose = os.path.join(root, 'docker-compose.yml')
+        if not os.path.isfile(compose):
+            return {'ok': False, 'error': f'no docker-compose.yml at {root}',
+                    'fix': f'm docker/modify mod query="write the sandbox docker-compose.yml"'}
+
+        if rebuild or not self.sandbox_image_exists():
+            print(f'Building {self.sandbox_image} (this takes a few minutes)...', color='yellow')
+            cmd = f'DOCKER_BUILDKIT=0 docker build -t {self.sandbox_image} -f Dockerfile .'
+            if no_cache:
+                cmd += ' --no-cache'
+            code, out = self.sh(cmd, timeout=3600, cwd=root)
+            if code != 0:
+                return {'ok': False, 'stage': 'build', 'error': out[-4000:],
+                        'fix': 'm docker/modify mod query="fix the sandbox image build"'}
+
+        code, out = self.sh(f'docker compose -f {compose} up -d', timeout=600, cwd=root)
+        if code != 0:
+            return {'ok': False, 'stage': 'up', 'error': out[-4000:],
+                    'fix': 'm docker/modify mod query="fix docker-compose.yml so the sandbox starts"'}
+
+        t0 = time.time()
+        while time.time() - t0 < wait:
+            if self.sandbox_running():
+                code, tree = self.sh(
+                    f'docker exec {self.sandbox_name} python3 -c "import mod; print(mod.__file__)"', timeout=120)
+                if code == 0:
+                    return {'ok': True, 'container': self.sandbox_name, 'tree': tree,
+                            'enter': f'docker exec -it {self.sandbox_name} bash',
+                            'serve': 'm docker/serve <mod>'}
+            time.sleep(2)
+
+        return {'ok': False, 'stage': 'health',
+                'error': f'sandbox did not become importable within {wait}s',
+                'logs': self.logs(self.sandbox_name, tail=40),
+                'fix': 'm docker/modify mod query="the sandbox container starts but `import mod` fails inside it"'}
+
+    def shell(self, cmd: str, mod: str = None, timeout: int = 300) -> str:
+        """Run a shell command inside the sandbox (cwd = the mod's dir if given)."""
+        if not self.sandbox_running():
+            boot = self.boot()
+            if not boot.get('ok'):
+                return json.dumps(boot, indent=2)
+        workdir = ''
+        if mod:
+            workdir = f'-w {self.convert_docker_path(m.dirpath(mod))} '
+        code, out = self.sh(
+            f'docker exec {workdir}{self.sandbox_name} bash -lc {json.dumps(cmd)}', timeout=timeout)
+        return out
+
+    def sandbox_serving(self) -> Dict[str, int]:
+        """Mods currently served inside the sandbox -> {mod: port}."""
+        code, out = self.sh(
+            f"docker exec {self.sandbox_name} bash -lc \"ps -eo args | grep -o 'm serve [^ ]* port=[0-9]*' || true\"",
+            timeout=60)
+        serving = {}
+        if code == 0:
+            for line in out.splitlines():
+                parts = line.split()
+                if len(parts) >= 4:
+                    serving[parts[2]] = int(parts[3].split('=')[1])
+        return serving
+
+    def free_band_port(self, mod: str = None) -> int:
+        """Pick a host port from the published band that nothing inside is using."""
+        lo, hi = self.sandbox_band
+        taken = set(self.sandbox_serving().values())
+        for port in range(lo, hi + 1):
+            if port not in taken:
+                return port
+        raise RuntimeError(f'sandbox port band {lo}-{hi} is full: {sorted(taken)}')
+
+    def serve(self, mod: str = 'api', port: int = None, wait: int = 60,
+              force: bool = False) -> Dict[str, Any]:
+        """
+        Run ANY mod inside the sandbox and hand back its URL.
+
+        Not ready? You get the readiness report instead of a broken container,
+        with the exact `m docker/modify` line that puts the build agent on it.
+        """
+        report = self.ready(mod)
+        if not report['ready'] and not force:
+            return report
+
+        boot = self.boot()
+        if not boot.get('ok'):
+            return boot
+
+        serving = self.sandbox_serving()
+        if mod in serving and not force:
+            port = serving[mod]
+            return {'ok': True, 'mod': mod, 'port': port,
+                    'url': f'http://localhost:{port}', 'status': 'already_serving'}
+
+        port = port or self.free_band_port(mod)
+        lo, hi = self.sandbox_band
+        if not (lo <= port <= hi):
+            print(f'port {port} is outside the published band {lo}-{hi}: '
+                  f'the mod will run but stay unreachable from the host', color='yellow')
+
+        log = f'/tmp/mod-sandbox-{mod}.log'
+        cmd = f'm serve {mod} port={port} remote=0 > {log} 2>&1'
+        code, out = self.sh(
+            f'docker exec -d {self.sandbox_name} bash -lc {json.dumps(cmd)}', timeout=60)
+        if code != 0:
+            return {'ok': False, 'mod': mod, 'error': out}
+
+        t0 = time.time()
+        while time.time() - t0 < wait:
+            if self.port_open(port):
+                return {'ok': True, 'mod': mod, 'port': port,
+                        'url': f'http://localhost:{port}',
+                        'logs': f'm docker/shell "tail -50 {log}"'}
+            time.sleep(1)
+
+        tail = self.shell(f'tail -60 {log}')
+        return {'ok': False, 'mod': mod, 'port': port,
+                'error': f'{mod} did not answer on :{port} within {wait}s',
+                'logs': tail,
+                'fix': f'm docker/modify {mod}'}
+
+    def unserve(self, mod: str) -> Dict[str, Any]:
+        """Stop a mod running inside the sandbox."""
+        # `[m]` is the classic self-exclusion: it matches the literal "m" in the
+        # target's cmdline, but this shell's own cmdline carries the brackets,
+        # so pkill can't kill the process doing the killing.
+        self.sh(f"docker exec {self.sandbox_name} bash -lc "
+                f"\"pkill -f '[m] serve {mod} ' || true\"", timeout=60)
+        serving = self.sandbox_serving()
+        return {'ok': mod not in serving, 'mod': mod, 'serving': serving}
+
+    @staticmethod
+    def port_open(port: int, host: str = '127.0.0.1', timeout: float = 0.5) -> bool:
+        import socket
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(timeout)
+            return s.connect_ex((host, port)) == 0
+
+    # ── readiness ────────────────────────────────────────────────────────
+
+    def ready(self, mod: str = 'mod') -> Dict[str, Any]:
+        """
+        Can this mod run in the sandbox? Returns a report, never raises.
+
+        Every failing check carries a `fix` string, and the report as a whole
+        carries the `m docker/modify` line that hands the whole thing to the
+        build agent.
+        """
+        checks = []
+        notes = []
+
+        def check(name, ok, detail='', fix='', warn=False):
+            ok = bool(ok)
+            entry = {'name': name, 'ok': ok, 'detail': detail}
+            if not ok:
+                entry['fix'] = fix
+            # A warning is something to know, not something to send an agent at.
+            (notes if warn else checks).append(entry)
+            return ok
+
+        check('docker_daemon', self.is_docker_daemon_on(),
+              'docker daemon reachable', 'start docker: sudo systemctl start docker')
+        check('sandbox_image', self.sandbox_image_exists(),
+              self.sandbox_image, 'm docker/boot rebuild=1')
+
+        path = None
+        try:
+            path = m.dirpath(mod)
+        except Exception as e:
+            check('resolves', False, f'{type(e).__name__}: {e}',
+                  f'no mod named {mod} in the tree')
+        else:
+            check('resolves', os.path.isdir(path), path, f'{path} is not a directory')
+
+        if path and os.path.isdir(path):
+            cfg_path = os.path.join(path, 'config.json')
+            cfg = {}
+            if os.path.isfile(cfg_path):
+                try:
+                    cfg = json.loads(m.get_text(cfg_path))
+                    check('config', True, f'{len(cfg.get("fns", []))} fns declared')
+                except Exception as e:
+                    check('config', False, f'config.json does not parse: {e}',
+                          'repair config.json')
+            else:
+                check('config', False, 'no config.json',
+                      'add a config.json with name + fns')
+
+            entries = ['mod.py', 'src', os.path.basename(path), 'package.json', 'Cargo.toml']
+            found = [e for e in entries if os.path.exists(os.path.join(path, e))]
+            check('entrypoint', bool(found), ', '.join(found) or 'nothing runnable found',
+                  'add a mod.py (or src/mod.py) exporting a class')
+
+            try:
+                m.mod(mod)
+                check('importable', True, 'class resolves')
+            except Exception as e:
+                check('importable', False, f'{type(e).__name__}: {str(e)[:300]}',
+                      'fix the import error in the module')
+
+            # Resolving requirements is a network call. A resolver that says
+            # "no" is a real readiness failure; a resolver that never answers
+            # is the network's problem, not the module's — that one is a note.
+            reqs = os.path.join(path, 'requirements.txt')
+            if os.path.isfile(reqs) and self.sandbox_running():
+                in_box = self.convert_docker_path(reqs)
+                code, _ = self.sh(
+                    f'docker exec {self.sandbox_name} bash -lc '
+                    f'{json.dumps(f"pip install --dry-run -q -r {in_box}")}', timeout=90)
+                if code == 124:
+                    check('deps', False, 'dependency resolution timed out — could not tell',
+                          '', warn=True)
+                else:
+                    check('deps', code == 0, 'requirements.txt resolve',
+                          f'm docker/shell "pip install -r {in_box}"')
+
+            # The mod's declared port is almost never inside the published band,
+            # and that is fine: `serve` runs it on a band port instead. Worth
+            # saying out loud, not worth calling the module broken over.
+            port = cfg.get('port')
+            if port:
+                lo, hi = self.sandbox_band
+                check('config_port_published', lo <= int(port) <= hi,
+                      f'config port {port} is outside the published band {lo}-{hi} — '
+                      f'`m docker/serve {mod}` will run it on a band port instead',
+                      f'publish {port} in docker-compose.yml to keep the mod on its own port',
+                      warn=True)
+
+        failed = [c['name'] for c in checks if not c['ok']]
+        return {
+            'mod': mod,
+            'path': path,
+            'ready': not failed,
+            'checks': checks,
+            'notes': notes,
+            'missing': failed,
+            'fix': None if not failed else f'm docker/modify {mod}',
+        }
+
+    # ── the escape hatch: hand a not-ready mod to the build agent ────────
+
+    def modify(self,
+               mod: str = 'mod',
+               query: str = None,
+               model: str = 'sonnet',
+               agent: str = 'build',
+               dry_run: bool = False,
+               **kwargs) -> Dict[str, Any]:
+        """
+        Something is not ready — put the build agent on it.
+
+        Turns the readiness report into a precise brief (what failed, where,
+        and what "fixed" means) and submits it as a background build job.
+
+        m docker/modify polymarket
+        m docker/modify polymarket query="also add a healthcheck to the Dockerfile"
+        m docker/modify polymarket dry_run=1     # just show me the brief
+        """
+        report = self.ready(mod)
+        if report['ready'] and not query:
+            return {'mod': mod, 'ready': True,
+                    'msg': f'{mod} is already sandbox-ready — nothing to modify',
+                    'run': f'm docker/serve {mod}'}
+
+        prompt = self.modify_prompt(mod, report, query)
+        if dry_run:
+            return {'mod': mod, 'report': report, 'prompt': prompt, 'submitted': False}
+
+        errors = {}
+        tried = []
+        for name in ([agent] if agent else []) + ['build', 'modify']:
+            if name in tried:
+                continue
+            tried.append(name)
+            try:
+                if name == 'build':
+                    job = m.mod('build')().edit_module(module_name=mod, prompt=prompt, model=model, **kwargs)
+                else:
+                    job = m.mod('modify')().forward(mod=mod, query=prompt, **kwargs)
+            except Exception as e:
+                errors[name] = f'{type(e).__name__}: {str(e)[:300]}'
+                print(f'{name} agent unavailable: {errors[name]}', color='yellow')
+                continue
+
+            out = {'mod': mod, 'agent': name, 'submitted': True,
+                   'was_missing': report['missing'], 'job': job}
+            if errors:
+                out['skipped'] = errors
+            if name == 'build':
+                # A build job is asynchronous — it has not run yet, so there is
+                # nothing to verify. Say that instead of implying a fix landed.
+                out['status'] = 'queued'
+                out['watch'] = 'm build/jobs'
+            else:
+                # A synchronous agent reports its own success, and agents are
+                # optimistic about that. Re-run the checks and report what is
+                # actually true now.
+                after = self.ready(mod)
+                out['status'] = 'fixed' if after['ready'] else 'incomplete'
+                out['fixed'] = after['ready']
+                out['still_missing'] = after['missing']
+                if not after['ready']:
+                    out['fix'] = f'm docker/modify {mod}'
+            return out
+
+        return {'mod': mod, 'submitted': False, 'report': report,
+                'agent_errors': errors, 'prompt': prompt,
+                'msg': 'no agent could take the job — the brief above is ready to paste'}
+
+    def modify_prompt(self, mod: str, report: Dict[str, Any] = None, query: str = None) -> str:
+        """The brief handed to the build agent. Concrete, path-anchored, testable."""
+        report = report or self.ready(mod)
+        failed = [c for c in report['checks'] if not c['ok']]
+        warnings = [c for c in report.get('notes', []) if not c['ok']]
+        lines = [
+            f'Make the mod `{mod}` runnable inside the mod protocol docker sandbox.',
+            '',
+            f'Module path: {report.get("path")}',
+            'The sandbox is the `mod` container: the tree is bind-mounted at /root/mod,',
+            'and a mod is started inside it with `m serve <mod> port=<port> remote=0`.',
+            '',
+        ]
+        if failed:
+            lines.append('Failing readiness checks:')
+            for c in failed:
+                lines.append(f'  - {c["name"]}: {c["detail"] or "failed"}')
+                if c.get('fix'):
+                    lines.append(f'      suggested fix: {c["fix"]}')
+            lines.append('')
+        if warnings and query:
+            lines.append('Context (not failures):')
+            for c in warnings:
+                lines.append(f'  - {c["name"]}: {c["detail"]}')
+            lines.append('')
+        if query:
+            lines += ['Additional instruction from the operator:', f'  {query}', '']
+        lines += [
+            'Rules:',
+            '  - Change only what the failing checks (and the operator instruction) require.',
+            '  - Follow the conventions of the neighbouring mods in the tree.',
+            '  - Do not weaken a check by deleting it; make the underlying thing true.',
+            '',
+            'Done means: `m docker/ready ' + mod + '` reports ready, and',
+            '`m docker/serve ' + mod + '` answers on its port.',
+        ]
+        return '\n'.join(lines)
+
     # TEST
     def test_network(self, network='modnet'):
         """

@@ -49,7 +49,8 @@ class Mod:
     # What the HTTP API exposes. Every public method is a function of this
     # module, but the API answers from the public gateway, so it serves only the
     # ones that read: serve/kill/register and friends stay on the CLI.
-    API_FNS = ('info', 'health', 'readme', 'url', 'path', 'levels', 'files')
+    API_FNS = ('info', 'health', 'readme', 'url', 'path', 'levels', 'files',
+               'cid')
 
     # The courses, in the order you play them.
     COURSES = [
@@ -110,7 +111,9 @@ class Mod:
                 'run + throw': 'X, J or shift',
                 'duck / enter subway': 'down',
                 'start': 'enter', 'pause': 'P', 'mute': 'M',
+                'rebind': 'KEYS in the page header (saved per browser)',
             },
+            'cities': 'pick one on the title screen (left/right) or ?city=',
             'fns': self._fns(),
         }
 
@@ -149,6 +152,75 @@ class Mod:
         for p in sorted(web.rglob('*')):
             if p.is_file():
                 out[str(p.relative_to(web))] = p.stat().st_size
+        return out
+
+    # The same walk core/registry's src_root_hash does for the node root hash,
+    # so the hash shown in the game is the one `orbit/superhood` carries there.
+    SRC_SKIP_DIRS = {
+        'node_modules', '.next', '__pycache__', 'target', 'target-docker',
+        'vendor', 'dist', 'build', 'out', 'venv', '.venv', '.git', '.turbo',
+        '.cache', '.mypy_cache', '.pytest_cache', 'coverage', 'logs',
+    }
+    SRC_SKIP_FILES = {'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml', 'Cargo.lock'}
+    SRC_SKIP_EXTS = {
+        '.log', '.db', '.sqlite', '.sqlite3', '.pyc', '.pyo', '.so', '.a', '.o',
+        '.rlib', '.rmeta', '.dylib', '.dll', '.bin', '.pack', '.ptau', '.zkey',
+        '.wasm', '.tsbuildinfo', '.lock', '.png', '.jpg', '.jpeg', '.gif',
+        '.webp', '.mp4', '.mov', '.woff', '.woff2', '.ttf', '.ico', '.pdf',
+        '.zip', '.tar', '.gz',
+    }
+    SRC_MAX_FILE_SIZE = 2 * 1024 * 1024
+
+    def cid(self, files=False) -> dict:
+        """The module's content hash: sha256 over its sorted {relpath: sha256}.
+
+        Computed exactly as the node root hash computes a module, so it can be
+        checked against ``orbit/superhood`` in the committed root:
+        ``status`` is committed (matches), drifted (edited since) or
+        uncommitted (no committed root names this module).
+        """
+        import hashlib
+        hashes = {}
+        for dirpath, dirnames, filenames in os.walk(self.module_dir):
+            dirnames[:] = [d for d in dirnames
+                           if d not in self.SRC_SKIP_DIRS and not d.startswith('.')]
+            for fname in sorted(filenames):
+                if fname.startswith('.') or fname in self.SRC_SKIP_FILES:
+                    continue
+                if os.path.splitext(fname)[1].lower() in self.SRC_SKIP_EXTS:
+                    continue
+                fpath = os.path.join(dirpath, fname)
+                try:
+                    if os.path.getsize(fpath) > self.SRC_MAX_FILE_SIZE:
+                        continue
+                    with open(fpath, 'rb') as fh:
+                        data = fh.read()
+                except OSError:
+                    continue
+                rel = os.path.relpath(fpath, self.module_dir)
+                hashes[rel] = hashlib.sha256(data).hexdigest()
+        digest = hashlib.sha256(json.dumps(hashes, sort_keys=True).encode()).hexdigest()
+
+        committed, root_cid = None, None
+        try:
+            with open(os.path.expanduser('~/.mod/api/root_committed.json')) as fh:
+                pinned = json.load(fh)
+            space = self.module_dir.parent.name
+            committed = (pinned.get('mods') or {}).get(f'{space}/superhood')
+            root_cid = pinned.get('cid')
+        except Exception:
+            pass
+        out = {
+            'cid': digest,
+            'algo': 'sha256(json{relpath: sha256(file)}) — node root hash walk',
+            'n_files': len(hashes),
+            'status': ('uncommitted' if committed is None
+                       else 'committed' if committed == digest else 'drifted'),
+            'committed': committed,
+            'root_cid': root_cid,
+        }
+        if files:
+            out['files'] = hashes
         return out
 
     # ── serve / register ─────────────────────────────────────────────────
@@ -263,7 +335,8 @@ class Mod:
         """
         web = self.module_dir / 'web'
         missing = [f for f in ('index.html', 'js/sprites.js', 'js/audio.js',
-                               'js/levels.js', 'js/game.js')
+                               'js/levels.js', 'js/cities.js', 'js/game.js',
+                               'js/ui.js')
                    if not (web / f).exists()]
         if missing:
             return {'ok': False, 'missing': missing}
@@ -279,11 +352,18 @@ class Mod:
             "const fs=require('fs');"
             "global.window=global;"
             f"eval(fs.readFileSync('{web}/js/levels.js','utf8'));"
+            f"eval(fs.readFileSync('{web}/js/cities.js','utf8'));"
             "const out=[];"
             "for (const id of LEVELS.ids()) {"
             "  const L=LEVELS.make(id);"
             "  out.push({id, w:L.w, h:L.h, foes:L.foes.length, "
             "            decor:L.decor.length, goal:L.goalX});"
+            "}"
+            # every city names every course in the bitmap font's alphabet
+            "for (const c of CITIES.list) for (const id of LEVELS.ids()) {"
+            "  const n=c.levels[id];"
+            "  if (!n || !/^[A-Z0-9 .,!?:'-]+$/.test(n))"
+            "    throw new Error(c.id+' has no usable name for '+id+': '+n);"
             "}"
             "console.log(JSON.stringify(out));"
         )
@@ -291,7 +371,8 @@ class Mod:
         if r.returncode != 0:
             return {'ok': False, 'checks': checks, 'error': r.stderr[-600:]}
         checks['levels'] = json.loads(r.stdout.strip())
-        for f in ('js/sprites.js', 'js/audio.js', 'js/game.js'):
+        checks['cities'] = 'ok'
+        for f in ('js/sprites.js', 'js/audio.js', 'js/game.js', 'js/ui.js'):
             s = subprocess.run(['node', '--check', str(web / f)],
                                capture_output=True, text=True)
             checks[f] = 'ok' if s.returncode == 0 else s.stderr[-400:]

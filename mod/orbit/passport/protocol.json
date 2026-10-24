@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "about": "The fleet's one identity protocol. Every module verifies callers through passport, so editing THIS file (or src/schemes.py) changes the whole system on the next request — no module restarts. Read live by the server and by every client fallback (mtime-checked).",
+  "canonical_token": {
+    "shape": "base64url(JSON {data, time, key, signature}), '=' padding stripped",
+    "data": "a STRING scope, e.g. \"agent\" — build's Rust verifier rebuilds the message with data as a string",
+    "time": "WHOLE unix seconds as a string — build parses i64",
+    "signature": "EIP-191 personal_sign over JSON.stringify({data, time}) — compact, that key order",
+    "key": "the lowercase 0x signer address"
+  },
+  "schemes": {
+    "mod": {
+      "enabled": true,
+      "max_age": 86400,
+      "about": "wallet/key-signed mod-protocol token (canonical shape, plus the legacy dict-data / float-time variant)"
+    },
+    "build": {
+      "enabled": true,
+      "verify_url": "http://127.0.0.1:8890/mcp",
+      "role_url": "http://127.0.0.1:8890/auth/role",
+      "about": "build console session bearer address:ts[:ho]:hmac — only build holds the HMAC secret, so build is asked"
+    }
+  },
+  "cache_ttl": 60,
+  "browser": {
+    "storage_key": "mod_passport",
+    "adopt_storage": [["build_jobs_token", "build_jobs_address"]],
+    "message_request": "mod.session.request",
+    "message_reply": "mod.session",
+    "message_end": "mod.session.end"
+  }
+}

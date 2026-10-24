@@ -131,6 +131,7 @@ pub fn proof_for(manifest: &Manifest, name: &str) -> Result<serde_json::Value> {
         .iter()
         .position(|l| l == &target_leaf)
         .ok_or_else(|| anyhow!("leaf missing from tree"))?;
+    let leaf_idx = idx;
     let mut proof: Vec<String> = vec![];
     for layer in layers.iter().take(layers.len().saturating_sub(1)) {
         let sib = idx ^ 1;
@@ -145,6 +146,8 @@ pub fn proof_for(manifest: &Manifest, name: &str) -> Result<serde_json::Value> {
         "leaf": format!("0x{leaf_hex}"),
         "proof": proof,
         "root": manifest.root,
+        "index": leaf_idx as u64,
+        "total": manifest.count as u64,
     }))
 }
 

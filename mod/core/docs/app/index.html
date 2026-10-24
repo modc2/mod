@@ -6,29 +6,38 @@
 <title>mod · docs</title>
 <style>
   :root {
-    --bg:#0a0d0b; --fg:#d9e4dd; --muted:#77857d; --accent:#10b981;
-    --border:#1b241f; --code:#0e1310; --heading:#f0f6f2;
-    --thumb:#152019;
+    --bg:#090c0a; --panel:#0c110e; --fg:#d6e2da; --muted:#728078; --faint:#4a5650;
+    --accent:#10b981; --accent-2:#5eead4;
+    --border:#18211c; --border-2:#223029; --code:#0d1310; --heading:#f2f8f4;
+    --glow:color-mix(in srgb,var(--accent) 16%,transparent);
   }
   * { box-sizing:border-box; }
-  html { scroll-behavior:smooth; }
+  html { scroll-behavior:smooth; scroll-padding-top:24px; }
   body { margin:0; background:var(--bg); color:var(--fg);
-         font:15px/1.7 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+         font:15.5px/1.75 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
          -webkit-font-smoothing:antialiased; }
+  body::before { content:""; position:fixed; inset:0 0 auto 0; height:420px; pointer-events:none; z-index:-1;
+                 background:radial-gradient(900px 340px at 30% -80px,var(--glow),transparent 70%); }
+  ::selection { background:color-mix(in srgb,var(--accent) 35%,transparent); }
+  #progress { position:fixed; top:0; left:0; height:2px; width:0; z-index:60;
+              background:linear-gradient(90deg,var(--accent),var(--accent-2)); transition:width .08s linear; }
   .wrap { display:flex; min-height:100vh; }
 
   /* ── sidebar ── */
-  aside { width:264px; flex:none; border-right:1px solid var(--border);
-          padding:26px 18px 18px; position:sticky; top:0; height:100vh; overflow:auto;
-          display:flex; flex-direction:column; gap:4px; }
-  .brand { font-weight:700; letter-spacing:.05em; color:var(--accent); margin:0; font-size:16px; }
-  .brand small { display:block; color:var(--muted); font-weight:400; letter-spacing:.02em; margin-top:2px; }
+  aside { width:272px; flex:none; border-right:1px solid var(--border); background:#0a0e0bcc;
+          backdrop-filter:blur(6px); padding:24px 16px 18px; position:sticky; top:0; height:100vh;
+          overflow:auto; display:flex; flex-direction:column; scrollbar-width:thin; }
+  .brand { display:flex; align-items:center; gap:10px; margin:0 4px; text-decoration:none; }
+  .brand .mark { width:30px; height:30px; border-radius:9px; display:grid; place-items:center;
+                 background:linear-gradient(145deg,#12321f,#0b1a12); border:1px solid var(--border-2);
+                 color:var(--accent); font:700 15px/1 ui-monospace,SFMono-Regular,Menlo,monospace; }
+  .brand b { color:var(--heading); font-size:15px; letter-spacing:.02em; display:block; line-height:1.2; }
+  .brand small { color:var(--muted); font-size:11.5px; letter-spacing:.04em; }
 
   /* mode switch — one control, whole site */
-  .mode { margin:20px 0 14px; }
+  .mode { margin:20px 0 12px; }
   .mode .seg { position:relative; display:grid; grid-template-columns:1fr 1fr;
-               border:1px solid var(--border); border-radius:999px; padding:3px;
-               background:#ffffff06; }
+               border:1px solid var(--border); border-radius:999px; padding:3px; background:#ffffff05; }
   .mode .thumb { position:absolute; top:3px; bottom:3px; left:3px; width:calc(50% - 3px);
                  border-radius:999px; background:linear-gradient(180deg,#1b2b22,#14221b);
                  box-shadow:0 1px 6px #0009, inset 0 1px 0 #ffffff12;
@@ -38,127 +47,417 @@
                  padding:7px 0; font:600 11.5px/1 inherit; letter-spacing:.14em;
                  color:var(--muted); transition:color .28s; border-radius:999px; }
   .mode button.on { color:var(--accent); }
-  .mode .hint { display:block; margin:8px 2px 0; color:var(--muted); font-size:11.5px;
-                letter-spacing:.02em; min-height:1.4em; transition:opacity .25s; }
+  .mode .hint { display:block; margin:7px 4px 0; color:var(--muted); font-size:11.5px; min-height:1.4em; }
 
-  nav { display:flex; flex-direction:column; gap:1px; }
-  nav a { display:block; padding:6px 12px; color:var(--fg); text-decoration:none;
-          border-radius:7px; font-size:13.5px; text-transform:capitalize;
+  .find { position:relative; margin:4px 0 14px; }
+  .find input { width:100%; background:var(--code); border:1px solid var(--border); border-radius:9px;
+                padding:8px 34px 8px 11px; color:var(--fg); font:inherit; font-size:13px; }
+  .find input::placeholder { color:var(--faint); }
+  .find input:focus { outline:none; border-color:color-mix(in srgb,var(--accent) 60%,var(--border)); }
+  .find kbd { position:absolute; right:8px; top:50%; transform:translateY(-50%); }
+  kbd { font:600 10.5px/1 ui-monospace,monospace; color:var(--muted); border:1px solid var(--border-2);
+        border-bottom-width:2px; border-radius:5px; padding:3px 6px; background:#ffffff05; }
+
+  nav { display:flex; flex-direction:column; gap:1px; flex:1; }
+  nav .grp { margin:12px 12px 4px; font-size:10.5px; font-weight:600; letter-spacing:.16em;
+             text-transform:uppercase; color:var(--faint); }
+  nav .grp:first-child { margin-top:2px; }
+  nav a { display:flex; align-items:center; gap:8px; padding:5px 12px; color:var(--fg); text-decoration:none;
+          border-radius:7px; font-size:13.5px; border-left:2px solid transparent;
           transition:background .15s,color .15s; }
-  nav a:hover { background:#ffffff0a; }
-  nav a.active { background:color-mix(in srgb,var(--accent) 13%,transparent); color:var(--accent); }
+  nav a:hover { background:#ffffff08; }
+  nav a.active { background:color-mix(in srgb,var(--accent) 11%,transparent); color:var(--accent);
+                 border-left-color:var(--accent); border-radius:2px 7px 7px 2px; }
+  nav a .eng { margin-left:auto; font-size:9.5px; letter-spacing:.1em; color:var(--faint);
+               border:1px solid var(--border); border-radius:4px; padding:1px 4px; }
+  nav .none { padding:8px 12px; color:var(--muted); font-size:12.5px; }
+  nav .none a { display:inline; padding:0; color:var(--accent); border:0; }
+  .foot { margin-top:16px; padding:12px 4px 0; border-top:1px solid var(--border);
+          display:flex; gap:12px; flex-wrap:wrap; font-size:11.5px; }
+  .foot a { color:var(--muted); text-decoration:none; }
+  .foot a:hover { color:var(--accent); }
 
   /* ── content ── */
-  main { flex:1; padding:44px 56px 80px; max-width:820px; }
-  #content { transition:opacity .18s ease; }
-  #content.fade { opacity:0; }
-  main img { max-width:100%; }
-  h1,h2,h3 { color:var(--heading); line-height:1.25; letter-spacing:-.01em; }
-  h1 { font-size:30px; border-bottom:1px solid var(--border); padding-bottom:.35em; margin-top:.2em; }
-  h2 { margin-top:1.8em; }
-  a { color:var(--accent); }
-  pre { background:var(--code); border:1px solid var(--border); border-radius:10px;
-        padding:14px 16px; overflow:auto; }
-  code { background:#ffffff10; padding:.12em .4em; border-radius:4px; font-size:.92em; }
-  pre code { background:none; padding:0; }
-  table { border-collapse:collapse; display:block; overflow-x:auto; }
-  th,td { border:1px solid var(--border); padding:6px 10px; }
-  blockquote { border-left:3px solid var(--accent); margin:0; padding:.2em 1em; color:var(--muted); }
+  main { flex:1; min-width:0; display:flex; justify-content:center; gap:48px; padding:40px 48px 90px; }
+  article { flex:1; min-width:0; max-width:780px; }
+  .crumbs { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:18px;
+            font-size:12px; color:var(--muted); letter-spacing:.04em; }
+  .crumbs .sep { color:var(--faint); }
+  .pill { display:inline-flex; align-items:center; gap:6px; padding:3px 10px; border:1px solid var(--border);
+          border-radius:999px; font-size:11px; letter-spacing:.06em; color:var(--muted); }
+  .pill::before { content:""; width:6px; height:6px; border-radius:50%; background:var(--accent); opacity:.7; }
+  .pill.warn::before { background:#e3b341; }
+  #content { transition:opacity .18s ease, transform .18s ease; }
+  #content.fade { opacity:0; transform:translateY(4px); }
+  #content img { max-width:100%; border-radius:8px; }
+  h1,h2,h3,h4 { color:var(--heading); line-height:1.25; letter-spacing:-.015em; position:relative; }
+  h1 { font-size:34px; margin:.1em 0 .6em; padding-bottom:.4em; border-bottom:1px solid var(--border);
+       background:linear-gradient(180deg,var(--heading),#b7cbbf); -webkit-background-clip:text;
+       background-clip:text; color:transparent; }
+  h2 { font-size:23px; margin-top:2.1em; padding-top:.2em; }
+  h3 { font-size:18px; margin-top:1.7em; }
+  .anchor { position:absolute; left:-1.1em; padding-right:.3em; color:var(--faint); text-decoration:none;
+            opacity:0; transition:opacity .15s; font-weight:400; }
+  h2:hover .anchor, h3:hover .anchor, h4:hover .anchor { opacity:1; }
+  .anchor:hover { color:var(--accent); }
+  #content a:not(.anchor) { color:var(--accent); text-decoration:none;
+                            border-bottom:1px solid color-mix(in srgb,var(--accent) 35%,transparent); }
+  #content a:not(.anchor):hover { border-bottom-color:var(--accent); }
+  p, li { color:var(--fg); }
+  li { margin:.25em 0; }
+  li::marker { color:var(--faint); }
+  hr { border:0; border-top:1px solid var(--border); margin:2.4em 0; }
+  strong { color:var(--heading); }
+
+  .code { position:relative; margin:1.2em 0; }
+  pre { background:var(--code); border:1px solid var(--border); border-radius:11px; margin:0;
+        padding:15px 17px; overflow:auto; font-size:13px; line-height:1.6; scrollbar-width:thin; }
+  .code .lang { position:absolute; top:8px; right:58px; font:600 10px/1 ui-monospace,monospace;
+                letter-spacing:.1em; color:var(--faint); text-transform:uppercase; pointer-events:none; }
+  .code .copy { position:absolute; top:6px; right:6px; padding:5px 8px; border-radius:6px; cursor:pointer;
+                border:1px solid var(--border-2); background:#0f1713; color:var(--muted);
+                font:600 10.5px/1 inherit; letter-spacing:.06em; opacity:0; transition:opacity .15s,color .15s; }
+  .code:hover .copy, .copy:focus { opacity:1; }
+  .copy:hover, .copy.ok { color:var(--accent); border-color:var(--accent); }
+  code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#ffffff0d;
+         padding:.12em .42em; border-radius:5px; font-size:.86em; color:#cfe9db; }
+  pre code { background:none; padding:0; color:var(--fg); font-size:inherit; }
+  .hljs-keyword,.hljs-built_in,.hljs-selector-tag { color:#7dd3c0; }
+  .hljs-string,.hljs-attr-value,.hljs-regexp { color:#a3d977; }
+  .hljs-number,.hljs-literal { color:#f0b072; }
+  .hljs-comment,.hljs-quote { color:#5d6b63; font-style:italic; }
+  .hljs-title,.hljs-function .hljs-title,.hljs-section { color:#8ab4ff; }
+  .hljs-attr,.hljs-attribute,.hljs-variable,.hljs-property { color:#e2c08d; }
+  .hljs-meta,.hljs-type,.hljs-params { color:#c6a6ff; }
+
+  table { border-collapse:separate; border-spacing:0; display:block; overflow-x:auto; margin:1.3em 0;
+          border:1px solid var(--border); border-radius:10px; font-size:14px; max-width:100%; }
+  th,td { padding:8px 13px; border-bottom:1px solid var(--border); text-align:left; vertical-align:top; }
+  th { background:#ffffff06; color:var(--heading); font-weight:600; font-size:12.5px; letter-spacing:.03em; }
+  tr:last-child td { border-bottom:0; }
+  tbody tr:hover td { background:#ffffff04; }
+  blockquote { border-left:3px solid var(--accent); margin:1.3em 0; padding:.5em 1.1em; color:var(--muted);
+               background:color-mix(in srgb,var(--accent) 5%,transparent); border-radius:0 9px 9px 0; }
+  blockquote p { margin:.35em 0; color:inherit; }
   .muted { color:var(--muted); }
 
-  /* subtle badge when a page only exists in engineer form */
-  .only-eng { display:inline-flex; align-items:center; gap:6px; margin:0 0 14px;
-              padding:5px 12px; border:1px solid var(--border); border-radius:999px;
-              color:var(--muted); font-size:11.5px; letter-spacing:.06em; }
-  .only-eng::before { content:""; width:6px; height:6px; border-radius:50%;
-                      background:var(--accent); opacity:.6; }
+  .graph { margin:0 0 26px; border:1px solid var(--border); border-radius:12px; overflow:hidden; background:var(--panel); }
+  .graph .bar { display:flex; justify-content:space-between; align-items:center; padding:9px 14px;
+                border-bottom:1px solid var(--border); font-size:12px; color:var(--muted); }
+  .graph iframe { display:block; width:100%; height:min(640px,70vh); border:0; background:#fff; }
 
-  @media (max-width:760px) {
+  .pager { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:56px; padding-top:24px;
+           border-top:1px solid var(--border); }
+  .pager a { display:block; padding:14px 16px; border:1px solid var(--border); border-radius:11px;
+             text-decoration:none; color:var(--heading); transition:border-color .15s,background .15s; }
+  .pager a:hover { border-color:color-mix(in srgb,var(--accent) 55%,var(--border)); background:#ffffff04; }
+  .pager small { display:block; color:var(--muted); font-size:11px; letter-spacing:.1em; text-transform:uppercase; }
+  .pager .next { text-align:right; grid-column:2; }
+
+  /* on-this-page rail */
+  #toc { width:210px; flex:none; position:sticky; top:40px; align-self:flex-start;
+         max-height:calc(100vh - 80px); overflow:auto; font-size:12.5px; scrollbar-width:thin; }
+  #toc b { display:block; font-size:10.5px; letter-spacing:.16em; color:var(--faint); margin:4px 0 10px; }
+  #toc a { display:block; padding:3px 0 3px 12px; color:var(--muted); text-decoration:none;
+           border-left:1px solid var(--border); line-height:1.45; transition:color .15s,border-color .15s; }
+  #toc a.h3 { padding-left:24px; font-size:12px; }
+  #toc a:hover { color:var(--fg); }
+  #toc a.on { color:var(--accent); border-left-color:var(--accent); }
+  @media (max-width:1220px) { #toc { display:none; } }
+
+  #menuBtn { display:none; }
+  @media (max-width:820px) {
     .wrap { flex-direction:column; }
-    aside { width:100%; height:auto; position:static; border-right:0;
-            border-bottom:1px solid var(--border); }
-    main { padding:26px 20px 60px; }
+    aside { width:100%; height:auto; position:static; border-right:0; border-bottom:1px solid var(--border);
+            padding:16px 16px 12px; }
+    aside .collapse { display:none; }
+    aside.open .collapse { display:block; }
+    #menuBtn { display:inline-block; margin-left:auto; background:none; border:1px solid var(--border-2);
+               color:var(--fg); border-radius:8px; padding:6px 11px; font:600 11px/1 inherit; letter-spacing:.1em; }
+    .top { display:flex; align-items:center; }
+    main { padding:26px 20px 70px; }
+    h1 { font-size:27px; }
+    .anchor { display:none; }
   }
+
+  /* ── ask-the-docs chatbot ── */
+  #askBtn { position:fixed; right:22px; bottom:22px; z-index:40;
+            display:inline-flex; align-items:center; gap:9px;
+            padding:11px 16px; border:1px solid var(--border-2); border-radius:999px;
+            background:linear-gradient(180deg,#132018,#0e1712); color:var(--accent);
+            font:600 12.5px/1 inherit; letter-spacing:.06em; cursor:pointer;
+            box-shadow:0 6px 22px #000a; transition:transform .18s, border-color .18s; }
+  #askBtn:hover { transform:translateY(-1px); border-color:var(--accent); }
+  #askBtn::before { content:""; width:7px; height:7px; border-radius:50%;
+                    background:var(--accent); box-shadow:0 0 8px var(--accent); }
+  #ask { position:fixed; right:22px; bottom:22px; z-index:41; width:min(410px,calc(100vw - 32px));
+         height:min(580px,calc(100vh - 44px)); display:none; flex-direction:column;
+         background:#0b110dfa; border:1px solid var(--border-2); border-radius:16px;
+         box-shadow:0 16px 50px #000c; overflow:hidden; }
+  #ask.open { display:flex; animation:pop .2s cubic-bezier(.32,.72,.28,1); }
+  @keyframes pop { from { opacity:0; transform:translateY(10px) scale(.98); } }
+  .ask-hd { display:flex; align-items:center; justify-content:space-between;
+            padding:13px 15px; border-bottom:1px solid var(--border); }
+  .ask-hd b { color:var(--heading); font-size:13.5px; letter-spacing:.02em; }
+  .ask-hd small { color:var(--muted); font-size:10.5px; letter-spacing:.06em; display:block; margin-top:2px; }
+  .ask-x { background:none; border:0; color:var(--muted); cursor:pointer; font-size:18px; line-height:1; padding:2px 6px; }
+  .ask-x:hover { color:var(--fg); }
+  .ask-log { flex:1; overflow:auto; padding:16px 15px; display:flex; flex-direction:column; gap:14px; }
+  .ask-empty { color:var(--muted); font-size:13px; }
+  .ask-empty .sugs { display:flex; flex-direction:column; gap:7px; margin-top:12px; }
+  .ask-empty button { text-align:left; background:#ffffff05; border:1px solid var(--border); border-radius:9px;
+                      color:var(--fg); padding:8px 11px; font:inherit; font-size:12.5px; cursor:pointer; }
+  .ask-empty button:hover { border-color:var(--accent); color:var(--accent); }
+  .msg { font-size:13.5px; line-height:1.6; }
+  .msg.you { align-self:flex-end; max-width:85%; background:color-mix(in srgb,var(--accent) 14%,transparent);
+             border:1px solid var(--border); padding:8px 12px; border-radius:12px 12px 3px 12px; color:var(--heading); }
+  .msg.bot { align-self:flex-start; max-width:100%; }
+  .msg.bot p:first-child { margin-top:0; }
+  .msg.bot pre { font-size:12px; }
+  .msg .srcs { margin-top:8px; display:flex; flex-wrap:wrap; gap:6px; }
+  .msg .srcs a { font-size:10.5px; letter-spacing:.04em; text-decoration:none;
+                 border:1px solid var(--border); border-radius:999px; padding:3px 9px; color:var(--muted); }
+  .msg .srcs a:hover { border-color:var(--accent); color:var(--accent); }
+  .msg.err { color:#f6a; }
+  .ask-in { display:flex; gap:8px; padding:12px; border-top:1px solid var(--border); }
+  .ask-in input { flex:1; background:var(--code); border:1px solid var(--border); border-radius:9px;
+                  padding:9px 11px; color:var(--fg); font:inherit; font-size:13px; }
+  .ask-in input:focus { outline:none; border-color:var(--accent); }
+  .ask-in button { border:0; border-radius:9px; padding:0 15px; background:var(--accent); color:#04140d;
+                   font:600 12.5px/1 inherit; cursor:pointer; }
+  .ask-in button:disabled { opacity:.5; cursor:default; }
+  .dots::after { content:"…"; animation:dots 1.2s steps(4,end) infinite; }
+  @keyframes dots { 0%{content:""} 25%{content:"."} 50%{content:".."} 75%{content:"..."} }
 </style>
 </head>
 <body>
+<div id="progress"></div>
 <div class="wrap">
-  <aside>
-    <p class="brand">mod<br><small>protocol docs</small></p>
-    <div class="mode">
-      <div class="seg" id="seg">
-        <div class="thumb"></div>
-        <button data-m="simple">HUMAN</button>
-        <button data-m="tech">ENGINEER</button>
-      </div>
-      <span class="hint" id="modeHint"></span>
+  <aside id="side">
+    <div class="top">
+      <a class="brand" href="/docs/" onclick="event.preventDefault();show('README',true)">
+        <span class="mark">m</span>
+        <span><b>mod docs</b><small>build apps out of modules</small></span>
+      </a>
+      <button id="menuBtn" onclick="document.getElementById('side').classList.toggle('open')">MENU</button>
     </div>
-    <nav id="nav"></nav>
+    <div class="collapse">
+      <div class="mode">
+        <div class="seg" id="seg">
+          <div class="thumb"></div>
+          <button data-m="simple">HUMAN</button>
+          <button data-m="tech">ENGINEER</button>
+        </div>
+        <span class="hint" id="modeHint"></span>
+      </div>
+      <div class="find">
+        <input id="find" placeholder="Find a page" autocomplete="off" />
+        <kbd>/</kbd>
+      </div>
+      <nav id="nav"></nav>
+      <div class="foot">
+        <a href="/docs/mcp" onclick="event.preventDefault();copyText(location.origin+'/docs/mcp',this,'MCP url copied')">MCP endpoint</a>
+        <a href="#" onclick="event.preventDefault();askOpen(true)">Ask the docs</a>
+      </div>
+    </div>
   </aside>
-  <main><div id="content"><p class="muted">Loading…</p></div></main>
+  <main>
+    <article>
+      <div class="crumbs" id="crumbs"></div>
+      <div id="content"><p class="muted">Loading…</p></div>
+      <div class="pager" id="pager"></div>
+    </article>
+    <div id="toc"></div>
+  </main>
 </div>
+
+<button id="askBtn" onclick="askOpen(true)">Ask the docs</button>
+<section id="ask" aria-label="Ask the docs">
+  <div class="ask-hd">
+    <div><b>Ask the docs</b><small>grounded in these pages · Liquid LFM</small></div>
+    <button class="ask-x" onclick="askOpen(false)" aria-label="close">×</button>
+  </div>
+  <div class="ask-log" id="askLog">
+    <div class="ask-empty" id="askEmpty">Ask anything about the mod protocol.
+      <div class="sugs">
+        <button onclick="askSend(this.textContent)">How do I create a new module?</button>
+        <button onclick="askSend(this.textContent)">What is a skill?</button>
+        <button onclick="askSend(this.textContent)">How does a module expose an MCP server?</button>
+      </div>
+    </div>
+  </div>
+  <form class="ask-in" onsubmit="event.preventDefault();askSend()">
+    <input id="askIn" placeholder="Ask a question…" autocomplete="off" />
+    <button id="askGo" type="submit">Ask</button>
+  </form>
+</section>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11/highlight.min.js"></script>
 <script>
 const BASE = "/docs";
-const order = ["README","getting-started","protocol","cli","api","modules","orbit","servers","storage","keys","skills","contracts","frontend","utils","whitepaper"];
-const label = n => n === "README" ? "Overview" : n.replace(/-/g," ");
-const HINTS = { simple: "plain language — no jargon", tech: "the full technical detail" };
+// Sidebar sections, in reading order. Pages not listed land under "More".
+const GROUPS = [
+  ["Start",     ["README","getting-started","protocol"]],
+  ["Build",     ["modules","skills","frontend","cli","api"]],
+  ["Run",       ["servers","storage","keys","contracts","orbit"]],
+  ["Reference", ["utils","modgraph","whitepaper"]],
+];
+const NAMES = { README:"Overview", api:"API", cli:"CLI", modgraph:"Mod graph" };
+const label = n => NAMES[n] || n.replace(/-/g," ").replace(/^./, c => c.toUpperCase());
+const HINTS = { simple: "plain language, no jargon", tech: "the full technical detail" };
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c]));
+const slug = s => s.toLowerCase().replace(/<[^>]+>/g,"").replace(/[^\w\s-]/g,"").trim().replace(/\s+/g,"-");
 
 // One site-wide reading mode, chosen by each reader, remembered per browser.
 const mode = () => { try { return localStorage.getItem("docs.mode") || "simple"; } catch(e) { return "simple"; } };
 const setMode = v => { try { localStorage.setItem("docs.mode", v); } catch(e){} };
 
-let PAGES = [];           // [{name, simple}]
+let PAGES = [];           // [{name, simple}] in sidebar order
 let current = "README";
+const groupOf = n => (GROUPS.find(([, ps]) => ps.includes(n)) || ["More"])[0];
 
 function paintMode() {
   const m = mode();
   document.getElementById("seg").classList.toggle("eng", m === "tech");
   document.querySelectorAll(".mode button").forEach(b => b.classList.toggle("on", b.dataset.m === m));
   document.getElementById("modeHint").textContent = HINTS[m];
+  renderNav();
+}
+
+function renderNav() {
+  const nav = document.getElementById("nav");
+  const q = document.getElementById("find").value.trim().toLowerCase();
+  const simple = mode() === "simple";
+  nav.innerHTML = "";
+  let shown = 0;
+  for (const g of [...GROUPS.map(([g]) => g), "More"]) {
+    const ps = PAGES.filter(p => groupOf(p.name) === g && (!q || label(p.name).toLowerCase().includes(q) || p.name.toLowerCase().includes(q)));
+    if (!ps.length) continue;
+    nav.insertAdjacentHTML("beforeend", `<div class="grp">${g}</div>`);
+    for (const p of ps) {
+      const a = document.createElement("a");
+      a.href = BASE + "/" + p.name; a.dataset.page = p.name;
+      a.innerHTML = esc(label(p.name)) + (simple && !p.simple ? `<span class="eng" title="engineer edition only">ENG</span>` : "");
+      a.classList.toggle("active", p.name === current);
+      a.onclick = e => { e.preventDefault(); show(p.name, true); };
+      nav.appendChild(a); shown++;
+    }
+  }
+  if (!shown) nav.innerHTML = `<div class="none">No page called “${esc(q)}”.<br><a href="#" onclick="event.preventDefault();askOpen(true,document.getElementById('find').value)">Ask the docs instead</a></div>`;
 }
 
 async function loadPages() {
   try { PAGES = await (await fetch(BASE + "/_pages")).json(); } catch(e){}
-  PAGES.sort((a,b) => { const ia=order.indexOf(a.name), ib=order.indexOf(b.name);
+  const flat = GROUPS.flatMap(([, ps]) => ps);
+  PAGES.sort((a,b) => { const ia=flat.indexOf(a.name), ib=flat.indexOf(b.name);
     return (ia<0?99:ia) - (ib<0?99:ib) || a.name.localeCompare(b.name); });
-  const nav = document.getElementById("nav");
-  nav.innerHTML = "";
-  for (const p of PAGES) {
-    const a = document.createElement("a");
-    a.textContent = label(p.name); a.href = BASE + "/" + p.name; a.dataset.page = p.name;
-    a.onclick = e => { e.preventDefault(); show(p.name, true); };
-    nav.appendChild(a);
-  }
-  const start = (location.pathname.replace(BASE,"").replace(/^\//,"").replace(/\.md$/,"")) || "README";
+  renderNav();
+  const start = pageFromPath() || "README";
   show(PAGES.some(p => p.name === start) ? start : (PAGES[0]?.name || "README"), false);
 }
+const pageFromPath = () => location.pathname.replace(BASE,"").replace(/^\/|\/$/g,"").replace(/\.md$/,"");
 
-async function show(page, push) {
+// Turn rendered markdown into the page: heading anchors, code chrome, in-app links.
+function decorate(box) {
+  const seen = {};
+  box.querySelectorAll("h1,h2,h3,h4").forEach(h => {
+    let id = slug(h.textContent) || "section";
+    if (seen[id]) id += "-" + seen[id]++; else seen[id] = 1;
+    h.id = id;
+    if (h.tagName !== "H1") h.insertAdjacentHTML("afterbegin", `<a class="anchor" href="#${id}" aria-hidden="true">#</a>`);
+  });
+  box.querySelectorAll("pre").forEach(pre => {
+    const code = pre.querySelector("code");
+    const wrap = document.createElement("div"); wrap.className = "code";
+    pre.replaceWith(wrap); wrap.appendChild(pre);
+    const lang = (code?.className.match(/language-(\w+)/) || [])[1];
+    if (lang) wrap.insertAdjacentHTML("beforeend", `<span class="lang">${esc(lang)}</span>`);
+    const b = document.createElement("button"); b.className = "copy"; b.textContent = "COPY";
+    b.onclick = () => copyText(pre.innerText, b, "COPIED");
+    wrap.appendChild(b);
+    if (code && window.hljs && (!lang || hljs.getLanguage(lang))) { try { hljs.highlightElement(code); } catch(e){} }
+  });
+  box.querySelectorAll("a[href]").forEach(a => {
+    const href = a.getAttribute("href");
+    if (/modgraph\.html$/.test(href)) { a.href = BASE + "/_graph"; a.target = "_blank"; return; }
+    const m = href.match(/^(?:\.\/)?([\w-]+)\.md(#.*)?$/);
+    if (m && PAGES.some(p => p.name === m[1])) {
+      a.href = BASE + "/" + m[1] + (m[2] || "");
+      a.onclick = e => { e.preventDefault(); show(m[1], true, m[2]); };
+    } else if (/^https?:/.test(href)) { a.target = "_blank"; a.rel = "noopener"; }
+  });
+  // "Open modgraph.html" is plain code text in the report — give the graph a real home.
+  if (current === "modgraph") {
+    const h1 = box.querySelector("h1");
+    const g = document.createElement("div"); g.className = "graph";
+    g.innerHTML = `<div class="bar"><span>interactive graph</span><a href="${BASE}/_graph" target="_blank">open full screen</a></div>
+                   <iframe src="${BASE}/_graph" loading="lazy" title="mod dependency graph"></iframe>`;
+    (h1 ? h1.nextElementSibling : box.firstChild)?.after(g);
+  }
+}
+
+function buildToc(box) {
+  const hs = [...box.querySelectorAll("h2,h3")];
+  const toc = document.getElementById("toc");
+  if (hs.length < 3) { toc.innerHTML = ""; return; }
+  toc.innerHTML = "<b>ON THIS PAGE</b>" + hs.map(h =>
+    `<a class="${h.tagName.toLowerCase()}" href="#${h.id}" data-id="${h.id}">${esc(h.textContent.replace(/^#/,""))}</a>`).join("");
+  spy?.disconnect();
+  spy = new IntersectionObserver(es => {
+    const vis = es.filter(e => e.isIntersecting).sort((a,b) => a.boundingClientRect.top - b.boundingClientRect.top)[0];
+    if (vis) toc.querySelectorAll("a").forEach(a => a.classList.toggle("on", a.dataset.id === vis.target.id));
+  }, { rootMargin: "0px 0px -70% 0px" });
+  hs.forEach(h => spy.observe(h));
+}
+let spy = null;
+
+function paintChrome(page, got, md) {
+  const words = md.split(/\s+/).length;
+  const warn = mode() === "simple" && got === "tech";
+  document.getElementById("crumbs").innerHTML =
+    `<span>${esc(groupOf(page))}</span><span class="sep">/</span><span>${esc(label(page))}</span>` +
+    `<span class="sep">·</span><span>${Math.max(1, Math.round(words / 220))} min read</span>` +
+    (warn ? `<span class="pill warn">engineer edition, no plain-language version yet</span>`
+          : `<span class="pill">${got === "simple" ? "human edition" : "engineer edition"}</span>`);
+  const i = PAGES.findIndex(p => p.name === page), prev = PAGES[i-1], next = PAGES[i+1];
+  const link = (p, cls, cap) => p ? `<a class="${cls}" href="${BASE}/${p.name}" onclick="event.preventDefault();show('${p.name}',true)"><small>${cap}</small>${esc(label(p.name))}</a>` : "";
+  document.getElementById("pager").innerHTML = link(prev, "prev", "Previous") + link(next, "next", "Next");
+}
+
+async function show(page, push, hash) {
   current = page;
-  document.querySelectorAll("#nav a").forEach(a => a.classList.toggle("active", a.dataset.page === page));
+  document.getElementById("side").classList.remove("open");
+  document.querySelectorAll("#nav a[data-page]").forEach(a => a.classList.toggle("active", a.dataset.page === page));
   const box = document.getElementById("content");
   box.classList.add("fade");
   const wantSimple = mode() === "simple";
   try {
     const r = await fetch(BASE + "/_page/" + page + (wantSimple ? "?v=simple" : ""));
+    if (!r.ok) throw new Error(r.status);
     const md = await r.text();
     const got = r.headers.get("x-docs-variant") || (wantSimple ? "simple" : "tech");
     setTimeout(() => {
-      box.innerHTML = window.marked ? marked.parse(md) : "<pre>" + md.replace(/[&<]/g,c=>({"&":"&amp;","<":"&lt;"}[c])) + "</pre>";
-      if (wantSimple && got === "tech") {
-        const b = document.createElement("span");
-        b.className = "only-eng"; b.textContent = "engineer edition — no plain-language version yet";
-        box.prepend(b);
-      }
+      box.innerHTML = window.marked ? marked.parse(md) : "<pre>" + esc(md) + "</pre>";
+      decorate(box); buildToc(box); paintChrome(page, got, md);
+      document.title = label(page) + " · mod docs";
       box.classList.remove("fade");
+      const target = hash && document.getElementById(hash.slice(1));
+      target ? target.scrollIntoView() : window.scrollTo(0, 0);
     }, 120);
   } catch(e) {
-    box.innerHTML = "<p class='muted'>Could not load “"+page+"”.</p>";
+    box.innerHTML = `<h1>Not found</h1><p class="muted">There is no page called “${esc(page)}”. Pick one from the sidebar, or ask the docs.</p>`;
+    document.getElementById("pager").innerHTML = document.getElementById("toc").innerHTML = document.getElementById("crumbs").innerHTML = "";
     box.classList.remove("fade");
   }
-  if (push) history.pushState({}, "", BASE + "/" + page);
-  window.scrollTo(0,0);
+  if (push) history.pushState({}, "", BASE + "/" + page + (hash || ""));
+}
+
+function copyText(text, el, done) {
+  const was = el.textContent;
+  (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject()).then(() => {
+    el.textContent = done; el.classList.add("ok");
+    setTimeout(() => { el.textContent = was; el.classList.remove("ok"); }, 1400);
+  }).catch(() => {});
 }
 
 document.querySelectorAll(".mode button").forEach(b => b.onclick = () => {
@@ -167,10 +466,78 @@ document.querySelectorAll(".mode button").forEach(b => b.onclick = () => {
   paintMode();
   show(current, false);   // same page, other voice
 });
+const find = document.getElementById("find");
+find.oninput = renderNav;
+find.onkeydown = e => {
+  if (e.key === "Enter") { const a = document.querySelector("#nav a[data-page]"); if (a) { a.click(); find.value = ""; renderNav(); find.blur(); } }
+  if (e.key === "Escape") { find.value = ""; renderNav(); find.blur(); }
+};
+document.addEventListener("keydown", e => {
+  const typing = /INPUT|TEXTAREA/.test(document.activeElement.tagName);
+  if (e.key === "/" && !typing) { e.preventDefault(); find.focus(); }
+  if (e.key === "Escape" && document.getElementById("ask").classList.contains("open")) askOpen(false);
+});
+window.addEventListener("scroll", () => {
+  const h = document.documentElement, max = h.scrollHeight - h.clientHeight;
+  document.getElementById("progress").style.width = (max > 0 ? h.scrollTop / max * 100 : 0) + "%";
+}, { passive: true });
 
-window.onpopstate = () => show((location.pathname.replace(BASE,"").replace(/^\//,"").replace(/\.md$/,"")) || "README", false);
+window.onpopstate = () => show(pageFromPath() || "README", false, location.hash);
 paintMode();
 loadPages();
+
+// ── ask-the-docs chatbot ──
+// The web panel and any MCP agent hit the same tool: POST tools/call docs_ask to
+// /docs/mcp. No second endpoint, no drift from the CLI's m docs/ask.
+let asking = false;
+const askOpen = (on, prefill) => {
+  document.getElementById("ask").classList.toggle("open", on);
+  document.getElementById("askBtn").style.display = on ? "none" : "";
+  const input = document.getElementById("askIn");
+  if (prefill) input.value = prefill;
+  if (on) setTimeout(() => input.focus(), 50);
+};
+function askAppend(cls, html) {
+  const empty = document.getElementById("askEmpty");
+  if (empty) empty.remove();
+  const log = document.getElementById("askLog");
+  const el = document.createElement("div");
+  el.className = "msg " + cls; el.innerHTML = html;
+  log.appendChild(el); log.scrollTop = log.scrollHeight;
+  return el;
+}
+async function askSend(preset) {
+  if (asking) return;
+  const input = document.getElementById("askIn");
+  const q = (preset || input.value).trim();
+  if (!q) return;
+  input.value = "";
+  askAppend("you", esc(q));
+  const go = document.getElementById("askGo"); go.disabled = asking = true;
+  const pending = askAppend("bot", "<span class='dots'>thinking</span>");
+  try {
+    const r = await fetch(BASE + "/mcp", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: Date.now(), method: "tools/call",
+        params: { name: "docs_ask", arguments: { question: q } } }),
+    });
+    const j = await r.json();
+    if (j.error) throw new Error(j.error.message || "request failed");
+    const out = j.result?.structuredContent
+      || JSON.parse(j.result?.content?.[0]?.text || "{}");
+    if (!out.ok) throw new Error(out.error || "no answer");
+    const ans = window.marked ? marked.parse(out.answer || "") : esc(out.answer || "");
+    const srcs = (out.sources || []).map(s =>
+      `<a href="${BASE}/${s}" onclick="event.preventDefault();askOpen(false);show('${s}',true)">${esc(label(s))}</a>`).join("");
+    pending.innerHTML = ans + (srcs ? `<div class="srcs">${srcs}</div>` : "");
+  } catch (e) {
+    pending.className = "msg err";
+    pending.textContent = "Couldn't answer: " + e.message;
+  } finally {
+    document.getElementById("askLog").scrollTop = 1e9;
+    go.disabled = asking = false; input.focus();
+  }
+}
 </script>
 </body>
 </html>

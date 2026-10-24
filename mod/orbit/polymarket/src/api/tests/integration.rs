@@ -141,8 +141,11 @@ async fn active_traders_pipeline_small_pool() {
     let body = resp_json(resp).await;
     assert!(body["count"].as_u64().unwrap() > 0, "should find traders");
     let source = body["source"].as_str().unwrap();
+    // `stale-disk` is a legitimate answer: a board too old to serve fresh but
+    // present on disk is served labelled rather than withheld. This assert
+    // predated that label and failed on any host with a warm cache dir.
     assert!(
-        source == "fresh" || source == "memory" || source == "disk",
+        matches!(source, "fresh" | "memory" | "disk" | "stale-disk"),
         "unexpected source: {}",
         source
     );
@@ -163,4 +166,59 @@ async fn resp_json(resp: axum::http::Response<Body>) -> Value {
         .await
         .unwrap();
     serde_json::from_slice(&bytes).unwrap()
+}
+
+/// The strat-sync write route must MATCH and actually persist.
+///
+/// It was registered as `/strats/{id}` — axum 0.8 syntax. This crate is on
+/// axum 0.7, where `{id}` is a LITERAL segment, so `PUT /strats/<real-id>`
+/// fell through to the proxy fallback (which answers GET/POST only, hence a
+/// 405 rather than an obvious 404) and the browser client — which returns
+/// `false` on any error — silently never saved a strat. Asserting on the
+/// round-trip rather than on "not 404" is what makes this catch the bug.
+#[tokio::test]
+async fn strat_upsert_route_matches_and_persists() {
+    let app = test_app();
+    let token = format!("tok{}", std::process::id());
+    let body = serde_json::json!({
+        "token_id": token,
+        "ciphertext": "Y2lwaGVydGV4dA==",
+        "updated_at": 1_700_000_000u64,
+    })
+    .to_string();
+
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::put("/strats/route-check-1")
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK, "PUT /strats/<id> did not reach the handler");
+    let saved = resp_json(resp).await;
+    assert_eq!(saved["ok"], true);
+    assert_eq!(saved["id"], "route-check-1");
+
+    let resp = app
+        .oneshot(
+            Request::get(format!("/strats?token_id={}", token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let listed = resp_json(resp).await;
+    assert!(
+        listed["strats"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|s| s["id"] == "route-check-1"),
+        "the strat was accepted but not stored: {}",
+        listed
+    );
 }

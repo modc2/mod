@@ -26,13 +26,35 @@ export function marketQueryTokens(query: string): string[] {
     .filter((t) => t.length > 0 && !STOPWORDS.has(t));
 }
 
+/** The OR-groups of a query: comma/pipe-separated, trimmed, empties dropped,
+    de-duplicated case-insensitively. `marketMatchesQuery` ORs a title across
+    them; momentum's market discovery SEARCHES each one separately, which is
+    the only way one strat covers several assets — gamma ranks a multi-word
+    query by whole-phrase relevance, so "bitcoin ethereum" finds markets that
+    mention both coins rather than each coin's own markets. See
+    `MomentumParams.query`. Empty/whitespace query ⇒ []. */
+export function marketQueryGroups(query: string | undefined | null): string[] {
+  if (!query || !query.trim()) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of query.split(/[,|]/)) {
+    const g = raw.trim();
+    if (!g) continue;
+    const k = g.toLowerCase();
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(g);
+  }
+  return out;
+}
+
 /** True if `title` matches `query`. OR across comma/pipe groups, AND within a
     group. Empty/whitespace query ⇒ matches all. A group with no meaningful
     tokens falls back to a raw trimmed-substring test. */
 export function marketMatchesQuery(title: string, query: string | undefined | null): boolean {
   if (!query || !query.trim()) return true;
   const hay = title.toLowerCase();
-  const groups = query.split(/[,|]/).map((g) => g.trim()).filter((g) => g.length > 0);
+  const groups = marketQueryGroups(query);
   if (groups.length === 0) return true;
   return groups.some((group) => {
     const tokens = marketQueryTokens(group);

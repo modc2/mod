@@ -29,7 +29,7 @@ class Mod:
             'path': self.path,
             'api_url': self.api_url,
             'app': '/freetune',
-            'api': '/api/freetune',
+            'api': '/freetune/api',
             'files': os.listdir(self.path),
         }
 

@@ -5,8 +5,6 @@ import json
 import shutil
 import hashlib
 import subprocess
-from pathlib import Path
-from typing import Dict, List, Union, Optional, Any, Tuple
 
 def abspath(path):
     """
@@ -150,19 +148,6 @@ def list_files(directory,
             ) and (max_size is None or os.path.getsize(f) <= max_size)
         ]
 
-    import traceback
-    tb = traceback.extract_tb(e.__traceback__)
-    file_name = tb[-1].filename
-    line_no = tb[-1].lineno
-    line_text = tb[-1].line
-    response = {
-        'success': False,
-        'error': str(e),
-        'file_name': file_name.replace(os.path.expanduser('~'), '~'),
-        'line_no': line_no,
-        'line_text': line_text
-    }   
-    return response
 
 
 def detect_project_type(directory):

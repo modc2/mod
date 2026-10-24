@@ -24,17 +24,19 @@ BUILTINS = {
     'core':    {'description': 'Everyday essentials: shell, files, planning',
                 'tools': ['bash', 'read', 'write', 'edit', 'think', 'todo']},
     'explore': {'description': 'Understand a codebase before touching it',
-                'tools': ['tree', 'glob', 'grep', 'search', 'symbols', 'context', 'read']},
+                'tools': ['tree', 'glob', 'grep', 'symbols', 'context', 'read']},
     'code':    {'description': 'Surgical code changes',
                 'tools': ['read', 'edit', 'patch', 'write', 'refactor', 'symbols', 'diff']},
     'verify':  {'description': 'Prove the change works',
                 'tools': ['test', 'lint', 'diff', 'debug', 'read']},
     'vcs':     {'description': 'Version control',
                 'tools': ['git', 'diff']},
-    'web':     {'description': 'Reach outside the sandbox',
-                'tools': ['fetch', 'websurf']},
+    'web':     {'description': 'Search, read and scrape the internet',
+                'tools': ['search', 'fetch', 'websurf', 'scrape']},
+    'memory':  {'description': 'Remember across runs, and find it again',
+                'tools': ['recall', 'remember', 'think']},
     'meta':    {'description': 'Reasoning, task tracking, delegation',
-                'tools': ['think', 'todo', 'task', 'claudecode']},
+                'tools': ['think', 'todo', 'task', 'toolbox', 'claudecode', 'make_agent']},
 }
 
 

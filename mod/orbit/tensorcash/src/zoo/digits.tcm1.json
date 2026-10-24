@@ -1,0 +1,8 @@
+{
+  "model_root": "81f94e599787152bd184247c740b94c2d3cd68820c6cd1ad17b8f853ca4a32e3",
+  "cid": "555c6e62e638688c0dbe251809410a0f5840777d8013a8464929e0af20fee3db",
+  "bytes": 3197,
+  "float_accuracy": 0.8675,
+  "quantised_accuracy": 0.8675,
+  "test_samples": 400
+}

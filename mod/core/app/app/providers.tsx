@@ -72,7 +72,7 @@ function LayoutContent({ children }: { children: React.ReactNode }) {
     : 'border-b-2 border-green-500/30'
 
   return (
-    <div className="flex h-screen transition-all duration-200" style={{ paddingTop: isHeaderCollapsed ? '6px' : '64px', paddingLeft: isHeaderCollapsed ? '0px' : isAgentSidebarOpen ? `calc(var(--sidebar-width, 0px) + ${AGENT_PANEL_WIDTH}px)` : 'var(--sidebar-width, 0px)', paddingRight: isEditSidebarOpen ? `${EDIT_SIDEBAR_WIDTH}px` : '0px', backgroundColor: 'var(--bg-primary)', transition: 'padding-top 0.2s ease, padding-left 0.2s ease, padding-right 0.2s ease' }}>
+    <div className="flex h-screen transition-all duration-200" style={{ paddingTop: isHeaderCollapsed ? '6px' : '48px', paddingLeft: isHeaderCollapsed ? '0px' : isAgentSidebarOpen ? `calc(var(--sidebar-width, 0px) + ${AGENT_PANEL_WIDTH}px)` : 'var(--sidebar-width, 0px)', paddingRight: isEditSidebarOpen ? `${EDIT_SIDEBAR_WIDTH}px` : '0px', backgroundColor: 'var(--bg-primary)', transition: 'padding-top 0.2s ease, padding-left 0.2s ease, padding-right 0.2s ease' }}>
       {/* Top bar */}
       <TopBar />
       {/* Edit sidebar */}

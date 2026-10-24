@@ -67,7 +67,7 @@ class Paywall:
 
         # Check cache
         import hashlib
-        cache_key = hashlib.sha256(payment.encode()).hexdigest()
+        cache_key = hashlib.sha256(f'{fn}:{payment}'.encode()).hexdigest()
         cached = self._payment_cache.get(cache_key)
         if cached:
             valid, ts = cached

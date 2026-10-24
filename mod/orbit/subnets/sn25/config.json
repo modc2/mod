@@ -1,0 +1,39 @@
+{
+    "name": "sn25",
+    "version": "1.0.0",
+    "description": "SN25 UR \u2014 The Privacy Protocol. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+    "icon": "\u05d0",
+    "chain": "bittensor",
+    "netuid": 25,
+    "subnet": "UR",
+    "symbol": "\u05d0",
+    "owner": "5HTeZ5168DjjGWZgbvzGfysEAj9fnexF24gYFKJHENU5cc8a",
+    "github": "https://github.com/urfoundation/sn",
+    "url": "https://ur.xyz/",
+    "discord": "xcolwell",
+    "logo": "https://ur.xyz/onchain-identity.svg",
+    "related": [],
+    "active": true,
+    "route": false,
+    "generated_by": "subnets",
+    "updated": "2026-10-20",
+    "urls": {
+        "bt": "/bt/markets?sn=25",
+        "news": "/bt/news?netuid=25"
+    },
+    "fns": [
+        "info",
+        "price",
+        "news",
+        "trades",
+        "daily",
+        "history",
+        "validators",
+        "neurons",
+        "links",
+        "snapshot",
+        "readme",
+        "refresh"
+    ],
+    "schema": "QmPS88qR7Eykf76Yc2zpChEazzjUhNT8nTPNRM9mCDUfYJ"
+}

@@ -1,0 +1,39 @@
+{
+    "name": "zokrates",
+    "title": "ZoKrates \u00b7 zkworld",
+    "description": "The ZoKrates framework as a running submod of zkworld: its toolchain, starters and every ZoKrates project here. A high-level, Python-like language for zkSNARKs on Ethereum. zokrates compiles to R1CS + an ABI, computes witnesses and exports a Solidity verifier. Tests are the shared JSON cases.",
+    "version": "0.2.0",
+    "submod_of": "zkworld",
+    "kind": "framework",
+    "framework_id": "zokrates",
+    "anchor": "mod.py",
+    "server": "../../api/fwserver.py",
+    "port": 51356,
+    "host": "127.0.0.1",
+    "route": "/zkworld/zokrates/",
+    "fns": [
+        "forward",
+        "info",
+        "health",
+        "toolchain",
+        "templates",
+        "projects",
+        "new",
+        "build",
+        "test",
+        "vibe",
+        "clean",
+        "abi",
+        "witness",
+        "serve",
+        "kill"
+    ],
+    "write_fns": [
+        "new",
+        "build",
+        "test",
+        "vibe",
+        "clean"
+    ],
+    "schema": "QmZ3TSBKVYSu3YdvhcB6qnRPXce2gRRc8zTxaMUSBvaENC"
+}

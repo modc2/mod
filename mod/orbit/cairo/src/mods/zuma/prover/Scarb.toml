@@ -1,0 +1,10 @@
+[package]
+name = "zuma_prover"
+version = "0.1.0"
+edition = "2024_07"
+
+[dependencies]
+zuma = { path = ".." }
+
+[cairo]
+enable-gas = true

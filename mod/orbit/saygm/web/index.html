@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>saygm</title>
+<style>
+  :root { --bg:#0b0d0a; --panel:#13160f; --line:#252a1d; --fg:#e8eddf; --dim:#8a9479; --acc:#c8f560; --tee:#7fd4ff; --bad:#ff7a6b; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  header { display:flex; align-items:center; gap:14px; padding:14px 20px; border-bottom:1px solid var(--line); }
+  .mark { background:var(--acc); color:#000; font-weight:700; padding:4px 8px; border-radius:6px; }
+  header .sub { color:var(--dim); }
+  header .key { margin-left:auto; color:var(--dim); }
+  main { display:grid; grid-template-columns:minmax(0,1fr) 380px; gap:16px; padding:16px 20px; }
+  @media (max-width:900px) { main { grid-template-columns:1fr; } }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px; }
+  .bar { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px; }
+  input, select, textarea, button { font:inherit; color:var(--fg); background:#0f120c; border:1px solid var(--line); border-radius:7px; padding:7px 9px; }
+  textarea { width:100%; resize:vertical; }
+  button { cursor:pointer; }
+  button.go { background:var(--acc); color:#000; border-color:var(--acc); font-weight:700; }
+  .chip { padding:5px 10px; border-radius:20px; }
+  .chip.on { background:var(--acc); color:#000; border-color:var(--acc); }
+  table { width:100%; border-collapse:collapse; }
+  th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); white-space:nowrap; }
+  th { color:var(--dim); font-weight:400; cursor:pointer; user-select:none; }
+  td.num, th.num { text-align:right; }
+  tr.row { cursor:pointer; } tr.row:hover { background:#1a1e14; } tr.sel { background:#222915; }
+  .tier { font-size:12px; padding:1px 7px; border-radius:10px; border:1px solid var(--line); color:var(--dim); }
+  .tier.confidential { color:var(--tee); border-color:var(--tee); }
+  .tier.frontier { color:var(--acc); border-color:#5a6b2a; }
+  .disc { color:var(--acc); }
+  .strike { color:var(--dim); text-decoration:line-through; font-size:12px; margin-left:4px; }
+  h3 { margin:0 0 10px; font-size:13px; color:var(--dim); font-weight:400; text-transform:uppercase; letter-spacing:.06em; }
+  .stack > * + * { margin-top:14px; }
+  .kv { display:grid; grid-template-columns:auto 1fr; gap:4px 12px; }
+  .kv span:nth-child(odd) { color:var(--dim); }
+  .out { white-space:pre-wrap; background:#0f120c; border:1px solid var(--line); border-radius:7px; padding:10px; min-height:60px; max-height:360px; overflow:auto; }
+  .err { color:var(--bad); }
+  .muted { color:var(--dim); font-size:12px; }
+  code { color:var(--acc); }
+  a { color:var(--acc); }
+</style>
+</head>
+<body>
+<header>
+  <span class="mark">GM</span>
+  <div><b>saygm</b> <span class="sub">— private, discounted LLM gateway on Bittensor, as a mod</span></div>
+  <span class="key" id="keystate">key: …</span>
+</header>
+<main>
+  <section class="panel">
+    <div class="bar">
+      <input id="q" placeholder="search models or labs" style="flex:1;min-width:180px">
+      <button class="chip on" data-tier="">all</button>
+      <button class="chip" data-tier="frontier">frontier</button>
+      <button class="chip" data-tier="confidential">confidential (TEE)</button>
+      <button class="chip" data-tier="open">open</button>
+    </div>
+    <table>
+      <thead><tr>
+        <th data-sort="id">model</th><th>lab</th><th>tier</th>
+        <th class="num" data-sort="input">in $/M</th><th class="num" data-sort="output">out $/M</th>
+        <th class="num" data-sort="discount">vs list</th>
+      </tr></thead>
+      <tbody id="rows"><tr><td colspan="6" class="muted">loading the live catalog…</td></tr></tbody>
+    </table>
+    <p class="muted" id="count"></p>
+  </section>
+
+  <aside class="stack">
+    <div class="panel">
+      <h3>model</h3>
+      <div id="detail" class="muted">pick a model from the table</div>
+    </div>
+    <div class="panel">
+      <h3>what it costs</h3>
+      <div class="bar">
+        <input id="qin" type="number" value="10000" min="0" style="width:45%" title="input tokens">
+        <input id="qout" type="number" value="1000" min="0" style="width:45%" title="output tokens">
+      </div>
+      <div id="quote" class="muted">input tokens / output tokens</div>
+    </div>
+    <div class="panel">
+      <h3>say gm</h3>
+      <textarea id="prompt" rows="3" placeholder="ask the selected model something">say gm in one line</textarea>
+      <div class="bar" style="margin-top:8px">
+        <button class="go" id="send">send</button>
+        <span class="muted" id="sendhint"></span>
+      </div>
+      <div class="out" id="reply"></div>
+    </div>
+    <div class="panel muted">
+      Point any SDK here: OpenAI <code id="oai"></code>, Anthropic <code id="ant"></code>.
+      Keys come from <a href="https://saygm.com" target="_blank" rel="noopener">saygm.com</a>.
+    </div>
+  </aside>
+</main>
+<script>
+// Derive our own URLs from location: works on localhost and behind the gateway.
+const BASE = location.pathname.replace(/\/[^/]*$/, '').replace(/\/$/, '');
+const API = (BASE || '') + '/api';
+const ROOT = location.origin + BASE;
+let all = [], tier = '', sort = 'id', sel = null, keySet = false;
+
+const $ = id => document.getElementById(id);
+const fmt = v => v == null ? '—' : (v < 0.1 ? v.toFixed(4) : v < 10 ? v.toFixed(3) : v.toFixed(2));
+const pct = v => v == null ? '—' : (v * 100).toFixed(0) + '%';
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+async function call(fn, args, post) {
+  const url = API + '/' + fn + (post ? '' : '?' + new URLSearchParams(args || {}));
+  const r = await fetch(url, post ? {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(args)} : {});
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error || r.status);
+  return j;
+}
+
+function render() {
+  const q = $('q').value.toLowerCase();
+  let rows = all.filter(m => (!tier || m.tier === tier) && (!q || m.id.includes(q) || (m.lab||'').includes(q)));
+  const big = 1e12;
+  const keys = {id: m => m.id, input: m => m.input ?? big, output: m => m.output ?? big, discount: m => -(m.discount || 0)};
+  rows.sort((a, b) => { const x = keys[sort](a), y = keys[sort](b); return x < y ? -1 : x > y ? 1 : 0; });
+  $('rows').innerHTML = rows.map(m => `
+    <tr class="row ${sel && sel.id === m.id ? 'sel' : ''}" data-id="${esc(m.id)}">
+      <td>${esc(m.id)}</td><td>${esc(m.lab)}</td>
+      <td><span class="tier ${esc(m.tier)}">${esc(m.tier)}</span></td>
+      <td class="num">${fmt(m.input)}${m.list_input && m.list_input > m.input ? `<span class="strike">${fmt(m.list_input)}</span>` : ''}</td>
+      <td class="num">${fmt(m.output)}</td>
+      <td class="num disc">${m.discount ? '-' + pct(m.discount) : '—'}</td>
+    </tr>`).join('') || '<tr><td colspan="6" class="muted">no models match</td></tr>';
+  $('count').textContent = `${rows.length} of ${all.length} models · prices live from api.saygm.com, USD per million tokens`;
+}
+
+function pick(id) {
+  sel = all.find(m => m.id === id);
+  if (!sel) return;
+  const caps = Object.entries(sel.capabilities || {}).filter(([, v]) => v).map(([k]) => k).join(', ') || '—';
+  $('detail').className = 'kv';
+  $('detail').innerHTML = `
+    <span>id</span><span><a href="${esc(sel.url)}" target="_blank" rel="noopener">${esc(sel.id)}</a></span>
+    <span>lab</span><span>${esc(sel.lab)}</span>
+    <span>tier</span><span>${esc(sel.tier)}${sel.confidential ? ' — inference inside the TEE' : ''}</span>
+    <span>input</span><span>$${fmt(sel.input)} / M <span class="muted">list $${fmt(sel.list_input)}</span></span>
+    <span>output</span><span>$${fmt(sel.output)} / M <span class="muted">list $${fmt(sel.list_output)}</span></span>
+    <span>shapes</span><span>${esc(sel.shapes.join(', '))}</span>
+    <span>can</span><span>${esc(caps)}</span>`;
+  quote();
+  render();
+}
+
+async function quote() {
+  if (!sel) return;
+  try {
+    const q = await call('quote', {model: sel.id, input_tokens: $('qin').value || 0, output_tokens: $('qout').value || 0});
+    $('quote').className = '';
+    $('quote').innerHTML = `$${q.usd.toFixed(5)} here` + (q.list_usd != null
+      ? ` <span class="muted">vs $${q.list_usd.toFixed(5)} list — you keep ${pct(q.saved_pct)}</span>` : '');
+  } catch (e) { $('quote').className = 'err'; $('quote').textContent = e.message; }
+}
+
+async function send() {
+  if (!sel) { $('reply').innerHTML = '<span class="err">pick a model first</span>'; return; }
+  $('send').disabled = true; $('reply').textContent = '…';
+  try {
+    let r = await call('chat', {model: sel.id, prompt: $('prompt').value, max_tokens: 512}, true);
+    if (r.needs_confirm) {
+      $('reply').innerHTML = `This could cost up to $${r.worst_case_usd}. <button id="ok">send anyway</button>`;
+      $('ok').onclick = async () => {
+        $('reply').textContent = '…';
+        try { show(await call('chat', {model: sel.id, prompt: $('prompt').value, max_tokens: 512, confirm: true}, true)); }
+        catch (e) { $('reply').innerHTML = `<span class="err">${esc(e.message)}</span>`; }
+      };
+      return;
+    }
+    show(r);
+  } catch (e) { $('reply').innerHTML = `<span class="err">${esc(e.message)}</span>`; }
+  finally { $('send').disabled = false; }
+}
+
+function show(r) {
+  $('reply').innerHTML = esc(r.text) + `\n\n<span class="muted">${esc(r.model)} · ${r.input_tokens ?? '?'} in / ${r.output_tokens ?? '?'} out · ${r.usd != null ? '$' + r.usd.toFixed(6) : ''} · ${r.ms} ms</span>`;
+}
+
+document.querySelectorAll('[data-tier]').forEach(b => b.onclick = () => {
+  tier = b.dataset.tier;
+  document.querySelectorAll('[data-tier]').forEach(x => x.classList.toggle('on', x === b));
+  render();
+});
+document.querySelectorAll('[data-sort]').forEach(th => th.onclick = () => { sort = th.dataset.sort; render(); });
+$('q').oninput = render;
+$('rows').onclick = e => { const tr = e.target.closest('tr.row'); if (tr) pick(tr.dataset.id); };
+$('qin').oninput = $('qout').oninput = quote;
+$('send').onclick = send;
+$('oai').textContent = ROOT + '/v1';
+$('ant').textContent = ROOT;
+
+(async () => {
+  try {
+    const info = await call('info');
+    keySet = !!info.key;
+    $('keystate').textContent = keySet ? 'key: ' + info.key : 'no key — catalog only';
+    $('sendhint').textContent = keySet ? '' : 'needs a SayGM key on this box';
+  } catch (e) {}
+  try {
+    all = (await call('models', {available: 'false'})).models;
+    render();
+    const params = new URLSearchParams(location.search);
+    pick(params.get('m') || 'glm-5.3-flash');
+  } catch (e) { $('rows').innerHTML = `<tr><td colspan="6" class="err">${esc(e.message)}</td></tr>`; }
+})();
+</script>
+</body>
+</html>

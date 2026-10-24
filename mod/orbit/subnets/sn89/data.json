@@ -1,0 +1,189 @@
+{
+  "netuid": 89,
+  "name": "InfiniteQuant",
+  "symbol": "ᛒ",
+  "owner": "5Dc5NmEUptDeMLrxDSvg8kfCToxJkiF47apAYSVTycAVvDN4",
+  "description": "Proof of Edge - Trading signals",
+  "github": "https://github.com/DeltaCompute24/InfiniteQuant-Subnet",
+  "url": "https://infinitequant.app",
+  "discord": null,
+  "logo": "https://raw.githubusercontent.com/DeltaCompute24/InfiniteQuant-Subnet/master/docs/assets/iq_logo.png",
+  "registered_at": 5313364,
+  "tempo": 360,
+  "active": true,
+  "block": 9322663,
+  "related": [],
+  "market": {
+    "price": 0.002956791,
+    "moving_price": 0.0029568816535174847,
+    "market_cap": 15120.503232089828,
+    "tao_in": 6102.39036325,
+    "alpha_in": 2063855.420078157,
+    "alpha_out": 3049966.704004955,
+    "volume": 191475.578236099,
+    "vol_24h": 120.59453629501513,
+    "emission": 0.0,
+    "change_1h": -0.009063058937963664,
+    "change_24h": 0.055360886315591884,
+    "change_7d": -1.4675934766069765
+  },
+  "spark_24h": [
+    0.002955155,
+    0.002954778,
+    0.002952344,
+    0.002950438,
+    0.002949811,
+    0.002949447,
+    0.002949447,
+    0.002949447,
+    0.002949447,
+    0.00294947,
+    0.002949462,
+    0.002949462,
+    0.002949176,
+    0.002958975,
+    0.002958975,
+    0.002958972,
+    0.002958898,
+    0.002958898,
+    0.002958898,
+    0.002958203,
+    0.002958168,
+    0.002958124,
+    0.002958124,
+    0.002958148,
+    0.002958148,
+    0.002958122,
+    0.002958208,
+    0.002958208,
+    0.002958208,
+    0.002958208,
+    0.002958208,
+    0.002958208,
+    0.002958208,
+    0.002958264,
+    0.002958036,
+    0.002958035,
+    0.002958035,
+    0.002958059,
+    0.002957089,
+    0.002957089,
+    0.002957089,
+    0.002957089,
+    0.002957061,
+    0.002957061,
+    0.002957059,
+    0.002957059,
+    0.002957059,
+    0.002956791
+  ],
+  "trades_24h": {
+    "trades": 127,
+    "buys": 4,
+    "sells": 123,
+    "buy_tao": 60.556111649,
+    "sell_tao": 58.235783882,
+    "net_tao": 2.320327767000002,
+    "traders": 53
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5GCcH9R6SS7xtobP3EvrgSBXuowAtpjgMBP6FVTLWfqGbZ9g",
+      "net_tao": -0.07152304199999904,
+      "gross_tao": 60.071523041999995,
+      "trades": 2
+    },
+    {
+      "coldkey": "5Gy3ybnsXLe4HSArvQLdBDK2zn53xH77cQ7Bt78dnihQ268b",
+      "net_tao": -0.04022085600000125,
+      "gross_tao": 32.040220856000005,
+      "trades": 2
+    },
+    {
+      "coldkey": "5FjFwQuTGDmWMpbJmKunET2y1wAiXW8Fi12VkRYTUWTGYpVK",
+      "net_tao": 10.838071,
+      "gross_tao": 10.838071,
+      "trades": 1
+    },
+    {
+      "coldkey": "5GFASTQftoZcMXRuaML9brsMMZQJMqyTViMnYHQsN5mTi1hN",
+      "net_tao": -0.009363746999999645,
+      "gross_tao": 7.445445045,
+      "trades": 2
+    },
+    {
+      "coldkey": "5F4QZ4iPPk9yZ81q2bCBhUCN6Ez6rYgNKKgHaAJsyeDYtV7a",
+      "net_tao": -1.375706699,
+      "gross_tao": 1.375706699,
+      "trades": 5
+    }
+  ],
+  "news": [
+    {
+      "ts": 1792376236,
+      "kind": "commit",
+      "source": "github",
+      "title": "Emission decay 7 days -> 30 days on both mechanisms (Whit, 2026-10-19)",
+      "url": "https://github.com/DeltaCompute24/InfiniteQuant-Subnet/commit/9ec1950df1db3239d3fc4ceb818ca657c5cfe00f",
+      "publisher": "DeltaCompute24/InfiniteQuant-Subnet"
+    },
+    {
+      "ts": 1792274714,
+      "kind": "commit",
+      "source": "github",
+      "title": "Markets: gold daily and weekly windows from 2026-10-18 17:00 EDT",
+      "url": "https://github.com/DeltaCompute24/InfiniteQuant-Subnet/commit/ff54d9ae6dc4949440ea9cd52227b003fbaa8d07",
+      "publisher": "DeltaCompute24/InfiniteQuant-Subnet"
+    },
+    {
+      "ts": 1792241055,
+      "kind": "commit",
+      "source": "github",
+      "title": "README: IQ Markets withdrawal minimum is $50",
+      "url": "https://github.com/DeltaCompute24/InfiniteQuant-Subnet/commit/f1c3e89ea1ac06d548ecd6779278709fa06edcac",
+      "publisher": "DeltaCompute24/InfiniteQuant-Subnet"
+    },
+    {
+      "ts": 1792179021,
+      "kind": "commit",
+      "source": "github",
+      "title": "Markets V3.5: 1h sigma scale 1.20 -> 1.70 from 2026-10-16 21:00 UTC",
+      "url": "https://github.com/DeltaCompute24/InfiniteQuant-Subnet/commit/b55171d8a15420e033c4515f1a5ecc5ba370b1b3",
+      "publisher": "DeltaCompute24/InfiniteQuant-Subnet"
+    },
+    {
+      "ts": 1792066285,
+      "kind": "commit",
+      "source": "github",
+      "title": "limit_watcher: reject mainnet orders from hotkeys not registered on n…",
+      "url": "https://github.com/DeltaCompute24/InfiniteQuant-Subnet/commit/452dacb5f95c78169e3f8b1088bb21d95323c0e2",
+      "publisher": "DeltaCompute24/InfiniteQuant-Subnet"
+    },
+    {
+      "ts": 1792066045,
+      "kind": "commit",
+      "source": "github",
+      "title": "Docs: LF reveal is 15 minutes, entry is the last anchored tick at or …",
+      "url": "https://github.com/DeltaCompute24/InfiniteQuant-Subnet/commit/2929742ec7c6becba378baba623881e090ee6c90",
+      "publisher": "DeltaCompute24/InfiniteQuant-Subnet"
+    },
+    {
+      "ts": 1792054456,
+      "kind": "commit",
+      "source": "github",
+      "title": "README: IQ Markets $200 credit is now earned by referral (invite one …",
+      "url": "https://github.com/DeltaCompute24/InfiniteQuant-Subnet/commit/78a75678f4080f0b08e33b00512aec647bd988b8",
+      "publisher": "DeltaCompute24/InfiniteQuant-Subnet"
+    },
+    {
+      "ts": 1792049835,
+      "kind": "commit",
+      "source": "github",
+      "title": "HF warmup dust: not-yet-eligible HF miners hold DUST_WEIGHT for 8 day…",
+      "url": "https://github.com/DeltaCompute24/InfiniteQuant-Subnet/commit/62c7f732d62b80a5f90ee3e74c8421447f6799eb",
+      "publisher": "DeltaCompute24/InfiniteQuant-Subnet"
+    }
+  ],
+  "updated": 1792474861,
+  "updated_day": "2026-10-20"
+}

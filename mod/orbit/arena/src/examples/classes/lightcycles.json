@@ -1,0 +1,6 @@
+{
+  "name": "lightcycles",
+  "description": "Light Cycles (Tron) as a Python class: two riders steer at once on a 13x13 grid, every cell crossed becomes a wall, last one moving wins. Seeded point-symmetric blocks.",
+  "author": "arena",
+  "tags": ["example", "game", "class", "python", "simultaneous"]
+}

@@ -72,9 +72,9 @@ class Factory:
         return {'name': name, 'path': dirpath, 'msg': 'Mod Created from path'}
 
     def addcid(self, name='churn',  cid='QmXUjBQRFa8DbY2GhD1Aq6a44EBYzgejmtwwnYYTfvnFW4', exp=True):
-        api = c.mod('api')()
+        api = m.mod('api')()
         file2text =  api.content(cid, expand=True)
-        path = self.paths["orbit"]["orbit"](exp) + '/' + name.replace('.', '/')
+        path = m.get_mods_path() + '/' + name.replace('.', '/')
         for k,v in file2text.items():
             new_path = path + '/' + k
             print(f'Creating {new_path} for mod {name}')
@@ -89,7 +89,7 @@ class Factory:
         make a new mod from a git repo
         """
         name = name or repo.split('/')[-1].replace('.git', '')
-        mods_path = self.paths["orbit"]["orbit"](exp)
+        mods_path = m.get_mods_path()
         dirpath = mods_path + '/' + name.replace('.', '/')
         mod_name = dirpath.split('/')[-1]
         m.cmd(f'git clone {repo} {dirpath}')
@@ -105,7 +105,7 @@ class Factory:
         make a new mod
         """
         name = name or path.split('/')[-1]
-        mods_path = self.paths["orbit"]["orbit"](exp)
+        mods_path = m.get_mods_path()
         dirpath = mods_path + '/' + name.replace('.', '/')
         mod_name = dirpath.split('/')[-1]
         for k,v in m.content(base).items():
@@ -117,4 +117,4 @@ class Factory:
         return {'name': name, 'path': dirpath, 'msg': 'Mod Created', 'base': base, 'cid': m.cid(name)}
 
     def mods_path(self, exp=True):
-        return self.paths["orbit"]["orbit"](exp)
+        return m.get_mods_path()

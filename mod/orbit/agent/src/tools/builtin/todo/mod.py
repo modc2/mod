@@ -1,5 +1,5 @@
 """todo - task tracking for agent sessions"""
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any
 
 
 class Tool:

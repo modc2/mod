@@ -1,0 +1,103 @@
+{
+ "note": "signed by the Cairo prover (prover/, scarb cairo-run); the Rust verifier must accept it byte-for-byte",
+ "scope_mine": {
+  "subnet": "0xabc",
+  "epoch": 7,
+  "scope": "0x60fa96b58f656b84cf776e9508a7e1cab782c973c14ad1643f61766a73d05b7"
+ },
+ "score_scope": {
+  "subnet": "0xabc",
+  "epoch": 7,
+  "tag": "0x55",
+  "scope": "0x1e00c35fae3d5480b89244856ceb7187432c2ad184ba70a7a3e9d0ac3def69e"
+ },
+ "keys": [
+  {
+   "secret": 11,
+   "x": "0x408f052dfe0289ab18a69ffdcb38a303fb0766979dca58262a9fabe4a0c7632",
+   "y": "0x6342e6aba72fd3fef06d8274bdaf8cc86bc3eab59b3ae413f9e3cb086317923",
+   "key_id": "0x399a756fd1e840bffa747c69d141bbf0142712ca902ec7cf97f7e7bf2073d76"
+  },
+  {
+   "secret": 22,
+   "x": "0x6658ab3f9fa93331cab39626214cec2d4bdc98b6c7876e80d10eea285f05aac",
+   "y": "0x3d11fed8eaa0d453a173d8970f29458d8d4fdff1a6ceb440b33d3f9fafb4255",
+   "key_id": "0x2a6472f8343bafb9c88e746b0aa4dc265a79a5ca971ce15c055aefbfcc0321b"
+  },
+  {
+   "secret": 33,
+   "x": "0x6e8cbde114bdd013f1885a70873d6b9ef435f239b732bc410e3c3a55efec859",
+   "y": "0x4dbf6a27307db93907e2e031f815e970bfae3eaabe5bae14fba7144a87c3e2f",
+   "key_id": "0x1cd16d4723cbc671ee292227a670d3c1fabffb8743729d2f6fb0ecd23378809"
+  },
+  {
+   "secret": 44,
+   "x": "0x3d03263d174ba094c1be6bed3f3cd81bb9cb6a5ed6c737cd563c3cf1f354d7",
+   "y": "0x596a54d066f79f7e951e8f25a31e4df60d9ec6817c51bd4bd3f7b722ad43437",
+   "key_id": "0x7f8bd6feea58f59790a14f810d9eda653c924ccdd24f5c6d580bda710276242"
+  }
+ ],
+ "hash_to_point": [
+  {
+   "scope": "0x1",
+   "x": "0x7bcf798eab5af9d449affc3062ab08d1ce8f1031dce9f4ee0d95d43def730a0",
+   "y": "0x2ba7eb8416b1e2fe1f5914132dfa835238a1bd06f2b965803e9c0f0238888e2"
+  },
+  {
+   "scope": "0x2",
+   "x": "0x494e05b994a01c1fe3c5f27046c648a888c24ab616c010fb2ae4e7e4de1a3a2",
+   "y": "0x2f83db4c7795c311474243c965de578b6244092c4dd135c4047d5fa71aced2e"
+  },
+  {
+   "scope": "0x3",
+   "x": "0x57fab4fb0d01813ba4cea3d560bb929a36e1cc274d84293103022c8c7b40109",
+   "y": "0x2a9ff7b0726984c8957b91da1ef92dfd21f2fbd60ca3ac5523ddca80c2ab25f"
+  },
+  {
+   "scope": "0x3039",
+   "x": "0x576989f1d8875bcf28d704622b9860b90cb6d995979319ebda7aea4a2bb8dc",
+   "y": "0x2c1814b4e612d78b6b2598e5495f100418351018a4f1a2c6dee5de883390d84"
+  },
+  {
+   "scope": "0x60fa96b58f656b84cf776e9508a7e1cab782c973c14ad1643f61766a73d05b7",
+   "x": "0x45ef35483f5c52c7fd3e4f1b36c87401530f1f96f0cd7c85c160f1c5a388e4b",
+   "y": "0x3ee5098e0688362eb5d1a7a91a07459888626fd4de7b3a419cb5106468774c1"
+  }
+ ],
+ "msg": "0x1234",
+ "sig": {
+  "ring": [
+   {
+    "x": "0x6e8cbde114bdd013f1885a70873d6b9ef435f239b732bc410e3c3a55efec859",
+    "y": "0x4dbf6a27307db93907e2e031f815e970bfae3eaabe5bae14fba7144a87c3e2f"
+   },
+   {
+    "x": "0x6658ab3f9fa93331cab39626214cec2d4bdc98b6c7876e80d10eea285f05aac",
+    "y": "0x3d11fed8eaa0d453a173d8970f29458d8d4fdff1a6ceb440b33d3f9fafb4255"
+   },
+   {
+    "x": "0x408f052dfe0289ab18a69ffdcb38a303fb0766979dca58262a9fabe4a0c7632",
+    "y": "0x6342e6aba72fd3fef06d8274bdaf8cc86bc3eab59b3ae413f9e3cb086317923"
+   },
+   {
+    "x": "0x3d03263d174ba094c1be6bed3f3cd81bb9cb6a5ed6c737cd563c3cf1f354d7",
+    "y": "0x596a54d066f79f7e951e8f25a31e4df60d9ec6817c51bd4bd3f7b722ad43437"
+   }
+  ],
+  "c0": "0x60161c448ce5a87b7c63aae3941283fc208f67c5ab89f97e0498534593fc4dd",
+  "s": [
+   "0x65",
+   "0x7131bba13d0f77585c9f5a37e4b692547b155a289dd077fd31f16dde8e0b3bc",
+   "0x67",
+   "0x68"
+  ],
+  "image": {
+   "x": "0x115c965ebce3e8285243cb9f5a66961a2dcaa69e181c172d639673b010ec10",
+   "y": "0xb95b239208a382aaf5ef3a0211a37c1e69733cb9825d0d0de2f0c7a3eb55f3"
+  },
+  "tag": "0x741e86317121b71014ec9424defc0984f13f057ac5bb06e7ddaa3afa2dd285"
+ },
+ "verify_cairo": [
+  1
+ ]
+}

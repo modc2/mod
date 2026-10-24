@@ -1,0 +1,181 @@
+{
+  "netuid": 82,
+  "name": "Noah",
+  "symbol": "ᚢ",
+  "owner": "5GGrRdUatgDLiJxnytdWfYCwsAb1Cyo4U5Dw1HmLiAcbWj88",
+  "description": null,
+  "github": "https://github.com/Vora-Inc/NOAH",
+  "url": "https://subnet82.com",
+  "discord": null,
+  "logo": "https://subnet82.com/noah-n-512.png",
+  "registered_at": 9155260,
+  "tempo": 360,
+  "active": true,
+  "block": 9322663,
+  "related": [],
+  "market": {
+    "price": 0.04958525,
+    "moving_price": 0.04279319802299142,
+    "market_cap": 9808.925844425177,
+    "tao_in": 2569.316767751,
+    "alpha_in": 51816.149859377,
+    "alpha_out": 146003.279193117,
+    "volume": 10340.111179837,
+    "vol_24h": 362.7936557230005,
+    "emission": 0.0,
+    "change_1h": 0.005215532590185923,
+    "change_24h": -4.80580712941684,
+    "change_7d": -15.135704059727606
+  },
+  "spark_24h": [
+    0.052088524,
+    0.052085134,
+    0.051389443,
+    0.05119201,
+    0.051191887,
+    0.051191802,
+    0.051191802,
+    0.051291616,
+    0.051291616,
+    0.051290669,
+    0.053964512,
+    0.052963475,
+    0.051469925,
+    0.050147101,
+    0.050147101,
+    0.050073799,
+    0.050073799,
+    0.050073799,
+    0.050073799,
+    0.04977628,
+    0.04977628,
+    0.04977628,
+    0.049776199,
+    0.049776199,
+    0.049776199,
+    0.049733706,
+    0.049733706,
+    0.050133477,
+    0.049733627,
+    0.049733627,
+    0.049733627,
+    0.049733627,
+    0.049733627,
+    0.049733627,
+    0.049569011,
+    0.0495685,
+    0.0495685,
+    0.0495685,
+    0.049568101,
+    0.049568065,
+    0.049568065,
+    0.049568065,
+    0.049568065,
+    0.049567904,
+    0.049565422,
+    0.049582664,
+    0.049590481,
+    0.04958525
+  ],
+  "trades_24h": {
+    "trades": 66,
+    "buys": 32,
+    "sells": 34,
+    "buy_tao": 149.456349977,
+    "sell_tao": 131.690388639,
+    "net_tao": 17.76596133800001,
+    "traders": 35
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5GFASTQftoZcMXRuaML9brsMMZQJMqyTViMnYHQsN5mTi1hN",
+      "net_tao": -0.787200508999998,
+      "gross_tao": 69.75214276700001,
+      "trades": 4
+    },
+    {
+      "coldkey": "5GGrRdUatgDLiJxnytdWfYCwsAb1Cyo4U5Dw1HmLiAcbWj88",
+      "net_tao": 43.829289,
+      "gross_tao": 43.829289,
+      "trades": 1
+    },
+    {
+      "coldkey": "5GCcH9R6SS7xtobP3EvrgSBXuowAtpjgMBP6FVTLWfqGbZ9g",
+      "net_tao": 0.06295685099999915,
+      "gross_tao": 39.937043149000004,
+      "trades": 4
+    },
+    {
+      "coldkey": "5Cw2qFy2tZy9ZLt4LsJc9b68nffQndZDHF1KZynmVbA4Z3pC",
+      "net_tao": 0.02142018099999987,
+      "gross_tao": 29.978579819,
+      "trades": 2
+    },
+    {
+      "coldkey": "5FZUmyxyGnuNq4hc2P2mqdo83FjXTQu3ma9WacS6L5Bthc6e",
+      "net_tao": -3.252289897,
+      "gross_tao": 15.232290236999999,
+      "trades": 5
+    }
+  ],
+  "news": [
+    {
+      "ts": 1792426638,
+      "kind": "commit",
+      "source": "github",
+      "title": "Allow configured validator publishing identities (#2)",
+      "url": "https://github.com/Vora-Inc/NOAH/commit/3d2f07615922f577f76aec4543fcbdb5041c2c11",
+      "publisher": "Vora-Inc/NOAH"
+    },
+    {
+      "ts": 1792424106,
+      "kind": "commit",
+      "source": "github",
+      "title": "Allow configured validator publishing identities",
+      "url": "https://github.com/Vora-Inc/NOAH/commit/95302dc6908ff9cdf4ce44872a33852399e1ce94",
+      "publisher": "Vora-Inc/NOAH"
+    },
+    {
+      "ts": 1792347075,
+      "kind": "release",
+      "source": "github",
+      "title": "v0.1.0 — Miner and validator source release",
+      "url": "https://github.com/Vora-Inc/NOAH/releases/tag/v0.1.0",
+      "publisher": "Vora-Inc/NOAH"
+    },
+    {
+      "ts": 1792347045,
+      "kind": "commit",
+      "source": "github",
+      "title": "Release v0.1.0: multisig receipts and surplus-bonus scoring",
+      "url": "https://github.com/Vora-Inc/NOAH/commit/bf171203f5149ec15d3c8a9cc85c47519bd5bdb6",
+      "publisher": "Vora-Inc/NOAH"
+    },
+    {
+      "ts": 1792346426,
+      "kind": "commit",
+      "source": "github",
+      "title": "Release multisig receipts and surplus-bonus scoring documentation",
+      "url": "https://github.com/Vora-Inc/NOAH/commit/b593f181e7299ba05fb1d3e3ed447b92c9872e96",
+      "publisher": "Vora-Inc/NOAH"
+    },
+    {
+      "ts": 1792198173,
+      "kind": "commit",
+      "source": "github",
+      "title": "Harden release dependencies and configuration backups",
+      "url": "https://github.com/Vora-Inc/NOAH/commit/44b04ce16e0561d957efb623a1d55bc812fd20a1",
+      "publisher": "Vora-Inc/NOAH"
+    },
+    {
+      "ts": 1792194364,
+      "kind": "commit",
+      "source": "github",
+      "title": "Initial public Noah miner and validator release",
+      "url": "https://github.com/Vora-Inc/NOAH/commit/fc50abe33cfe2f28ef722d2e41701fccbd640468",
+      "publisher": "Vora-Inc/NOAH"
+    }
+  ],
+  "updated": 1792474861,
+  "updated_day": "2026-10-20"
+}

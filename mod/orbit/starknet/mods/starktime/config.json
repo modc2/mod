@@ -1,0 +1,24 @@
+{
+    "name": "starknet.starktime",
+    "submod_of": "starknet",
+    "version": "0.1.0",
+    "description": "The starktime mod (time-weighted STRK staking), as a Starknet app.",
+    "anchor": "mod.py",
+    "app": {
+        "title": "StarkTime",
+        "icon": "T",
+        "tone": "#facc15",
+        "tag": "stake",
+        "kind": "mod",
+        "mod": "starktime",
+        "order": 50,
+        "pitch": "Lock STRK for longer, earn more. Weight = amount x lock multiplier (1x flexible up to 6x at four years); rewards stream every second."
+    },
+    "fns": [
+        "facts"
+    ],
+    "depends": [
+        "starktime"
+    ],
+    "schema": "QmRkp3jZTiuTfcuYxx2PX8uyzAL1KB9CRDg4mAmXwPmFhL"
+}

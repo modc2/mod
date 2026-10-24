@@ -1,0 +1,191 @@
+{
+  "netuid": 75,
+  "name": "Hippius",
+  "symbol": "م",
+  "owner": "5DAQpczEK4vzBn1waHkC4BZGqGPZ1dwPxKVsj36JDofHAw3a",
+  "description": "Blockchain-backed cloud: storage, VMs, and apps with unmatched transparency, trust, and power.",
+  "github": "https://github.com/thenervelab/thebrain",
+  "url": "https://hippius.com/",
+  "discord": null,
+  "logo": "https://hippius.com/logo.png",
+  "registered_at": 5102795,
+  "tempo": 360,
+  "active": true,
+  "block": 9322663,
+  "related": [
+    "hippius"
+  ],
+  "market": {
+    "price": 0.018357771,
+    "moving_price": 0.01826220448128879,
+    "market_cap": 107401.67441823565,
+    "tao_in": 34827.437595204,
+    "alpha_in": 1897149.570488939,
+    "alpha_out": 3953325.109592628,
+    "volume": 1632968.762636229,
+    "vol_24h": 3481.293278191937,
+    "emission": 0.0,
+    "change_1h": 0.07593283893307934,
+    "change_24h": 1.75834945210942,
+    "change_7d": 7.814518188832098
+  },
+  "spark_24h": [
+    0.018040555,
+    0.017965351,
+    0.018251323,
+    0.01821458,
+    0.018224396,
+    0.018340949,
+    0.018341262,
+    0.018246821,
+    0.018481058,
+    0.018549576,
+    0.018524911,
+    0.018622795,
+    0.01839172,
+    0.01840471,
+    0.01840242,
+    0.018422637,
+    0.018406141,
+    0.018378945,
+    0.018380176,
+    0.018266401,
+    0.018203152,
+    0.018180734,
+    0.018181172,
+    0.01818173,
+    0.018182425,
+    0.018183076,
+    0.018189308,
+    0.018191883,
+    0.018192405,
+    0.018199971,
+    0.018198201,
+    0.018195913,
+    0.01824416,
+    0.018224169,
+    0.018243787,
+    0.018244318,
+    0.018244635,
+    0.018244777,
+    0.018244824,
+    0.01824537,
+    0.018246184,
+    0.018244643,
+    0.01828904,
+    0.018289337,
+    0.018340226,
+    0.018343842,
+    0.018332627,
+    0.018357771
+  ],
+  "trades_24h": {
+    "trades": 357,
+    "buys": 207,
+    "sells": 150,
+    "buy_tao": 1827.118146626,
+    "sell_tao": 1578.501745497,
+    "net_tao": 248.616401129,
+    "traders": 129
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5F1XjkDCLVygZb73otM2ePzRgyZ6U2g2F6CMLD4uwuktzi8g",
+      "net_tao": -0.13645750999999962,
+      "gross_tao": 460.13645751,
+      "trades": 18
+    },
+    {
+      "coldkey": "5GYXXTfXDMWdktsUg6Sh46EVKwnQVwxWLdbMH7Rb7AQzRHkh",
+      "net_tao": -190.29188049200002,
+      "gross_tao": 331.980234856,
+      "trades": 9
+    },
+    {
+      "coldkey": "5Gb23Q7n115ypiHr6jAMRhkhADhEkRFYa5ovgipVApqMt3FV",
+      "net_tao": 0.6758812119999931,
+      "gross_tao": 299.324118788,
+      "trades": 5
+    },
+    {
+      "coldkey": "5GBQXjLLLNUcZZBHgJJtG5vvWa6hwToVf4hRYe8Bqinvq6aP",
+      "net_tao": -0.666671081000004,
+      "gross_tao": 200.666671081,
+      "trades": 5
+    },
+    {
+      "coldkey": "5GbSr2iJhgQj1V2XB3oQBT9jkz1VMB8uVSoskAwbWSSJEcgD",
+      "net_tao": -0.22710838500000108,
+      "gross_tao": 200.227108385,
+      "trades": 4
+    }
+  ],
+  "news": [
+    {
+      "ts": 1792405806,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #73 from thenervelab/fix/hip-01-ranking-registration",
+      "url": "https://github.com/thenervelab/thebrain/commit/32b5dae555d7a691d560e17fb0557250e26d5bef",
+      "publisher": "thenervelab/thebrain"
+    },
+    {
+      "ts": 1792404914,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix: resolve code review findings for PR #73",
+      "url": "https://github.com/thenervelab/thebrain/commit/3a3372279130be6504a3f6714a87565de685984b",
+      "publisher": "thenervelab/thebrain"
+    },
+    {
+      "ts": 1792397930,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge branch 'main' into fix/hip-01-ranking-registration",
+      "url": "https://github.com/thenervelab/thebrain/commit/151d3aac129567a53b785503e8e9de90f8569d01",
+      "publisher": "thenervelab/thebrain"
+    },
+    {
+      "ts": 1792396892,
+      "kind": "commit",
+      "source": "github",
+      "title": "updated spec version",
+      "url": "https://github.com/thenervelab/thebrain/commit/39fbcd49ff60848805a739a4422ca01d544292ef",
+      "publisher": "thenervelab/thebrain"
+    },
+    {
+      "ts": 1792395350,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(security): restrict ranking writes and bind registration signer t…",
+      "url": "https://github.com/thenervelab/thebrain/commit/906464a0586f49bdf1f27b555cd1563d43375c14",
+      "publisher": "thenervelab/thebrain"
+    },
+    {
+      "ts": 1792094287,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #70 from thenervelab/chore/runtime-spec-92018",
+      "url": "https://github.com/thenervelab/thebrain/commit/2af9ec4c57cd45d5ff34d0c87e540c1d7a78d2d0",
+      "publisher": "thenervelab/thebrain"
+    },
+    {
+      "ts": 1792077555,
+      "kind": "commit",
+      "source": "github",
+      "title": "chore(runtime): bump mainnet spec_version to 92018",
+      "url": "https://github.com/thenervelab/thebrain/commit/76a9a1fb4b1a0f07a7950637cb0c1307870f477f",
+      "publisher": "thenervelab/thebrain"
+    },
+    {
+      "ts": 1791227329,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #63 from thenervelab/feat/marketplace-buy-credits",
+      "url": "https://github.com/thenervelab/thebrain/commit/530ef9997385b54fa450aab4e5835dd3865a18de",
+      "publisher": "thenervelab/thebrain"
+    }
+  ],
+  "updated": 1792474861,
+  "updated_day": "2026-10-20"
+}

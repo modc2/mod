@@ -1,3 +1,4 @@
+pub mod bridges;
 pub mod config;
 pub mod keys;
 pub mod rates;

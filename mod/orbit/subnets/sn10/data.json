@@ -1,0 +1,189 @@
+{
+  "netuid": 10,
+  "name": "Pareton",
+  "symbol": "Ⱂ",
+  "owner": "5HK5714cfComgoVg9UfQswQHad6wJV4RnGvp6PQvTkLUUFt5",
+  "description": "The Intelligence Layer for AI Inference",
+  "github": "https://github.com/Pareton-ai/pareton",
+  "url": "https://www.pareton.ai/",
+  "discord": null,
+  "logo": "https://www.pareton.ai/logo.png",
+  "registered_at": 2869647,
+  "tempo": 360,
+  "active": true,
+  "block": 9322663,
+  "related": [],
+  "market": {
+    "price": 0.005097432,
+    "moving_price": 0.005102790193632245,
+    "market_cap": 31573.64328409956,
+    "tao_in": 14716.515145944,
+    "alpha_in": 2887044.438300989,
+    "alpha_out": 3306984.885503539,
+    "volume": 1065388.051649303,
+    "vol_24h": 385.48297874093987,
+    "emission": 0.0,
+    "change_1h": -0.0007062329768436904,
+    "change_24h": 0.03145709952199205,
+    "change_7d": -14.95152881567402
+  },
+  "spark_24h": [
+    0.005095829,
+    0.005095829,
+    0.005119876,
+    0.005098596,
+    0.005098596,
+    0.005098595,
+    0.005098595,
+    0.005098595,
+    0.005098595,
+    0.005098584,
+    0.005098576,
+    0.005098576,
+    0.005098493,
+    0.005098115,
+    0.005098115,
+    0.005097565,
+    0.005097565,
+    0.005097565,
+    0.005097565,
+    0.00509747,
+    0.00509747,
+    0.00509747,
+    0.005097468,
+    0.005097468,
+    0.005097468,
+    0.005097439,
+    0.005097474,
+    0.005097474,
+    0.005097474,
+    0.005097474,
+    0.005097474,
+    0.005097474,
+    0.005097474,
+    0.005097474,
+    0.005097474,
+    0.005097474,
+    0.005097474,
+    0.005097474,
+    0.005097473,
+    0.005097473,
+    0.005097473,
+    0.005097473,
+    0.005097473,
+    0.005097473,
+    0.005097468,
+    0.005097468,
+    0.005097468,
+    0.005097432
+  ],
+  "trades_24h": {
+    "trades": 30,
+    "buys": 11,
+    "sells": 19,
+    "buy_tao": 193.896260932,
+    "sell_tao": 244.933493974,
+    "net_tao": -51.037233042,
+    "traders": 18
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5Ge57pPLDUKApt49W9ZFDsrjEMVMD1Xsn1euc8EJVHECU6Jn",
+      "net_tao": -0.17404037200000033,
+      "gross_tao": 160.174040372,
+      "trades": 5
+    },
+    {
+      "coldkey": "5DXYVRnDDmmFXwC5zy38j7r17BnfmvSJc5kpcuB8VCRPdGCY",
+      "net_tao": 0.030607761999998928,
+      "gross_tao": 59.969392238,
+      "trades": 2
+    },
+    {
+      "coldkey": "5GjxbokQMKt34PMLUz7Tx7ejk32sCJuNwkSPQ4B6nTvwXz5L",
+      "net_tao": -55.673399509,
+      "gross_tao": 55.673399509,
+      "trades": 1
+    },
+    {
+      "coldkey": "5GKHLgHnp1wdXTB1krScJMhrjqwn2XGv239XfMqSx5c2xXU8",
+      "net_tao": 50.0,
+      "gross_tao": 50.0,
+      "trades": 1
+    },
+    {
+      "coldkey": "5D31yczGiq9tVJwGgX87sWBks1g6RST5Tju5aajGycvvrijb",
+      "net_tao": 0.02551077400000068,
+      "gross_tao": 49.974489226,
+      "trades": 2
+    }
+  ],
+  "news": [
+    {
+      "ts": 1792344082,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #205 from Pareton-ai/fix/bohdan/db-pool-wait",
+      "url": "https://github.com/Pareton-ai/pareton/commit/3c2d824adb037aaf04ff938157c89c1789a9a9ec",
+      "publisher": "Pareton-ai/pareton"
+    },
+    {
+      "ts": 1792225758,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(db): cap pool wait at 3s and log wait timeouts once per window",
+      "url": "https://github.com/Pareton-ai/pareton/commit/d5695762fea5671aba54d700fb0fa00dbb9886e2",
+      "publisher": "Pareton-ai/pareton"
+    },
+    {
+      "ts": 1792225106,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(api): serve /health on the event loop so pool waits cannot stall it",
+      "url": "https://github.com/Pareton-ai/pareton/commit/4d805616b4902d47c9ddcd31853e6d6f69b81682",
+      "publisher": "Pareton-ai/pareton"
+    },
+    {
+      "ts": 1792194717,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(db): wait for a free pooled connection instead of returning 503",
+      "url": "https://github.com/Pareton-ai/pareton/commit/ce24035ee340f422024bdce6824b5c558c610888",
+      "publisher": "Pareton-ai/pareton"
+    },
+    {
+      "ts": 1792140093,
+      "kind": "commit",
+      "source": "github",
+      "title": "feat: run Kimi K3 at C32 with 8 prompts per tier, reusing the qualifi…",
+      "url": "https://github.com/Pareton-ai/pareton/commit/952b86c25fb1576d83336a6f3083aa6c5d7deca9",
+      "publisher": "Pareton-ai/pareton"
+    },
+    {
+      "ts": 1792136513,
+      "kind": "commit",
+      "source": "github",
+      "title": "feat(rank): let a campaign pin its own baseline drift ceiling (#196)",
+      "url": "https://github.com/Pareton-ai/pareton/commit/e37b3138cb2440f53debd68b234e944384b1ea40",
+      "publisher": "Pareton-ai/pareton"
+    },
+    {
+      "ts": 1792079308,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #201 from Pareton-ai/fix/k3-natural-stop-reproduci…",
+      "url": "https://github.com/Pareton-ai/pareton/commit/aa181158b23d6d06ffa02b1694137bb8cb09d7e3",
+      "publisher": "Pareton-ai/pareton"
+    },
+    {
+      "ts": 1792076802,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(bench): avoid voiding natural-stop rounds on length variance",
+      "url": "https://github.com/Pareton-ai/pareton/commit/33c2cca21dfa7c40691e94d265752865cf3cd194",
+      "publisher": "Pareton-ai/pareton"
+    }
+  ],
+  "updated": 1792474861,
+  "updated_day": "2026-10-20"
+}

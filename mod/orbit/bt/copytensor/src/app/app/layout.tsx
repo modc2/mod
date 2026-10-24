@@ -1,0 +1,62 @@
+import type { Metadata } from "next";
+import "./globals.css";
+import { ThemeProvider, ThemeBoot } from "./context/ThemeContext";
+import { FiltersProvider } from "./context/FiltersContext";
+import { SidebarProvider } from "./context/SidebarContext";
+import { CurrencyProvider } from "./context/CurrencyContext";
+import SidebarShell from "./components/SidebarShell";
+import SubnetTicker from "./components/SubnetTicker";
+import TopBar from "./components/TopBar";
+import BuildBadge from "./components/BuildBadge";
+import AgentDock from "./components/AgentDock";
+import { AgentDockProvider } from "./context/AgentDockContext";
+
+export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = {
+  title: "copytensor — Bittensor dTAO copy trading",
+  description:
+    "Mirror top Bittensor validators' subnet allocations. Round-robin public RPCs, no third-party APIs.",
+};
+
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
+  return (
+    // The default skin is server-rendered here and corrected to whatever
+    // the visitor last picked by ThemeBoot, before paint — so the first
+    // frame is already the right cabinet. `suppressHydrationWarning`
+    // because that script legitimately edits these two attributes.
+    <html lang="en" data-theme="dark" data-base="dark" suppressHydrationWarning>
+      <head>
+        <ThemeBoot />
+      </head>
+      <body className="font-pixel antialiased bg-pixel-bg text-pixel-white min-h-screen">
+        <ThemeProvider>
+          <CurrencyProvider>
+            <FiltersProvider>
+              <SidebarProvider>
+                <AgentDockProvider>
+                  <div className="crt-overlay" />
+                  <div className="crt-screen min-h-screen">
+                    <SubnetTicker />
+                    <TopBar />
+                    <SidebarShell>
+                      <main className="max-w-[1600px] mx-auto px-3 py-4 sm:px-4 sm:py-6">
+                        {children}
+                      </main>
+                    </SidebarShell>
+                    <BuildBadge />
+                    <AgentDock />
+                  </div>
+                </AgentDockProvider>
+              </SidebarProvider>
+            </FiltersProvider>
+          </CurrencyProvider>
+        </ThemeProvider>
+      </body>
+    </html>
+  );
+}

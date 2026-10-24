@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Appwatch Status</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #111; color: #ccc; min-height: 100vh; }
+.page { max-width: 760px; margin: 0 auto; padding: 28px 16px; }
+.banner { border-radius: 8px; padding: 22px 24px; margin-bottom: 28px; display: flex; align-items: center; gap: 16px; }
+.banner.up { background: rgba(94,224,138,0.10); border: 1px solid rgba(94,224,138,0.28); }
+.banner.down { background: rgba(220,60,60,0.10); border: 1px solid rgba(220,60,60,0.28); }
+.banner.checking { background: rgba(159,159,159,0.10); border: 1px solid rgba(159,159,159,0.28); }
+.dot { width: 13px; height: 13px; border-radius: 50%; flex-shrink: 0; }
+.banner.up .dot { background: #5ee08a; }
+.banner.down .dot { background: #dc3c3c; }
+.banner.checking .dot { background: #9f9f9f; }
+.banner-title { font-size: 17px; font-weight: 600; }
+.banner.up .banner-title { color: #5ee08a; }
+.banner.down .banner-title { color: #dc3c3c; }
+.banner.checking .banner-title { color: #9f9f9f; }
+.banner.degraded { background: rgba(232,196,94,0.10); border: 1px solid rgba(232,196,94,0.28); }
+.banner.degraded .dot { background: #e8c45e; }
+.banner.degraded .banner-title { color: #e8c45e; }
+.banner-sub { font-size: 12px; color: #777; margin-top: 3px; }
+.section { margin-bottom: 28px; }
+.section-title { font-size: 11px; font-weight: 600; color: #888; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 10px; }
+.calendar-wrap { overflow-x: auto; }
+.legend { display: flex; gap: 14px; margin-top: 8px; font-size: 11px; color: #666; }
+.legend span { display: flex; align-items: center; gap: 4px; }
+.swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
+.incident-row { display: flex; align-items: baseline; gap: 10px; padding: 7px 0; border-bottom: 1px solid #1e1e1e; font-size: 12px; flex-wrap: wrap; }
+.incident-row:last-child { border-bottom: none; }
+.pill { display: inline-block; padding: 1px 7px; border-radius: 3px; font-size: 10px; font-weight: 600; white-space: nowrap; }
+.pill-ongoing { background: rgba(220,60,60,0.18); color: #dc3c3c; border: 1px solid rgba(220,60,60,0.28); }
+.pill-resolved { background: rgba(94,224,138,0.12); color: #5ee08a; border: 1px solid rgba(94,224,138,0.22); }
+.muted { color: #666; }
+.empty { color: #666; font-size: 12px; padding: 6px 0; }
+.footer { display: flex; align-items: center; gap: 10px; margin-top: 24px; padding-top: 20px; border-top: 1px solid #1e1e1e; }
+.footer a { color: #666; font-size: 12px; text-decoration: none; }
+.footer a:hover { color: #aaa; }
+#stats-row { display: flex; gap: 12px; margin-bottom: 24px; flex-wrap: wrap; }
+.stat-tile { flex: 1; min-width: 120px; background: rgba(255,255,255,0.04); border: 1px solid #222; border-radius: 6px; padding: 12px 14px; }
+.stat-label { font-size: 10px; color: #666; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px; }
+.stat-value { font-size: 18px; font-weight: 600; color: #ccc; }
+.probe-row { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px solid #1e1e1e; font-size: 12px; }
+.probe-row:last-child { border-bottom: none; }
+.probe-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.probe-dot.up { background: #5ee08a; }
+.probe-dot.down { background: #dc3c3c; }
+.probe-dot.unknown { background: #555; }
+.probe-label { flex: 1; color: #ccc; }
+.probe-time { color: #666; }
+.probe-ms { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 10px; background: rgba(255,255,255,0.06); color: #888; }
+</style>
+</head>
+<body>
+<div class="page">
+  <div id="banner" class="banner checking">
+    <div class="dot"></div>
+    <div>
+      <div class="banner-title" id="banner-title">Checking status…</div>
+      <div class="banner-sub" id="banner-sub"></div>
+    </div>
+  </div>
+  <div id="stats-row"></div>
+  <div id="probes-section" class="section" style="display:none">
+    <div class="section-title">Monitored endpoints</div>
+    <div id="probes-list"></div>
+  </div>
+  <div class="section">
+    <div class="section-title">90-day uptime</div>
+    <div id="calendar" class="calendar-wrap"><div class="empty">Loading…</div></div>
+    <div class="legend">
+      <span><span class="swatch" style="background:#5ee08a"></span>&ge;99.9%</span>
+      <span><span class="swatch" style="background:#e8c45e"></span>&ge;99%</span>
+      <span><span class="swatch" style="background:#dc3c3c"></span>below 99%</span>
+      <span><span class="swatch" style="background:#2a2a2a"></span>no data</span>
+    </div>
+  </div>
+  <div class="section">
+    <div class="section-title">Recent incidents</div>
+    <div id="incidents"><div class="empty">Loading…</div></div>
+  </div>
+  <div class="footer">
+    <img src="/appwatch/badge.svg" alt="appwatch status" height="20">
+    <a href="/appwatch/">View live dashboard</a>
+  </div>
+</div>
+<script>
+var lastFetch = 0;
+var subBase = '';
+var bannerIncidentFreeStart = null;
+
+function timeAgo() {
+  if (!lastFetch) return '';
+  var s = Math.round((Date.now() - lastFetch) / 1000);
+  if (s < 5) return 'just now';
+  if (s < 60) return s + 's ago';
+  return Math.floor(s / 60) + 'm ago';
+}
+
+function refreshSub() {
+  var sub = document.getElementById('banner-sub');
+  if (sub) {
+    var base = subBase;
+    if (bannerIncidentFreeStart) {
+      base = 'Incident-free for ' + dur(Math.round((Date.now() / 1000) - bannerIncidentFreeStart));
+    }
+    var ta = timeAgo();
+    sub.textContent = base + (ta ? ' · Last checked: ' + ta : '');
+  }
+}
+
+function dur(s) {
+  if (!s) return '0s';
+  if (s < 60) return s + 's';
+  if (s < 3600) return Math.round(s / 60) + 'm';
+  return (s / 3600).toFixed(1) + 'h';
+}
+
+function renderCalendar(days) {
+  var el = document.getElementById('calendar');
+  if (!days.length) { el.innerHTML = '<div class="empty">No data yet.</div>'; return; }
+  var byDate = {};
+  for (var i = 0; i < days.length; i++) byDate[days[i].key] = days[i];
+  var MS = 86400000, CELL = 12, GAP = 2;
+  var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var firstDate = new Date(days[0].key + 'T00:00:00Z');
+  var lastDate = new Date(days[days.length - 1].key + 'T00:00:00Z');
+  var startDow = (firstDate.getUTCDay() + 6) % 7;
+  var gridStart = new Date(firstDate.getTime() - startDow * MS);
+  var endDow = (lastDate.getUTCDay() + 6) % 7;
+  var gridEnd = new Date(lastDate.getTime() + (6 - endDow) * MS);
+  var nDays = Math.round((gridEnd - gridStart) / MS) + 1;
+  var wrap = document.createElement('div');
+  wrap.style.cssText = 'position:relative;overflow:visible;padding-top:14px';
+  var tooltip = document.createElement('div');
+  tooltip.style.cssText = 'position:absolute;background:rgba(30,30,30,0.92);color:#eee;font-size:11px;font-family:monospace;padding:4px 8px;border-radius:4px;pointer-events:none;display:none;white-space:nowrap;z-index:10';
+  var grid = document.createElement('div');
+  grid.style.cssText = 'display:grid;grid-template-rows:repeat(7,' + CELL + 'px);grid-auto-flow:column;grid-auto-columns:' + CELL + 'px;gap:' + GAP + 'px';
+  for (var j = 0; j < nDays; j++) {
+    var d = new Date(gridStart.getTime() + j * MS);
+    var key = d.toISOString().slice(0, 10);
+    var data = byDate[key];
+    var cell = document.createElement('div');
+    cell.style.cssText = 'width:' + CELL + 'px;height:' + CELL + 'px;border-radius:2px;cursor:default';
+    if (!data) cell.style.background = '#2a2a2a';
+    else if (data.uptime_pct >= 99.9) cell.style.background = '#5ee08a';
+    else if (data.uptime_pct >= 99) cell.style.background = '#e8c45e';
+    else cell.style.background = '#dc3c3c';
+    if (data) {
+      (function(tipText) {
+        cell.addEventListener('mouseover', function() { tooltip.textContent = tipText; tooltip.style.display = ''; });
+        cell.addEventListener('mousemove', function(e) {
+          var rect = wrap.getBoundingClientRect();
+          tooltip.style.left = (e.clientX - rect.left + 10) + 'px';
+          tooltip.style.top = (e.clientY - rect.top - 28) + 'px';
+        });
+        cell.addEventListener('mouseleave', function() { tooltip.style.display = 'none'; });
+      })(data.date + ': ' + data.uptime_pct + '%  avg ' + (data.avg_ms != null ? data.avg_ms + 'ms' : '—') + '  p95 ' + (data.p95_ms != null ? data.p95_ms + 'ms' : '—'));
+    }
+    grid.appendChild(cell);
+  }
+  for (var j = 0; j < nDays; j++) {
+    var dm = new Date(gridStart.getTime() + j * MS);
+    if (dm.getUTCDate() === 1) {
+      var col = Math.floor(j / 7);
+      var x = col * (CELL + GAP);
+      var lbl = document.createElement('span');
+      lbl.textContent = MONTHS[dm.getUTCMonth()];
+      lbl.style.cssText = 'position:absolute;left:' + x + 'px;top:0;font-size:9px;font-family:monospace;color:#888;white-space:nowrap';
+      wrap.appendChild(lbl);
+    }
+  }
+  wrap.appendChild(grid);
+  wrap.appendChild(tooltip);
+  el.innerHTML = '';
+  el.appendChild(wrap);
+}
+
+function renderIncidents(data) {
+  var el = document.getElementById('incidents');
+  var list = (data.incidents || []).slice().reverse().slice(0, 5);
+  if (!list.length) { el.innerHTML = '<div class="empty">No incidents recorded.</div>'; return; }
+  el.innerHTML = list.map(function(inc) {
+    var ongoing = inc.end === null;
+    var dt = new Date(inc.start * 1000).toLocaleString();
+    var d = dur(inc.duration_s);
+    return '<div class="incident-row">' +
+      '<span class="pill ' + (ongoing ? 'pill-ongoing' : 'pill-resolved') + '">' + (ongoing ? 'ongoing' : 'resolved') + '</span>' +
+      '<span>' + dt + '</span>' +
+      '<span class="muted">' + d + '</span>' +
+      (ongoing ? '' : '<span class="muted">recovered ' + new Date(inc.end * 1000).toLocaleString() + '</span>') +
+      '</div>';
+  }).join('');
+}
+
+function updateBanner(data, probes) {
+  var banner = document.getElementById('banner');
+  var title = document.getElementById('banner-title');
+  var ongoing = (data.incidents || []).filter(function(i) { return i.end === null; })[0];
+  if (ongoing) {
+    banner.className = 'banner down';
+    title.textContent = 'Service disruption in progress';
+    subBase = 'Started ' + new Date(ongoing.start * 1000).toLocaleString();
+    bannerIncidentFreeStart = null;
+    document.title = '✗ Disruption – Appwatch';
+  } else {
+    var downProbes = (probes || []).filter(function(p) { return p.last && p.last.up === false; });
+    if (downProbes.length) {
+      banner.className = 'banner degraded';
+      title.textContent = 'Partial outage · ' + downProbes.length + ' endpoint' + (downProbes.length !== 1 ? 's' : '') + ' degraded';
+      subBase = '';
+      bannerIncidentFreeStart = null;
+      document.title = '⚠ Partial Outage – Appwatch';
+    } else {
+      banner.className = 'banner up';
+      title.textContent = 'All systems operational';
+      var total = data.total_incidents || 0;
+      subBase = total ? (total + ' incident' + (total !== 1 ? 's' : '') + ' on record, none ongoing') : 'No incidents on record';
+      bannerIncidentFreeStart = data.last_incident_end || null;
+      document.title = '✓ All systems operational – Appwatch';
+    }
+  }
+  refreshSub();
+  var statsRow = document.getElementById('stats-row');
+  if (statsRow) {
+    statsRow.innerHTML = [
+      {label: 'Incidents', value: data.total_incidents || 0},
+      {label: 'Total downtime', value: dur(data.total_down_s || 0)},
+      {label: 'Avg recovery', value: data.mttr_s ? dur(data.mttr_s) : '—'},
+      {label: 'P95 latency', value: data.p95_ms != null ? data.p95_ms + 'ms' : '—'}
+    ].map(function(t) {
+      return '<div class="stat-tile"><div class="stat-label">' + t.label + '</div><div class="stat-value">' + t.value + '</div></div>';
+    }).join('');
+  }
+}
+
+function probeTimeAgo(ts) {
+  if (!ts) return '';
+  var s = Math.round((Date.now() - ts * 1000) / 1000);
+  if (s < 5) return 'just now';
+  if (s < 60) return s + 's ago';
+  return Math.floor(s / 60) + 'm ago';
+}
+
+function renderProbes(probes) {
+  var section = document.getElementById('probes-section');
+  var list = document.getElementById('probes-list');
+  if (!probes || !probes.length) { section.style.display = 'none'; return; }
+  section.style.display = '';
+  list.innerHTML = probes.map(function(p) {
+    var last = p.last;
+    var dotClass = !last ? 'unknown' : (last.up ? 'up' : 'down');
+    var timeStr = last ? probeTimeAgo(last.t) : '';
+    var msStr = (last && last.ms != null) ? '<span class="probe-ms">' + last.ms + 'ms</span>' : '';
+    return '<div class="probe-row">' +
+      '<span class="probe-dot ' + dotClass + '"></span>' +
+      '<span class="probe-label">' + p.label + '</span>' +
+      (timeStr ? '<span class="probe-time">' + timeStr + '</span>' : '') +
+      msStr +
+      '</div>';
+  }).join('');
+}
+
+function load() {
+  Promise.all([
+    fetch('/appwatch/daily').then(function(r) { return r.json(); }),
+    fetch('/appwatch/incidents').then(function(r) { return r.json(); }),
+    fetch('/appwatch/probes').then(function(r) { return r.json(); })
+  ]).then(function(results) {
+    lastFetch = Date.now();
+    var daily = results[0], incidents = results[1], probes = results[2];
+    if (Array.isArray(daily)) renderCalendar(daily);
+    else document.getElementById('calendar').innerHTML = '<div class="empty">Could not load uptime data.</div>';
+    if (incidents && Array.isArray(incidents.incidents)) {
+      updateBanner(incidents, Array.isArray(probes) ? probes : []);
+      renderIncidents(incidents);
+    } else {
+      document.getElementById('incidents').innerHTML = '<div class="empty">Could not load incident data.</div>';
+    }
+    if (Array.isArray(probes)) renderProbes(probes);
+  }).catch(function() {
+    document.getElementById('banner').className = 'banner checking';
+    document.getElementById('banner-title').textContent = 'Status unavailable';
+    document.getElementById('calendar').innerHTML = '<div class="empty">Could not load data.</div>';
+    document.getElementById('incidents').innerHTML = '<div class="empty">Could not load data.</div>';
+  });
+}
+
+load();
+setInterval(load, 30000);
+setInterval(refreshSub, 1000);
+</script>
+</body>
+</html>

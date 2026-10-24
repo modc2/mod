@@ -1,0 +1,28 @@
+[package]
+name = "ztao_pq"
+version = "0.1.0"
+edition = "2021"
+description = "ztao on postquant: the anonymous subnet as a pqc1 contract (an importless wasm state transition), run off chain by the owner and proven by ML-DSA-signed pqr1 receipts. Verifies the same LSAG-over-STARK-curve ring signatures as every other chain; lsag/fp/poseidon are the NEAR contract's files."
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+doctest = false
+
+[dependencies]
+starknet-types-core = { version = "0.2.4", default-features = false, features = ["curve", "hash", "alloc"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+num-bigint = "0.4"
+
+[dev-dependencies]
+serde_json = "1"
+
+[profile.release]
+codegen-units = 1
+opt-level = 3
+lto = true
+debug = false
+panic = "abort"
+# off for the same reason as near/contract: checked u64 muls in the inlined
+# field code become __multi3 calls; the contract's own sums are checked.
+overflow-checks = false

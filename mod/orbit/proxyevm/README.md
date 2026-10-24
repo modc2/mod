@@ -1,13 +1,13 @@
-# base
+# proxyevm
 
-A minimal example mod showing the standard module structure.
+Fetches Uniswap v3 pool data from The Graph's public subgraph endpoint via GraphQL.
 
 ## Structure
 
 ```
-base/
-├── base/
-│   └── mod.py    # Anchor file with Mod class
+proxyevm/
+├── proxyevm/
+│   └── mod.py    # Mod class — GraphQL client for Uniswap v3
 └── README.md
 ```
 
@@ -16,33 +16,41 @@ base/
 ```python
 import mod as m
 
-# Load and run
-base = m.mod('base')()
-result = base.forward(3, 4)  # 7
+# Fetch the top 10 pools by TVL (default)
+result = m.mod('proxyevm')().forward()
+
+# Fetch the top 5 pools by TVL
+result = m.mod('proxyevm')().forward(first=5)
+
+# Use a custom subgraph URL (any Graph-compatible endpoint)
+result = m.mod('proxyevm')().forward(
+    first=5,
+    subgraph_url="https://api.thegraph.com/subgraphs/name/uniswap/uniswap-v3"
+)
+
+# Pass a raw GraphQL query string
+result = m.mod('proxyevm')().forward(
+    query="{ pools(first: 3) { token0 { symbol } token1 { symbol } feeTier } }"
+)
 ```
 
 ```bash
-# CLI
-m base forward a=3 b=4
+# CLI — fetch top 5 pools
+m proxyevm forward first=5
 ```
 
-## Creating a New Mod
+## Parameters
 
-Every mod follows this pattern:
+`forward(query, first, order_by, order_direction, subgraph_url)`
 
-1. Create a directory: `orbit/<name>/<name>/mod.py`
-2. Define a `Mod` class with a `description` and a `forward` method:
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `query` | `str` | `None` | Raw GraphQL query string. When provided, all other parameters are ignored. |
+| `first` | `int` | `10` | Number of pools to return. |
+| `order_by` | `str` | `"totalValueLockedUSD"` | Field to sort pools by. |
+| `order_direction` | `str` | `"desc"` | Sort direction: `"asc"` or `"desc"`. |
+| `subgraph_url` | `str` | `None` | Override the subgraph endpoint. Defaults to the Uniswap v3 mainnet subgraph on The Graph. |
 
-```python
-class Mod:
-    description = """
-    What your mod does
-    """
+## Returns
 
-    def forward(self, **kwargs):
-        """Entry point for the mod."""
-        # your logic here
-        return result
-```
-
-The `forward` method is the default entry point called when the mod is invoked. Additional methods can be called via `m.fn('name/method')()`.
+The parsed JSON `data` dict from the subgraph response. Each pool entry includes `id`, `token0`, `token1`, `feeTier`, `totalValueLockedUSD`, `volumeUSD`, and `txCount`.

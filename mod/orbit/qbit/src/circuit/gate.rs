@@ -155,11 +155,41 @@ pub struct Circuit {
     pub inputs: Vec<String>,
     pub outputs: Vec<String>,
     pub gates: Vec<Gate>,
+    /// Wires whose values must not appear in the proof's public_inputs field.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub private_inputs: Vec<String>,
 }
 
 impl Circuit {
     pub fn hash(&self) -> String {
         hex::encode(sha256(&serde_json::to_vec(self).unwrap()))
+    }
+
+    /// Validate that private_inputs names are consistent with inputs/outputs.
+    pub fn validate(&self) -> Result<(), String> {
+        let input_set: std::collections::HashSet<&str> =
+            self.inputs.iter().map(String::as_str).collect();
+        let output_set: std::collections::HashSet<&str> =
+            self.outputs.iter().map(String::as_str).collect();
+        let mut seen = std::collections::HashSet::new();
+        for name in &self.private_inputs {
+            if !input_set.contains(name.as_str()) {
+                return Err(format!(
+                    "private_inputs wire '{}' is not declared in inputs",
+                    name
+                ));
+            }
+            if output_set.contains(name.as_str()) {
+                return Err(format!(
+                    "private_inputs wire '{}' is also declared in outputs",
+                    name
+                ));
+            }
+            if !seen.insert(name.as_str()) {
+                return Err(format!("private_inputs wire '{}' is duplicated", name));
+            }
+        }
+        Ok(())
     }
 }
 

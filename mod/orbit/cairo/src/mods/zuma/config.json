@@ -1,0 +1,62 @@
+{
+    "name": "zuma",
+    "title": "Zuma \u2014 zk Yuma consensus",
+    "description": "Zuma = zk Yuma consensus. Miners and validators prove they are IN the set with ring signatures, never WHICH member, so nobody can collude with a known counterparty; weights stay sealed (commit-reveal) and Yuma clips outliers to the stake-weighted median.",
+    "version": "0.1.0",
+    "submod_of": "cairo",
+    "kind": "cairo-contract",
+    "template": "subnet",
+    "edition": "2024_07",
+    "anchor": "mod.py",
+    "fns": [
+        "forward",
+        "info",
+        "build",
+        "test",
+        "vibe",
+        "abi",
+        "tree",
+        "read",
+        "write",
+        "clean",
+        "app",
+        "deploy",
+        "call",
+        "events",
+        "keygen",
+        "keys",
+        "register",
+        "submit",
+        "commit",
+        "reveal",
+        "finalize",
+        "claim"
+    ],
+    "forked_from": "subnet",
+    "ext_fns": [
+        "keygen",
+        "keys",
+        "register",
+        "submit",
+        "commit",
+        "reveal",
+        "finalize",
+        "claim"
+    ],
+    "privacy": {
+        "everyone_sees": [
+            "the two member sets (public keys and stake)",
+            "tags, nullifiers and sealed weights for each round",
+            "the final scores per tag"
+        ],
+        "kept_secret": [
+            "which miner is behind which tag",
+            "which validator cast which vote",
+            "weights until every validator has locked in",
+            "a member across rounds: tags and nullifiers change every round"
+        ],
+        "summary": "Members prove they belong without saying who they are (ring signatures)."
+    },
+    "private": false,
+    "schema": "Qmc3wW78fNNKfgS9Mkpdbbwn1CU4awoBgXPpZQ69T5gCkE"
+}

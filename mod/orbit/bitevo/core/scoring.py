@@ -35,6 +35,14 @@ def normalize_scores(scores: List[float]) -> List[float]:
     return [round(e / total, 6) for e in exp_scores]
 
 
+def _key(k):
+    """uids stay ints; zuma recipients are names."""
+    try:
+        return int(k)
+    except (TypeError, ValueError):
+        return str(k)
+
+
 class IncentiveMechanism:
     """EMA-based incentive: smooths scores, normalizes via softmax, tracks leaderboard."""
 
@@ -46,7 +54,7 @@ class IncentiveMechanism:
         self.score_history: Dict[int, List[float]] = {}
         self.ema_scores: Dict[int, float] = {}
 
-    def update(self, uid: int, score: float) -> float:
+    def update(self, uid, score: float) -> float:
         if uid not in self.ema_scores:
             self.ema_scores[uid] = score
         else:
@@ -86,6 +94,7 @@ class IncentiveMechanism:
                 "last_score": round(history[-1], 4) if history else 0.0,
                 "num_epochs": len(history),
                 "trend": round(history[-1] - history[-2], 4) if len(history) >= 2 else 0.0,
+                "history": [round(x, 2) for x in history[-20:]],
             })
         return entries
 
@@ -103,8 +112,8 @@ class IncentiveMechanism:
             alpha=state.get("alpha", 0.3),
             min_score_threshold=state.get("min_score_threshold", 2.0),
         )
-        im.ema_scores = {int(k): v for k, v in state.get("ema_scores", {}).items()}
-        im.score_history = {int(k): v for k, v in state.get("score_history", {}).items()}
+        im.ema_scores = {_key(k): v for k, v in state.get("ema_scores", {}).items()}
+        im.score_history = {_key(k): v for k, v in state.get("score_history", {}).items()}
         return im
 
     def save(self, path: str):

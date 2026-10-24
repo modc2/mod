@@ -1,0 +1,189 @@
+{
+  "netuid": 100,
+  "name": "Cortex",
+  "symbol": "დ",
+  "owner": "5FX6kmhYwTYRFaZjxEo7k9DaG8qRmqrJtLTMGRgnfjRcXiWU",
+  "description": "The open alternative to frontier AI | Efficient autonomous research",
+  "github": "https://github.com/CortexLM/cortex",
+  "url": "https://network.cortex.foundation",
+  "discord": null,
+  "logo": "https://network.cortex.foundation/icon-192.png",
+  "registered_at": 6693448,
+  "tempo": 360,
+  "active": true,
+  "block": 9322663,
+  "related": [],
+  "market": {
+    "price": 0.003002992,
+    "moving_price": 0.0030956007540225983,
+    "market_cap": 8401.835668641923,
+    "tao_in": 2205.714884571,
+    "alpha_in": 734505.632916415,
+    "alpha_out": 2063315.895959427,
+    "volume": 416989.289997736,
+    "vol_24h": 285.64687616797164,
+    "emission": 0.0,
+    "change_1h": -0.0014651839005730416,
+    "change_24h": -4.433009047541758,
+    "change_7d": -17.569470483313744
+  },
+  "spark_24h": [
+    0.00314229,
+    0.003209456,
+    0.003160267,
+    0.003159016,
+    0.003159015,
+    0.003159014,
+    0.003159014,
+    0.003159014,
+    0.003159014,
+    0.003159008,
+    0.003158982,
+    0.003158982,
+    0.003158461,
+    0.003156375,
+    0.003154806,
+    0.003168745,
+    0.003168745,
+    0.003168745,
+    0.003182717,
+    0.00312382,
+    0.003083137,
+    0.003062431,
+    0.003062431,
+    0.003062431,
+    0.003062431,
+    0.003003457,
+    0.00300545,
+    0.00300545,
+    0.00300545,
+    0.00300545,
+    0.003006512,
+    0.003006512,
+    0.003006512,
+    0.003006512,
+    0.003006512,
+    0.003019869,
+    0.003004261,
+    0.003004261,
+    0.003004261,
+    0.003003864,
+    0.003003047,
+    0.003003047,
+    0.003003047,
+    0.003003045,
+    0.003003036,
+    0.003003036,
+    0.003003036,
+    0.003002992
+  ],
+  "trades_24h": {
+    "trades": 70,
+    "buys": 29,
+    "sells": 41,
+    "buy_tao": 117.557923046,
+    "sell_tao": 166.21360652799999,
+    "net_tao": -48.655683481999986,
+    "traders": 36
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5Cw2qFy2tZy9ZLt4LsJc9b68nffQndZDHF1KZynmVbA4Z3pC",
+      "net_tao": 0.054330082999999973,
+      "gross_tao": 39.945669917000004,
+      "trades": 3
+    },
+    {
+      "coldkey": "5CpmaDdviHiLRy9y89k74xe9jZEfuEJNxCYBTJsEVLXKNHJt",
+      "net_tao": -35.945694813,
+      "gross_tao": 35.945694813,
+      "trades": 5
+    },
+    {
+      "coldkey": "5H1LrDBGzU8KVkry4vB3pa2zL2RU1aCooPtnHesZV6U3PSHp",
+      "net_tao": 0.3103195200000002,
+      "gross_tao": 29.68968048,
+      "trades": 3
+    },
+    {
+      "coldkey": "5GZXbxLuyRTTU8PLAwSfHuXHAnBJQ1GRuuacpWrRLjLXr2K5",
+      "net_tao": 6.526340562,
+      "gross_tao": 26.873659435999997,
+      "trades": 3
+    },
+    {
+      "coldkey": "5FTxpwqiFezw6bK89PePi8DXKTjuGRewsLBfjPqGZk9JHV46",
+      "net_tao": 24.997999997999997,
+      "gross_tao": 24.997999997999997,
+      "trades": 4
+    }
+  ],
+  "news": [
+    {
+      "ts": 1792444998,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #320 from CortexLM/chore/bump-aiohttp-3.14.4",
+      "url": "https://github.com/CortexLM/cortex/commit/85b6f8a60117d6d57f71e7b802990c9830ab0ea1",
+      "publisher": "CortexLM/cortex"
+    },
+    {
+      "ts": 1792444804,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(deps): bump aiohttp to 3.14.4 for CVE-2026-111064 and GHSA-2g87-p…",
+      "url": "https://github.com/CortexLM/cortex/commit/e9fb2a5f29b1dedab36c567b1c519a7a71206747",
+      "publisher": "CortexLM/cortex"
+    },
+    {
+      "ts": 1792444124,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #319 from CortexLM/forge/no-signatures",
+      "url": "https://github.com/CortexLM/cortex/commit/cd5d4b5d08b95b28518d7f47a23802b7d0edb136",
+      "publisher": "CortexLM/cortex"
+    },
+    {
+      "ts": 1792443450,
+      "kind": "commit",
+      "source": "github",
+      "title": "docs(validator): cover both profile version caps and restart wording",
+      "url": "https://github.com/CortexLM/cortex/commit/b50cb7ac9cccd78eb523a03ea8c44edda742904f",
+      "publisher": "CortexLM/cortex"
+    },
+    {
+      "ts": 1792443434,
+      "kind": "commit",
+      "source": "github",
+      "title": "test(validator): skip read-only watermark reset cases as root",
+      "url": "https://github.com/CortexLM/cortex/commit/71b0cca4ec0d07a16b7f9480175cdf6611e4ffde",
+      "publisher": "CortexLM/cortex"
+    },
+    {
+      "ts": 1792156562,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(challenges): raise get_weights timeout to 180 seconds (#318)",
+      "url": "https://github.com/CortexLM/cortex/commit/602ea0298b2f18cccee219dd13ec290eb902b622",
+      "publisher": "CortexLM/cortex"
+    },
+    {
+      "ts": 1791433279,
+      "kind": "commit",
+      "source": "github",
+      "title": "docs(repo): remove retired products, add readme and validator script …",
+      "url": "https://github.com/CortexLM/cortex/commit/df0ce4a63b334a6205d7bf1f8bea61424c90e29c",
+      "publisher": "CortexLM/cortex"
+    },
+    {
+      "ts": 1790629911,
+      "kind": "commit",
+      "source": "github",
+      "title": "feat(master): send the completed epoch's chain time to challenges (#315)",
+      "url": "https://github.com/CortexLM/cortex/commit/d738424c09213af3634b24a1ba1a0fddb7a9379d",
+      "publisher": "CortexLM/cortex"
+    }
+  ],
+  "updated": 1792474861,
+  "updated_day": "2026-10-20"
+}

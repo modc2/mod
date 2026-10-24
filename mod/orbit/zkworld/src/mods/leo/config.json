@@ -1,0 +1,39 @@
+{
+    "name": "leo",
+    "title": "Leo \u00b7 Aleo \u00b7 zkworld",
+    "description": "The Leo \u00b7 Aleo framework as a running submod of zkworld: its toolchain, starters and every Leo \u00b7 Aleo project here. A Rust-like, private-by-default language for Aleo programs. leo builds Aleo instructions, `leo run` executes off-chain and @test fns run in-VM. Shared JSON cases run through `leo run`.",
+    "version": "0.2.0",
+    "submod_of": "zkworld",
+    "kind": "framework",
+    "framework_id": "leo",
+    "anchor": "mod.py",
+    "server": "../../api/fwserver.py",
+    "port": 51357,
+    "host": "127.0.0.1",
+    "route": "/zkworld/leo/",
+    "fns": [
+        "forward",
+        "info",
+        "health",
+        "toolchain",
+        "templates",
+        "projects",
+        "new",
+        "build",
+        "test",
+        "vibe",
+        "clean",
+        "abi",
+        "witness",
+        "serve",
+        "kill"
+    ],
+    "write_fns": [
+        "new",
+        "build",
+        "test",
+        "vibe",
+        "clean"
+    ],
+    "schema": "QmZ3TSBKVYSu3YdvhcB6qnRPXce2gRRc8zTxaMUSBvaENC"
+}

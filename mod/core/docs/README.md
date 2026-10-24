@@ -4,11 +4,14 @@ The documentation hub for the mod protocol. Serves the protocol doc pages under
 `docs/` plus the whitepaper.
 
 - **CLI:** `m docs/overview`, `m docs/pages`, `m docs/page cli`, `m docs/modules`,
-  `m docs/doc <module>`, `m docs/whitepaper`, `m docs/search <q>`, `m docs/mcp`
+  `m docs/doc <module>`, `m docs/whitepaper`, `m docs/search <q>`,
+  `m docs/ask "<question>"`, `m docs/mcp`
 - **App:** a zero-dependency Node viewer (`app/server.js` + `app/index.html`) that
-  renders the markdown at `/docs`. Run via `bash app/start.sh` (or
-  `m pm/start docs target=app` to launch it inside the shared nix image).
+  renders the markdown at `/docs`, with an **Ask the docs** chat panel (bottom
+  right). Run via `bash app/start.sh` (or `m pm/start docs target=app` to launch
+  it inside the shared nix image).
 - **MCP:** the same functions as agent tools — see below.
+- **Chatbot:** `m docs/ask` / the `docs_ask` tool / the web panel — see below.
 - **Skill:** [`skill.md`](skill.md) is the one-page brief for agents.
 
 Doc pages live in `docs/*.md` — edit those; the CLI, app and MCP tools pick them
@@ -26,9 +29,9 @@ logic lives in one module. For the catalog on its own, use `m hub/modules`.
 
 `api/mcp.py` serves the module as MCP tools — `docs_overview`, `docs_pages`,
 `docs_page`, `docs_search`, `docs_whitepaper`, `docs_modules`,
-`docs_module_doc` — so an agent reads the protocol docs without scraping the
-app. Each tool is a thin wrap of the `mod.py` function of the same name, so the
-CLI, the app and the tools can't drift. Read-only, no auth.
+`docs_module_doc`, `docs_ask` — so an agent reads the protocol docs without
+scraping the app. Each tool is a thin wrap of the `mod.py` function of the same
+name, so the CLI, the app and the tools can't drift. Read-only, no auth.
 
 - **Streamable HTTP:** `POST /docs/mcp` on the app port (the app proxies to the
   MCP server on `:50192`), so the public docs URL is the public MCP URL:
@@ -38,6 +41,26 @@ CLI, the app and the tools can't drift. Read-only, no auth.
 - **Run it:** `m pm/start docs target=api` (pm2 `docs.api`) or `bash api/start.sh`.
   Without it, `POST /docs/mcp` answers 503 with a JSON-RPC error saying so.
 - **Tests:** `pytest core/docs/test` (protocol handshake, every tool, error shapes).
+
+## Chatbot: Ask the docs
+
+`m docs/ask "<question>"` (and the `docs_ask` MCP tool, and the web chat panel)
+answers a natural-language question **grounded in the doc pages**: relevant
+pages are retrieved by keyword ranking, then an answer is generated from them by
+a Liquid LFM served by the [`liquidai`](../../orbit/liquidai) module — called
+in-process, so a shell on the box is the operator and no auth token flow is
+needed. The tool returns the answer plus the pages it used as sources.
+
+- **One code path:** the CLI, the `docs_ask` tool and the web panel all call
+  `mod.py`'s `ask()`, which calls `m.mod('liquidai').chat(...)`; the web panel is
+  just a `tools/call docs_ask` POST to the existing `/docs/mcp` route — no second
+  endpoint, no new port.
+- **Optional dependency:** `liquidai` is an *optional* dep (not in `deps`) so the
+  core docs module still loads without it; `ask()` degrades to `ok:false` plus the
+  sources it would have cited rather than raising.
+- **Config:** the `chat` block in `config.json` sets the model (default resident
+  `LiquidAI/LFM2.5-1.2B-Instruct`), runtime (`server`), `max_tokens`,
+  `max_context_chars` and `top_pages`.
 
 ## Human / Engineer mode
 

@@ -1,0 +1,21 @@
+{
+    "name": "feedback",
+    "version": "0.1.0",
+    "description": "Feedback loop agent: a builder agent does the task, a reviewer agent critiques it, the next builder round gets that critique, repeated for N rounds. Speaks the agent contract (GET /agents + GET /params + POST /run/stream).",
+    "icon": "\u21bb",
+    "color": "#34d399",
+    "port": 51470,
+    "agent_contract": {
+        "list": "/agents",
+        "params": "/params",
+        "run": "/run/stream"
+    },
+    "fns": [
+        "forward",
+        "agents",
+        "params",
+        "run",
+        "serve"
+    ],
+    "schema": "QmXnBCN1F7jxvKTSVuvh3LmW3VhNDBdHD24kgi4wwX1ZPE"
+}

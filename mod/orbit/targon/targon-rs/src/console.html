@@ -250,7 +250,7 @@ th.sort[data-dir="desc"]::after { content:' ▼' }
 
 /* ── Toasts ────────────────────────────────────────────────────── */
 #toasts {
-  position:fixed; right:14px; bottom:14px; z-index:60;
+  position:fixed; right:14px; bottom:14px; z-index:90;
   display:flex; flex-direction:column; gap:6px; max-width:min(360px,86vw);
 }
 #toasts div {
@@ -301,6 +301,113 @@ th.sort[data-dir="desc"]::after { content:' ▼' }
 .chips { display:flex; gap:0; flex:none; border:1px solid var(--bezel) }
 .chips i { width:9px; height:12px; display:block }
 
+/* ── Key cartridge ─────────────────────────────────────────────── */
+/* The API key never sits on the faceplate. The header carries a cartridge
+   slot — an LED, a pixel fingerprint of the key and a word — and the slot
+   slides a side panel out of the right edge of the shell. */
+.slot { display:inline-flex; align-items:center; gap:7px; padding:6px 11px }
+.slot .led { width:8px; height:8px }
+.slot[aria-expanded="true"] { background:var(--plate); color:var(--shell-hi) }
+.slot[aria-expanded="true"] .fp i.on { background:var(--shell-hi) }
+.slot[aria-expanded="true"] .fp i.half { background:var(--shell-hi); opacity:.45 }
+/* Eight pixels derived from the key: recognisable, not recoverable. */
+.fp { display:inline-grid; grid-template-columns:repeat(4,5px); grid-auto-rows:5px; gap:1px; flex:none }
+.fp:empty { display:none }
+.fp i { display:block; background:var(--shell-lo); opacity:.35 }
+.fp i.on { background:var(--plate); opacity:1 }
+.fp i.half { background:var(--plate); opacity:.45 }
+#keyfp { grid-template-columns:repeat(4,8px); grid-auto-rows:8px; gap:2px }
+
+#keyveil {
+  position:fixed; inset:0; z-index:70; background:rgba(0,0,0,.42);
+  opacity:0; pointer-events:none; transition:opacity .22s;
+}
+#keyveil.open { opacity:1; pointer-events:auto }
+#keydrawer {
+  position:fixed; top:0; right:0; bottom:0; z-index:80; width:min(360px,92vw);
+  background:var(--shell); color:var(--plate);
+  background-image:
+    radial-gradient(circle at 1px 1px, rgba(255,255,255,.16) 1px, transparent 0),
+    radial-gradient(circle at 3px 4px, rgba(0,0,0,.07) 1px, transparent 0);
+  background-size:6px 6px, 6px 6px;
+  border-left:3px solid var(--plate);
+  box-shadow:-10px 0 30px rgba(0,0,0,.45);
+  transform:translateX(104%); transition:transform .26s cubic-bezier(.2,.8,.2,1);
+  display:flex; flex-direction:column; overflow:auto;
+}
+#keydrawer.open { transform:none }
+@media (prefers-reduced-motion:reduce) { #keydrawer, #keyveil { transition:none } }
+
+/* The cartridge: ridged grip on top, printed label, the notch that keys it. */
+.cart {
+  margin:18px 18px 0; background:var(--shell-lo); border:3px solid var(--plate);
+  border-radius:6px 6px 3px 3px; position:relative; overflow:hidden;
+  box-shadow:inset 0 0 0 2px var(--shell), 3px 3px 0 var(--plate);
+}
+.cart .ridges {
+  height:16px; margin:5px 5px 0;
+  background:repeating-linear-gradient(90deg, var(--plate) 0 3px, transparent 3px 9px);
+  opacity:.55;
+}
+.cart .label {
+  margin:8px 10px 12px; padding:10px 12px; background:var(--shell-hi); color:var(--plate);
+  border:2px solid var(--plate); border-radius:3px;
+}
+.cart .lbl-top { display:flex; gap:7px; align-items:center; font-size:9.5px; letter-spacing:.18em; text-transform:uppercase }
+.cart .lbl-top .mut { color:var(--plate); opacity:.6 }
+.cart .lbl-big { font-size:26px; font-weight:900; letter-spacing:.14em; line-height:1.1; margin-top:5px }
+.cart .lbl-sub { font-size:9.5px; letter-spacing:.14em; text-transform:uppercase; opacity:.7; margin-top:3px }
+.cart .notch {
+  position:absolute; left:-3px; bottom:-3px; width:46px; height:14px;
+  background:var(--shell); border:3px solid var(--plate); border-left:0; border-bottom:0; border-radius:0 6px 0 0;
+}
+.pix {
+  width:12px; height:12px; flex:none; display:inline-block;
+  background:
+    linear-gradient(var(--plate),var(--plate)) 0 0/4px 4px no-repeat,
+    linear-gradient(var(--plate),var(--plate)) 8px 0/4px 4px no-repeat,
+    linear-gradient(var(--plate),var(--plate)) 4px 4px/4px 4px no-repeat,
+    linear-gradient(var(--plate),var(--plate)) 0 8px/4px 4px no-repeat,
+    linear-gradient(var(--plate),var(--plate)) 8px 8px/4px 4px no-repeat;
+}
+
+.kd-body { padding:16px 18px 18px; display:flex; flex-direction:column; gap:11px }
+.kd-body label.f { color:var(--plate); opacity:.95 }
+.kd-body input {
+  background:var(--shell-hi); color:var(--plate); border-color:var(--plate); width:100%;
+  font-size:13px; letter-spacing:.08em;
+}
+.kd-body input::placeholder { color:var(--plate); opacity:.45; letter-spacing:0 }
+.kd-body button {
+  background:var(--shell-hi); color:var(--plate); border-color:var(--plate);
+  box-shadow:2px 2px 0 var(--shell-lo);
+}
+.kd-body button:hover { background:var(--shell) }
+.kd-body button.go { background:var(--plate); color:var(--shell-hi) }
+.kd-body button.go:hover { filter:brightness(1.15); background:var(--plate) }
+.keywrap { display:flex; gap:6px; align-items:stretch }
+.keywrap input { flex:1; min-width:0 }
+.keywrap button { flex:none; box-shadow:none }
+.kd-state {
+  display:flex; align-items:center; gap:9px; padding:8px 10px;
+  border:2px dashed var(--plate); border-radius:4px; min-height:38px;
+}
+.kd-state.live { border-style:solid; background:var(--shell-hi) }
+.kd-state code { background:transparent; color:var(--plate); padding:0; font-size:11.5px; letter-spacing:.06em; overflow-wrap:anywhere }
+.kd-stats .stat { background:var(--shell-hi); border-color:var(--plate); color:var(--plate) }
+.kd-stats .stat .l { color:var(--plate); opacity:.65 }
+.kd-stats .stat .v.ok, .kd-stats .stat .v.err { color:var(--plate) }
+.kd-stats .stat .v.err { text-decoration:underline wavy }
+.kd-body .hint { color:var(--plate); opacity:.8; margin:0 }
+.kd-body .hint code { background:var(--shell-hi); color:var(--plate) }
+.kd-body .hint a { color:inherit }
+.kd-foot { margin-top:auto; display:flex; justify-content:space-between; align-items:center; font-size:10px; letter-spacing:.1em; text-transform:uppercase }
+.kd-foot .mut { color:var(--plate); opacity:.6 }
+kbd { border:1px solid currentColor; border-radius:3px; padding:0 4px; font:inherit }
+.led.pulse { animation:ledpulse 1.4s ease-in-out infinite }
+@keyframes ledpulse { 0%,100% { box-shadow:0 0 5px var(--led) } 50% { box-shadow:0 0 12px var(--led), 0 0 20px var(--led) } }
+@media (prefers-reduced-motion:reduce) { .led.pulse { animation:none } }
+
 /* The footnote sits on the plastic, so its code chips take the plate colours
    rather than the LCD ones. */
 .plate-note { padding:10px 4px 0; color:var(--plate) }
@@ -308,6 +415,57 @@ th.sort[data-dir="desc"]::after { content:' ▼' }
 </style>
 </head>
 <body>
+<div id="keyveil"></div>
+<aside id="keydrawer" aria-hidden="true" aria-label="API key">
+  <div class="cart">
+    <div class="ridges"></div>
+    <div class="label">
+      <div class="lbl-top"><span class="pix" aria-hidden="true"></span><span>targon</span><span class="mut">sn4</span></div>
+      <div class="lbl-big">API KEY</div>
+      <div class="lbl-sub">cartridge · this tab only</div>
+    </div>
+    <div class="notch"></div>
+  </div>
+
+  <div class="kd-body">
+    <div class="kd-state" id="kd_state">
+      <span class="led off" id="kd_led"></span>
+      <span class="fp" id="keyfp" aria-hidden="true"></span>
+      <code id="kd_mask">no cartridge inserted</code>
+    </div>
+
+    <label class="f">targon api key
+      <span class="keywrap">
+        <input id="key" type="password" placeholder="paste your key…" autocomplete="off" spellcheck="false">
+        <button class="sm" id="keyeye" title="show / hide">show</button>
+      </span>
+    </label>
+    <div class="row">
+      <button class="go" id="savekey">insert ▸</button>
+      <button id="keytest">test</button>
+      <button id="keyeject">eject</button>
+    </div>
+
+    <div class="stats kd-stats" id="kd_stats">
+      <div class="stat"><div class="v mut">—</div><div class="l">credits</div></div>
+      <div class="stat"><div class="v mut">—</div><div class="l">deposit</div></div>
+    </div>
+
+    <div class="hint">
+      Lives in <code>sessionStorage</code>: gone when this tab closes, never written to disk,
+      never shown in the header. Sent as <code>x-api-key</code> to this box only.
+    </div>
+    <div class="hint">
+      No key yet? Make one at <a href="https://targon.com" target="_blank" rel="noopener">targon.com</a>, or mint
+      more from the <b>keys</b> tab once one is in. The server's own key comes from
+      <code>TARGON_API_KEY</code> / <code>~/.mod/targon/api_key</code>.
+    </div>
+    <div class="kd-foot">
+      <span class="mut">esc closes · <kbd>K</kbd> opens</span>
+      <button class="sm" id="keyclose">close</button>
+    </div>
+  </div>
+</aside>
 <div class="shell">
 
   <div class="brand">
@@ -319,8 +477,11 @@ th.sort[data-dir="desc"]::after { content:' ▼' }
     <span class="chip off" id="chip_credits">credits <b>—</b></span>
     <span class="chip off" id="chip_wallet">wallet <b>off</b></span>
     <div class="right">
-      <input id="key" type="password" placeholder="Targon API key (this tab only)" autocomplete="off">
-      <button id="savekey">use key</button>
+      <button id="keybtn" class="slot" title="API key · cartridge slot" aria-controls="keydrawer" aria-expanded="false">
+        <span class="led off" id="keyled"></span>
+        <span class="fp" id="keyfp_mini" aria-hidden="true"></span>
+        <span id="keylbl">no key</span>
+      </button>
       <span class="picker">
         <button id="themebtn">theme ▾</button>
         <div id="themes"></div>
@@ -436,7 +597,7 @@ th.sort[data-dir="desc"]::after { content:' ▼' }
             <th>uid</th><th>name</th><th>type</th><th>tier</th><th>status</th>
             <th class="num">$/hr</th><th>actions</th>
           </tr></thead>
-          <tbody id="w_body"><tr><td colspan="7" class="mut">set an API key to see your workloads</td></tr></tbody>
+          <tbody id="w_body"><tr><td colspan="7" class="mut">insert an API key (key slot, top right · press K) to see your workloads</td></tr></tbody>
         </table></div>
       </div>
       <div class="split">
@@ -748,12 +909,102 @@ function reload(tab) {
 
 const activeTab = () => document.querySelector('nav button.on').dataset.tab;
 
+// ── Key cartridge ────────────────────────────────────────────────
+// The key never appears on the faceplate. The header slot shows an LED,
+// a pixel fingerprint and a word; the drawer is where the key is inserted,
+// tested or ejected. Everything else in the console just reads KEY.
+
+/** 16 pixels from the key — FNV-1a, so the same key always draws the same
+ *  glyph and you can tell two keys apart without seeing either. */
+function fingerprint(k) {
+  if (!k) return '';
+  let h = 0x811c9dc5;
+  for (let i = 0; i < k.length; i++) { h ^= k.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+  let out = '';
+  for (let i = 0; i < 16; i++) {
+    const bits = (h >>> ((i * 2) % 32)) & 3;
+    if (i % 5 === 0) h = Math.imul(h ^ (h >>> 13), 0x5bd1e995) >>> 0;
+    out += `<i class="${bits === 3 ? 'on' : bits === 2 ? 'half' : ''}"></i>`;
+  }
+  return out;
+}
+
+function paintKey() {
+  const on = !!KEY, tail = on ? KEY.slice(-4) : '';
+  $('keylbl').textContent = on ? `key ·${tail}` : 'no key';
+  $('keyled').classList.toggle('off', !on);
+  $('kd_led').classList.toggle('off', !on);
+  $('keyfp_mini').innerHTML = fingerprint(KEY);
+  $('keyfp').innerHTML = fingerprint(KEY);
+  $('kd_mask').textContent = on ? '•'.repeat(Math.min(KEY.length - 4, 20)) + tail : 'no cartridge inserted';
+  $('kd_state').classList.toggle('live', on);
+  $('keybtn').classList.toggle('on', on);
+  if (!on) $('kd_stats').innerHTML = statCell('—', 'credits', 'mut') + statCell('—', 'deposit', 'mut');
+}
+
+function openKey(open = true) {
+  $('keydrawer').classList.toggle('open', open);
+  $('keyveil').classList.toggle('open', open);
+  $('keydrawer').setAttribute('aria-hidden', String(!open));
+  $('keybtn').setAttribute('aria-expanded', String(open));
+  if (open) setTimeout(() => $('key').focus(), 120);
+}
+
+$('keybtn').onclick = () => openKey(!$('keydrawer').classList.contains('open'));
+$('keyveil').onclick = () => openKey(false);
+$('keyclose').onclick = () => openKey(false);
+$('keyeye').onclick = () => {
+  const hidden = $('key').type === 'password';
+  $('key').type = hidden ? 'text' : 'password';
+  $('keyeye').textContent = hidden ? 'hide' : 'show';
+};
+
+/** Test the inserted key against the Hub: credits and the deposit address,
+ *  the two things that prove it is yours and that it has money behind it. */
+async function testKey() {
+  if (!KEY) return toast('insert a key first', 'bad');
+  $('kd_led').classList.add('pulse');
+  $('kd_stats').innerHTML = statCell('…', 'credits', 'mut') + statCell('…', 'deposit', 'mut');
+  const out = [];
+  try {
+    const c = await call('credits');
+    const bal = c.credits ?? c.balance ?? '?';
+    out.push(statCell(bal, 'credits', 'ok'));
+    chip('chip_credits', 'credits', bal, true);
+  } catch (e) { out.push(statCell('bad key', 'credits', 'err')); toast('key rejected: ' + e.message, 'bad'); }
+  try {
+    const w = await call('wallet');
+    DEPOSIT = depositFrom(w);
+    out.push(statCell(DEPOSIT ? DEPOSIT.slice(0, 6) + '…' + DEPOSIT.slice(-4) : 'none', 'deposit'));
+  } catch (e) { out.push(statCell('—', 'deposit', 'err')); }
+  $('kd_stats').innerHTML = out.join('');
+  $('kd_led').classList.remove('pulse');
+}
+
 $('savekey').onclick = () => {
   KEY = $('key').value.trim();
   KEY ? sessionStorage.setItem('targon_key', KEY) : sessionStorage.removeItem('targon_key');
-  toast(KEY ? 'key set for this tab' : 'key cleared');
+  $('key').type = 'password'; $('keyeye').textContent = 'show';
+  paintKey();
+  toast(KEY ? 'cartridge inserted · this tab only' : 'key cleared');
+  loadWorkloads(); loadSshKeys(); loadTargonAccount();
+  if (KEY) testKey();
+};
+$('key').addEventListener('keydown', e => { if (e.key === 'Enter') $('savekey').click(); });
+$('keytest').onclick = testKey;
+$('keyeject').onclick = () => {
+  KEY = ''; $('key').value = '';
+  sessionStorage.removeItem('targon_key');
+  chip('chip_credits', 'credits', '—', false);
+  paintKey();
+  toast('cartridge ejected');
   loadWorkloads(); loadSshKeys(); loadTargonAccount();
 };
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && $('keydrawer').classList.contains('open')) { e.preventDefault(); openKey(false); }
+  if ((e.key === 'k' || e.key === 'K') && !e.metaKey && !e.ctrlKey && !e.altKey &&
+      !/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName || '')) { e.preventDefault(); openKey(true); }
+});
 
 // ── MARKET ───────────────────────────────────────────────────────
 let INV = [];
@@ -900,7 +1151,7 @@ $('r_dry').onclick = () => show('r_out', { forward: Object.assign({ action: 'ren
 $('r_go').onclick = async () => {
   const a = rentArgs();
   if (!a.name) return show('r_out', 'name is required (lowercase letters, digits and hyphens)');
-  if (!KEY) return show('r_out', 'no API key set — add one in the header first');
+  if (!KEY) return show('r_out', 'no API key set — open the key slot (top right, or press K)');
   if (!confirm(`Rent ${a.resource_name || 'the cheapest matching tier'} as "${a.name}"? This spends credits.`)) return;
   $('r_go').disabled = true;
   show('r_out', 'renting…');
@@ -920,7 +1171,7 @@ function selectWorkload(uid) {
 
 async function loadWorkloads() {
   if (!KEY) {
-    $('w_body').innerHTML = '<tr><td colspan="7" class="mut">set an API key to see your workloads</td></tr>';
+    $('w_body').innerHTML = '<tr><td colspan="7" class="mut">insert an API key (key slot, top right · press K) to see your workloads</td></tr>';
     return;
   }
   const args = {};
@@ -1180,7 +1431,7 @@ function depositFrom(w) {
 async function loadTargonAccount() {
   if (!KEY) {
     $('wl_acctstats').innerHTML = statCell('—', 'credits', 'mut');
-    $('wl_deposit').textContent = 'set an API key in the header to see your deposit address';
+    $('wl_deposit').textContent = 'set an API key (key slot, top right) to see your deposit address';
     return;
   }
   const out = [];
@@ -1409,10 +1660,11 @@ get('/info').then(d => {
     `# key: x-api-key header, TARGON_API_KEY, or ~/.mod/targon/api_key`;
 }).catch(() => $('ver').textContent = 'backend unreachable');
 
+paintKey();
 loadInventory();
 loadTools();
 loadWalletBalance();
-if (KEY) loadTargonAccount();
+if (KEY) { loadTargonAccount(); testKey(); }
 </script>
 </body>
 </html>

@@ -2,7 +2,7 @@
 import re
 import os
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any
 
 
 class Tool:
@@ -102,7 +102,6 @@ class Tool:
 
             # extract the code block
             extracted = lines[start_line - 1:end_line]
-            extracted_text = ''.join(extracted)
 
             # detect indentation of extracted code
             first_indent = len(extracted[0]) - len(extracted[0].lstrip()) if extracted else 0

@@ -1,0 +1,141 @@
+{
+  "netuid": 107,
+  "name": "Minos",
+  "symbol": "ミ",
+  "owner": "5DA2vLrSXZxnT9G4Yrywx1Fpi4RXwMH1Ah7r8DTTWS7UZZBM",
+  "description": "The Foundational Layer of Genomics",
+  "github": "https://github.com/minos-protocol/minos_subnet",
+  "url": "https://theminos.ai",
+  "discord": "https://discord.com/channels/799672011265015819/1467949024769478793",
+  "logo": "https://theminos.ai/logo.png",
+  "registered_at": 7457580,
+  "tempo": 360,
+  "active": true,
+  "block": 9322663,
+  "related": [],
+  "market": {
+    "price": 0.034625823,
+    "moving_price": 0.033939421409741044,
+    "market_cap": 81961.44099138149,
+    "tao_in": 20607.789587043,
+    "alpha_in": 595157.17777204,
+    "alpha_out": 1771903.989016154,
+    "volume": 640570.624685525,
+    "vol_24h": 4148.601511818939,
+    "emission": 0.0,
+    "change_1h": -0.004637941788865341,
+    "change_24h": 6.109132939984496,
+    "change_7d": -7.8161991614761455
+  },
+  "spark_24h": [
+    0.032632274,
+    0.032612346,
+    0.032583765,
+    0.032685966,
+    0.032661775,
+    0.032663706,
+    0.032665549,
+    0.032668093,
+    0.032670165,
+    0.032566197,
+    0.032567308,
+    0.032941542,
+    0.034420702,
+    0.034665086,
+    0.034624777,
+    0.034620278,
+    0.034621978,
+    0.034626571,
+    0.034607483,
+    0.034518821,
+    0.03452099,
+    0.034592899,
+    0.034594857,
+    0.034580241,
+    0.034590316,
+    0.034584886,
+    0.034587861,
+    0.034589192,
+    0.034591483,
+    0.034590643,
+    0.034598756,
+    0.034532619,
+    0.034534737,
+    0.034537565,
+    0.034541154,
+    0.034493142,
+    0.03447981,
+    0.034497848,
+    0.034452305,
+    0.034454664,
+    0.034458266,
+    0.034460144,
+    0.034626819,
+    0.034631549,
+    0.034635749,
+    0.034627429,
+    0.034629421,
+    0.034625823
+  ],
+  "trades_24h": {
+    "trades": 327,
+    "buys": 178,
+    "sells": 149,
+    "buy_tao": 2297.912599394,
+    "sell_tao": 1737.479659808,
+    "net_tao": 560.4329395860002,
+    "traders": 133
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5GbSr2iJhgQj1V2XB3oQBT9jkz1VMB8uVSoskAwbWSSJEcgD",
+      "net_tao": -0.6975737340000023,
+      "gross_tao": 400.697573734,
+      "trades": 9
+    },
+    {
+      "coldkey": "5Cw2qFy2tZy9ZLt4LsJc9b68nffQndZDHF1KZynmVbA4Z3pC",
+      "net_tao": 0.7746933329999983,
+      "gross_tao": 339.225306667,
+      "trades": 11
+    },
+    {
+      "coldkey": "5CkqhiXivJzuYEZKCTBXTm9oK8LH6L9EyDxJooyPFvHS2GXr",
+      "net_tao": 149.72655034,
+      "gross_tao": 250.27344966,
+      "trades": 8
+    },
+    {
+      "coldkey": "5CXwAFZG5JGxidYjeAwn2mzgHwktUPNczqtGi6HpNaJvWszN",
+      "net_tao": 0.028038315999999952,
+      "gross_tao": 199.971961684,
+      "trades": 7
+    },
+    {
+      "coldkey": "5Ge57pPLDUKApt49W9ZFDsrjEMVMD1Xsn1euc8EJVHECU6Jn",
+      "net_tao": 49.921507334,
+      "gross_tao": 150.078492666,
+      "trades": 3
+    }
+  ],
+  "news": [
+    {
+      "ts": 1791517989,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #40 from minos-protocol/fix/scoring-cutoff-lead",
+      "url": "https://github.com/minos-protocol/minos_subnet/commit/4b3c0944b517d09be9b54eb8fa3158ae700b5d5f",
+      "publisher": "minos-protocol/minos_subnet"
+    },
+    {
+      "ts": 1791510445,
+      "kind": "commit",
+      "source": "github",
+      "title": "Bound the scoring phase by the submit window",
+      "url": "https://github.com/minos-protocol/minos_subnet/commit/30465ca777356e3990b419b5b9f86863f96f2109",
+      "publisher": "minos-protocol/minos_subnet"
+    }
+  ],
+  "updated": 1792474861,
+  "updated_day": "2026-10-20"
+}

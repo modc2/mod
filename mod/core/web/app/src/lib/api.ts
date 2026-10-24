@@ -1,8 +1,8 @@
 // Typed client for the Rust mod-api. All requests go through NEXT_PUBLIC_API_URL
-// (`/api/web`), which the Caddy gateway (prod) or a Next rewrite (dev) proxies
-// to the Rust service.
+// (`/web/api`, legacy alias `/api/web`), which the Caddy gateway (prod) or a
+// Next rewrite (dev) proxies to the Rust service.
 
-export const API = process.env.NEXT_PUBLIC_API_URL || "/api/web";
+export const API = process.env.NEXT_PUBLIC_API_URL || "/web/api";
 
 export type Module = {
   name: string;

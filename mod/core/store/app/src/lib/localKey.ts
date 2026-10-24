@@ -12,7 +12,7 @@
  *     the backup path; QR handoff moves a *session* to another device.
  */
 
-import { Wallet } from "ethers";
+import { Wallet, scrypt, toUtf8Bytes, hexlify } from "ethers";
 import { LOCAL_KEY_STORAGE, storageGet, storageRemove, storageSet } from "./safeStorage";
 
 let cached: Wallet | null = null;
@@ -49,6 +49,28 @@ export function loadLocalKey(): Wallet | null {
 export function createLocalKey(): { wallet: Wallet; persisted: boolean } {
   const w = Wallet.createRandom();
   const wallet = new Wallet(w.privateKey);
+  storageSet(LOCAL_KEY_STORAGE, wallet.privateKey);
+  cached = wallet;
+  return { wallet, persisted: storageGet(LOCAL_KEY_STORAGE) === wallet.privateKey };
+}
+
+/**
+ * Password → key, deterministically: the same password gives the same address
+ * on any device, so the password *is* the backup. scrypt (N=2^17, r=8) keeps a
+ * guess at ~1s in the browser, but a short or common password is still
+ * guessable offline — callers must enforce a floor (MIN_PASSWORD) and say so.
+ */
+export const MIN_PASSWORD = 12;
+const PASSWORD_SALT = "mod/store/password-key/v1";
+
+export async function deriveKeyFromPassword(password: string): Promise<string> {
+  const out = await scrypt(toUtf8Bytes(password.normalize("NFKC")), toUtf8Bytes(PASSWORD_SALT), 131072, 8, 1, 32);
+  return hexlify(out);
+}
+
+/** Derive from a password and persist it like any other local key. */
+export async function passwordLocalKey(password: string): Promise<{ wallet: Wallet; persisted: boolean }> {
+  const wallet = new Wallet(await deriveKeyFromPassword(password));
   storageSet(LOCAL_KEY_STORAGE, wallet.privateKey);
   cached = wallet;
   return { wallet, persisted: storageGet(LOCAL_KEY_STORAGE) === wallet.privateKey };

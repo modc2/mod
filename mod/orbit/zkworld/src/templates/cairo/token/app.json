@@ -1,0 +1,108 @@
+{
+  "title": "{{NAME}} token",
+  "intro": "A token: a balance per person that can be sent around. Amounts are shown in whole tokens.",
+  "steps": [
+    "Pick who you are at the top right.",
+    "Your balance is on the left.",
+    "To send, pick who gets it and how much, then press Send."
+  ],
+  "fns": {
+    "balance_of": {
+      "label": "My balance",
+      "show": "big",
+      "decimals": 18,
+      "inputs": {
+        "account": {
+          "hide": true
+        }
+      }
+    },
+    "total_supply": {
+      "label": "Total in existence",
+      "show": "number",
+      "decimals": 18
+    },
+    "transfer": {
+      "label": "Send tokens",
+      "button": "Send",
+      "decimals": 18,
+      "inputs": {
+        "to": {
+          "label": "Send to"
+        },
+        "amount": {
+          "label": "How many",
+          "placeholder": "e.g. 1.5"
+        }
+      }
+    },
+    "approve": {
+      "label": "Let someone spend for me",
+      "button": "Allow",
+      "decimals": 18,
+      "inputs": {
+        "spender": {
+          "label": "Who"
+        },
+        "amount": {
+          "label": "Up to how many"
+        }
+      }
+    },
+    "allowance": {
+      "label": "Allowed to spend",
+      "decimals": 18,
+      "inputs": {
+        "owner": {
+          "label": "Whose tokens"
+        },
+        "spender": {
+          "label": "Who is spending"
+        }
+      }
+    },
+    "transfer_from": {
+      "hide": true
+    },
+    "name": {
+      "hide": true
+    },
+    "symbol": {
+      "hide": true
+    },
+    "decimals": {
+      "hide": true
+    }
+  },
+  "constructor": {
+    "help": "Choose a name and how many tokens to create. They all start with the person you pick.",
+    "inputs": {
+      "name": {
+        "label": "Token name",
+        "placeholder": "'Gold'"
+      },
+      "symbol": {
+        "label": "Short symbol",
+        "placeholder": "'GLD'"
+      },
+      "supply": {
+        "label": "How many to create",
+        "decimals": 18,
+        "default": "1000000"
+      },
+      "recipient": {
+        "label": "Who gets them first"
+      }
+    }
+  },
+  "events": {
+    "Transfer": {
+      "say": "{from} sent {amount} to {to}",
+      "decimals": 18
+    },
+    "Approval": {
+      "say": "{owner} let {spender} spend up to {amount}",
+      "decimals": 18
+    }
+  }
+}

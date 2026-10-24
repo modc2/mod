@@ -1,0 +1,31 @@
+{
+  "title": "Shared number",
+  "intro": "One number that lives on the chain. Anyone can see it, anyone can change it, and every change is recorded.",
+  "steps": [
+    "Pick who you are at the top right.",
+    "The big number on the left is the current value. The chart under it fills in as it changes.",
+    "Type a new number on the right and press Save. Then switch person and try again."
+  ],
+  "fns": {
+    "get": {
+      "label": "The number right now",
+      "show": "chart"
+    },
+    "set": {
+      "label": "Change the number",
+      "button": "Save",
+      "help": "Whatever you save replaces the old number for everybody.",
+      "inputs": {
+        "value": {
+          "label": "New number",
+          "placeholder": "e.g. 42"
+        }
+      }
+    }
+  },
+  "events": {
+    "ValueSet": {
+      "say": "The number was set to {value}"
+    }
+  }
+}

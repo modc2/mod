@@ -1,0 +1,85 @@
+use snforge_std::{
+    ContractClassTrait, DeclareResultTrait, declare, start_cheat_caller_address,
+    stop_cheat_caller_address,
+};
+use starknet::ContractAddress;
+use {{PKG}}::{I{{NAME}}Dispatcher, I{{NAME}}DispatcherTrait};
+
+fn issuer() -> ContractAddress {
+    'issuer'.try_into().unwrap()
+}
+
+fn alice() -> ContractAddress {
+    'alice'.try_into().unwrap()
+}
+
+fn bob() -> ContractAddress {
+    'bob'.try_into().unwrap()
+}
+
+fn deploy() -> I{{NAME}}Dispatcher {
+    let contract = declare("{{NAME}}").unwrap().contract_class();
+    let mut calldata = array![];
+    Serde::serialize(@'Dollar', ref calldata);
+    Serde::serialize(@'USDX', ref calldata);
+    Serde::serialize(@issuer(), ref calldata);
+    let (addr, _) = contract.deploy(@calldata).unwrap();
+    I{{NAME}}Dispatcher { contract_address: addr }
+}
+
+#[test]
+fn test_mint_needs_cash_then_works() {
+    let c = deploy();
+    start_cheat_caller_address(c.contract_address, issuer());
+    c.set_reserves(100);
+    c.mint(alice(), 100);
+    stop_cheat_caller_address(c.contract_address);
+    assert(c.balance_of(alice()) == 100, 'alice has 100');
+    assert(c.total_supply() == 100, 'supply 100');
+    assert(c.is_fully_backed(), 'backed');
+}
+
+#[test]
+#[should_panic(expected: 'not enough cash in reserve')]
+fn test_cannot_print_unbacked() {
+    let c = deploy();
+    start_cheat_caller_address(c.contract_address, issuer());
+    c.set_reserves(50);
+    c.mint(alice(), 51);
+}
+
+#[test]
+#[should_panic(expected: 'only the issuer')]
+fn test_only_issuer_mints() {
+    let c = deploy();
+    start_cheat_caller_address(c.contract_address, alice());
+    c.mint(alice(), 1);
+}
+
+#[test]
+fn test_transfer_and_redeem() {
+    let c = deploy();
+    start_cheat_caller_address(c.contract_address, issuer());
+    c.set_reserves(100);
+    c.mint(alice(), 100);
+    stop_cheat_caller_address(c.contract_address);
+    start_cheat_caller_address(c.contract_address, alice());
+    c.transfer(bob(), 30);
+    c.redeem(70);
+    stop_cheat_caller_address(c.contract_address);
+    assert(c.balance_of(alice()) == 0, 'alice cashed out');
+    assert(c.balance_of(bob()) == 30, 'bob has 30');
+    assert(c.total_supply() == 30, 'supply 30');
+    assert(c.reserves() == 30, 'bank paid 70 out');
+    assert(c.is_fully_backed(), 'still backed');
+}
+
+#[test]
+#[should_panic(expected: 'reserves below supply')]
+fn test_reserves_cannot_drop_below_supply() {
+    let c = deploy();
+    start_cheat_caller_address(c.contract_address, issuer());
+    c.set_reserves(100);
+    c.mint(alice(), 100);
+    c.set_reserves(10);
+}

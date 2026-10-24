@@ -496,7 +496,8 @@ class Library:
         name = item["name"]
         fields = dict(description=item["description"], goal=item["body"],
                       icon=item["icon"], tools=item["tools"],
-                      model=item["model"], harness=item["harness"], key=key)
+                      model=item["model"], memory=item.get("memory"),
+                      harness=item["harness"], key=key)
         try:
             saved = self._agents.create(name=name, **fields)
         except FileExistsError:
@@ -665,12 +666,15 @@ class Library:
                 schemas = self._tools.schema()
             except Exception:
                 schemas = {}
+            builtin = getattr(self._tools, 'builtin', None)
+            shipped = set(builtin.ls()) if builtin is not None else None
             for sname in self._tools.ls():
                 sch = schemas.get(sname, {})
                 items.append({"kind": "tool", "id": f"s-{sname}", "name": sname,
                               "description": sch.get("description", ""),
                               "tags": TOOL_TAGS.get(sname, ["tool"]),
-                              "params": sch.get("params", {}), "builtin": True})
+                              "params": sch.get("params", {}),
+                              "builtin": shipped is None or sname in shipped})
 
         for s in self.installed_tools():
             items.append({"kind": "tool", "id": s["id"], "name": s["name"],

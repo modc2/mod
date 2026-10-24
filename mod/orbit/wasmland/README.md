@@ -8,7 +8,7 @@ Get a receipt. Have somebody else run it again and see whether they agree.
 That last step is the product. Everything else here exists to make it possible.
 
 ```bash
-m wasmland/serve                                     # API + console on :50480
+m wasmland/serve                                     # API :50480, console :50481
 m wasmland/publish path=examples/montecarlo.js title="Monte Carlo pi"
 m wasmland/run listing=monte-carlo-pi-a1b2 input=200000 seed=1
 m wasmland/verify <run id>                           # → verified, or disputed
@@ -178,10 +178,35 @@ src/market.py          listings, credits, entitlements
 src/games.py           the arena bridge
 src/identity.py        tokens, wallet signatures, sessions
 src/runtime/*.mjs      the execution layer — one implementation, two venues
-src/api/api.py         HTTP, and the console served from the same port
-src/app/               the console (no framework, no build step)
+src/api/api.py         the API service (FastAPI) on :50480
+src/app/server.py      the app service on :50481 — the console, and /_api
+src/app/               the console itself (no framework, no build step)
 examples/              two js artifacts; wasm ones live in the arena's pack
-tests/                 24 tests, most of them about what must be refused
+tests/                 35 tests, most of them about what must be refused
+```
+
+## Two services, one origin
+
+The module runs as an **app** and an **API**, the fleet's convention:
+
+| service | port | route | what it is |
+|---|---|---|---|
+| `wasmland-api` | 50480 | `/api/wasmland` | every endpoint below |
+| `wasmland-app` | 50481 | `/wasmland` | the console, and `/wasmland/_api/*` → the API |
+
+The page pins `<base href="/wasmland/">` and asks its *own* origin for `_api`,
+which the app service forwards. That is why one build of the console works
+behind the gateway and on a bare port alike, with no CORS preflight on the hot
+path and no API URL compiled into the page — and why restarting the API does
+not take the console down with it: the page still loads and says which half is
+missing. Statuses and bytes cross that hop untouched, because the market's
+refusals *are* status codes (402 unpaid, 401 unsigned) and the browser venue
+hashes the bytes it fetches.
+
+```bash
+m wasmland/serve      # both, under pm2
+m wasmland/restart
+m wasmland/kill
 ```
 
 ```bash

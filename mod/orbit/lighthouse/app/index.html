@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<base href="/lighthouse/">
+<title>lighthouse — keep it forever</title>
+<link rel="preload" href="fonts/press-start-2p-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/vt323-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="app.css">
+<script>
+  // Theme before first paint, so a light-mode visitor never sees a dark flash.
+  try { var t = localStorage.getItem('lighthouse.theme'); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+</script>
+</head>
+<body>
+
+<!-- the sky behind everything: stars at night, a low sun at dusk -->
+<div class="sky" aria-hidden="true"><div class="stars"></div><div class="stars far"></div><div class="sun"></div></div>
+
+<header class="bar">
+  <div class="brand">
+    <span class="mark" aria-hidden="true"><i></i></span>
+    <span class="name">lighthouse</span>
+  </div>
+  <div class="bar-right">
+    <button id="theme" class="ghost" title="light / dark">light</button>
+    <span id="who" class="who">not signed in</span>
+    <button id="signin" class="primary">sign in</button>
+  </div>
+</header>
+
+<main>
+
+  <!-- ── hero: the one thing most visitors came to do ───────────── -->
+  <section class="hero">
+    <div class="hero-copy">
+      <p class="eyebrow"><span class="pulse"></span> IPFS + Filecoin · pinned for good</p>
+      <h1>Keep it<br><span class="lit">forever.</span></h1>
+      <p class="lede">Drop anything here and it gets a permanent address on the open web.
+        No account, no API key, no expiry.</p>
+
+      <div class="card upload" id="card-upload">
+        <div class="tabs" id="put-tabs">
+          <button class="tab on" data-pane="pane-file">file</button>
+          <button class="tab" data-pane="pane-text">text</button>
+          <button class="tab" data-pane="pane-lookup">look up</button>
+          <button class="tab" data-pane="pane-url">archive</button>
+        </div>
+
+        <div class="pane on" id="pane-file">
+          <label class="drop" id="drop">
+            <input type="file" id="file" multiple hidden>
+            <span class="drop-icon" aria-hidden="true"></span>
+            <span id="drop-label">choose files, drop them anywhere, or paste</span>
+            <span class="drop-sub" id="drop-sub"></span>
+          </label>
+        </div>
+
+        <div class="pane" id="pane-text">
+          <textarea id="text" rows="6" placeholder="a note, a poem, a manifesto — whatever should outlive you"></textarea>
+          <p class="hint tight"><span id="text-count">0 characters</span> · <kbd>Ctrl</kbd>+<kbd>Enter</kbd> sends it</p>
+        </div>
+
+        <div class="pane" id="pane-lookup">
+          <div class="row wrap">
+            <input id="lookup-cid" placeholder="CID or ipfs://…" autocomplete="off" spellcheck="false" style="flex:1">
+            <button id="lookup-peek" class="primary">peek</button>
+          </div>
+          <div id="lookup-out" class="out"></div>
+        </div>
+
+        <div class="pane" id="pane-url">
+          <input type="url" id="url-input" placeholder="https://… — save this page forever" autocomplete="off" spellcheck="false" style="width:100%">
+          <div id="url-preview" class="out"></div>
+        </div>
+
+        <details class="opts">
+          <summary>options</summary>
+          <div class="row wrap">
+            <input id="objkey" placeholder="name (optional)" autocomplete="off">
+            <input id="pool" placeholder="store pool id (optional)" autocomplete="off">
+          </div>
+          <div class="row wrap">
+            <label class="check"><input type="checkbox" id="register" checked> register in store</label>
+            <label class="check"><input type="checkbox" id="public"> public</label>
+          </div>
+        </details>
+
+        <button id="put" class="primary big">send it to the lighthouse</button>
+        <p class="price" id="put-price"></p>
+        <div class="progress" id="put-progress" hidden><i></i><span></span></div>
+        <p class="hint" id="put-hint"></p>
+        <div id="put-out" class="out"></div>
+      </div>
+    </div>
+
+    <div class="scene" aria-hidden="true">
+      <div class="beam"></div>
+      <div class="halo"></div>
+      <svg class="tower" viewBox="0 0 120 260" preserveAspectRatio="xMidYMax meet">
+        <defs>
+          <clipPath id="body"><path d="M38 96 L82 96 L92 236 L28 236 Z"/></clipPath>
+        </defs>
+        <!-- rock -->
+        <path class="rock" d="M0 260 C10 236 26 230 44 232 L80 230 C98 228 112 238 120 260 Z"/>
+        <!-- body with stripes -->
+        <g clip-path="url(#body)">
+          <rect class="wall" x="20" y="90" width="80" height="150"/>
+          <rect class="stripe" x="20" y="120" width="80" height="20"/>
+          <rect class="stripe" x="20" y="164" width="80" height="20"/>
+          <rect class="stripe" x="20" y="208" width="80" height="20"/>
+          <rect class="shade" x="60" y="90" width="40" height="150"/>
+        </g>
+        <rect class="door" x="54" y="214" width="12" height="22" rx="6"/>
+        <rect class="window" x="56" y="148" width="8" height="10" rx="2"/>
+        <!-- gallery -->
+        <rect class="deck" x="30" y="88" width="60" height="8" rx="1"/>
+        <path class="rail" d="M32 88 V78 M40 88 V78 M48 88 V78 M72 88 V78 M80 88 V78 M88 88 V78 M30 78 H90"/>
+        <!-- lantern -->
+        <rect class="glass" x="44" y="54" width="32" height="34" rx="2"/>
+        <circle class="lamp" cx="60" cy="71" r="8"/>
+        <path class="frame" d="M44 54 H76 M52 54 V88 M68 54 V88"/>
+        <path class="cap" d="M40 56 L60 34 L80 56 Z"/>
+        <circle class="cap" cx="60" cy="32" r="3"/>
+      </svg>
+      <svg class="waves" viewBox="0 0 1200 120" preserveAspectRatio="none">
+        <path class="w1" d="M0 60 Q150 30 300 60 T600 60 T900 60 T1200 60 T1500 60 T1800 60 T2100 60 T2400 60 V120 H0 Z"/>
+        <path class="w2" d="M0 80 Q150 55 300 80 T600 80 T900 80 T1200 80 T1500 80 T1800 80 T2100 80 T2400 80 V120 H0 Z"/>
+      </svg>
+    </div>
+  </section>
+
+  <!-- ── what is here ──────────────────────────────────────────── -->
+  <section class="block">
+    <div class="head-row">
+      <h2>the shelf</h2>
+      <span id="shelf-count" class="shelf-stat"></span>
+      <div class="tabs" id="list-tabs">
+        <button class="tab on" data-src="module">this lighthouse</button>
+        <button class="tab" data-src="store">in the store</button>
+      </div>
+      <input id="shelf-q" class="search" type="search" placeholder="filter by name or CID" autocomplete="off" spellcheck="false">
+      <div class="tabs" id="type-tabs" style="flex-basis:100%">
+        <button class="tab on" data-type="all">All</button>
+        <button class="tab" data-type="image">Images</button>
+        <button class="tab" data-type="video">Video</button>
+        <button class="tab" data-type="audio">Audio</button>
+        <button class="tab" data-type="text">Text</button>
+        <button class="tab" data-type="archived">Archived</button>
+        <button class="tab" data-type="other">Other</button>
+      </div>
+      <div class="tabs" id="sort-tabs" style="flex-basis:100%">
+        <button class="tab on" data-sort="newest">Newest</button>
+        <button class="tab" data-sort="oldest">Oldest</button>
+        <button class="tab" data-sort="name">Name</button>
+        <button class="tab" data-sort="size">Size</button>
+      </div>
+      <button id="gallery-toggle" class="ghost">⊞</button>
+      <button id="refresh" class="ghost">refresh</button>
+    </div>
+    <div id="objects" class="objects"><p class="hint cursor">loading</p></div>
+  </section>
+
+  <!-- ── under the hood ────────────────────────────────────────── -->
+  <section class="block">
+    <div class="head-row"><h2>under the hood</h2></div>
+    <div class="grid two" id="state">
+      <div class="card" id="card-lh">
+        <h3>lighthouse<span class="dot" id="dot-lh"></span></h3>
+        <dl id="lh-facts"><dt>&nbsp;</dt><dd class="cursor">loading</dd></dl>
+        <p class="hint" id="key-hint">No key to paste: this deployment signs a Lighthouse nonce
+          with its own wallet and keeps the key it gets back. Anyone can upload.</p>
+        <div class="row">
+          <input id="byok" type="password" placeholder="your own Lighthouse key (optional, this tab only)" autocomplete="off">
+          <button id="byok-use" class="ghost">use</button>
+        </div>
+        <p class="hint" id="byok-hint">A key typed here is sent per request as
+          <code>x-lh-key</code>, spends <b>your</b> allowance instead of the box's, and is never
+          written to disk. <a href="https://files.lighthouse.storage" target="_blank" rel="noreferrer">files.lighthouse.storage</a></p>
+        <div class="row owner-only" id="owner-key">
+          <input id="modkey" type="password" placeholder="replace the deployment key (owner)" autocomplete="off">
+          <button id="modkey-save" class="ghost">save</button>
+        </div>
+      </div>
+
+      <div class="card" id="card-store">
+        <h3>store<span class="dot" id="dot-store"></span></h3>
+        <dl id="store-facts"><dt>&nbsp;</dt><dd class="cursor">loading</dd></dl>
+        <div id="store-blockers"></div>
+        <p class="hint">Uploads by a <b>signed-in</b> caller are registered in the store module,
+          where visibility, grants, pools and the marketplace live. The bytes stay on
+          Lighthouse &mdash; the store keeps the gateway url and sends readers there.</p>
+      </div>
+    </div>
+
+    <div class="card" id="card-mirror">
+      <h3>make a store object perpetual</h3>
+      <p class="hint">Pull a CID the store already has &mdash; with <em>your</em> read rights &mdash;
+        push it to Lighthouse, register it back. Needs sign-in: the store only talks to a signer.</p>
+      <div class="row wrap">
+        <input id="mirror-cid" placeholder="store CID" autocomplete="off" spellcheck="false">
+        <label class="check"><input type="checkbox" id="mirror-public"> public</label>
+        <button id="mirror" class="primary">mirror</button>
+      </div>
+      <div id="mirror-out" class="out"></div>
+    </div>
+
+    <div class="card owner-only" id="card-earnings">
+      <h3>x402 earnings</h3>
+      <div id="earnings-body"></div>
+    </div>
+  </section>
+
+  <!-- ── mcp: the same work, as tools ──────────────────────────── -->
+  <section class="block" id="card-mcp">
+    <div class="head-row">
+      <h2>for agents<span class="dot" id="dot-mcp"></span></h2>
+      <div class="badges">
+        <span class="pill free">no api key</span>
+        <span class="pill free">no token</span>
+        <span class="pill" id="mcp-count"></span>
+      </div>
+      <button id="mcp-copy" class="ghost">copy config</button>
+    </div>
+    <div class="card">
+      <p class="hint first">Everything on this page is also an MCP tool, and nothing is needed to
+        connect. Point a client at <code id="mcp-url">&hellip;</code>
+        (Streamable HTTP), or run <code>python3 mcp.py</code> on the box for stdio.
+        This list is rendered live from <code>GET /mcp</code>.</p>
+      <div class="connect">
+        <div class="line"><pre class="code" id="mcp-cli">loading&hellip;</pre><button class="tiny" id="mcp-cli-copy">copy</button></div>
+        <pre class="code" id="mcp-conf"></pre>
+      </div>
+      <p class="hint" id="mcp-auth"></p>
+      <div class="tools" id="mcp-tools"></div>
+    </div>
+  </section>
+
+  <footer class="seam">
+    <p>
+      This module holds no store credential. Your protocol token &mdash; the one your wallet
+      signed &mdash; is forwarded verbatim to the store, so its whitelist, terms and quota apply
+      to <em>your</em> address. Without a token you are <code>anon</code>: you can still store,
+      within a daily budget, and the store simply waits for a signer.
+      API: <code>/lighthouse/_api</code> here, <code>:50680</code> on the box.
+    </p>
+    <p class="sign">a light that never goes out</p>
+  </footer>
+
+</main>
+
+<div id="toast" class="toast"></div>
+
+<!-- sign in without a wallet extension: an in-page sheet, never a browser prompt -->
+<div class="sheet" id="sheet" hidden>
+  <form class="card sheet-card" id="sheet-form">
+    <h3>sign in</h3>
+    <p class="hint first">No wallet extension in this browser. Paste a mod-protocol token instead &mdash;
+      <code>m.mod("auth")().token({})</code> on a box that holds your key makes one.</p>
+    <textarea id="sheet-token" rows="4" placeholder="paste token" spellcheck="false"></textarea>
+    <div class="row end">
+      <button type="button" class="ghost" id="sheet-cancel">cancel</button>
+      <button type="submit" class="primary">sign in</button>
+    </div>
+  </form>
+</div>
+<script type="module" src="app.js"></script>
+</body>
+</html>

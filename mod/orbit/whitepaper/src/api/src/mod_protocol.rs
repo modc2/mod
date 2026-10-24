@@ -103,6 +103,10 @@ impl ModProtocol {
         self.state_dir.join("tree.json")
     }
 
+    pub fn tree_history_file(&self) -> PathBuf {
+        self.state_dir.join("tree_history.jsonl")
+    }
+
     pub fn config_u16(&self, key: &str) -> Option<u16> {
         self.config_field(key)
             .and_then(|v| v.as_u64())

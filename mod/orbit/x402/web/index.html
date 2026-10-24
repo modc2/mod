@@ -1,0 +1,1457 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>x402 · every paid API</title>
+<style>
+  :root{--bg:#090b0f;--panel:#10141a;--panel2:#141922;--line:#1d2430;--line2:#2a3342;--text:#e8edf3;
+        --dim:#8592a3;--faint:#566273;--accent:#facc15;--accent2:#f59e0b;--ok:#6ee7b7;--bad:#f87171;
+        --get:#34d399;--post:#facc15;--put:#60a5fa;--del:#f87171;
+        --sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Inter,Roboto,sans-serif;
+        --mono:ui-monospace,SFMono-Regular,"JetBrains Mono",Menlo,monospace;
+        --r:14px}
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{background:var(--bg)}
+  body{color:var(--text);font:14px/1.5 var(--sans);padding:28px 24px 60px;max-width:1240px;margin:0 auto;
+       background:radial-gradient(900px 380px at 12% -120px,rgba(250,204,21,.10),transparent 70%),
+                  radial-gradient(700px 300px at 95% -80px,rgba(245,158,11,.06),transparent 70%);
+       background-repeat:no-repeat;-webkit-font-smoothing:antialiased}
+  ::selection{background:rgba(250,204,21,.3)}
+  header{display:flex;align-items:center;gap:14px;margin-bottom:22px;flex-wrap:wrap}
+  .logo{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;flex:none;
+        background:linear-gradient(135deg,var(--accent),var(--accent2));color:#1a1300;
+        font:800 15px/1 var(--mono);letter-spacing:-.02em;box-shadow:0 6px 24px -6px rgba(250,204,21,.5)}
+  h1{font-size:22px;font-weight:750;letter-spacing:-.01em;line-height:1.1}
+  header .sub{color:var(--dim);font-size:13px;margin-top:2px}
+  #who{position:relative;margin-left:auto;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--dim)}
+  #who .addr{font:12px var(--mono);color:var(--text);background:var(--panel);border:1px solid var(--line);
+             border-radius:999px;padding:5px 11px}
+  #who .tier{color:var(--accent)}
+  #who button{padding:7px 14px;font-size:12px}
+  .hint{color:var(--dim);font-size:13px;margin-bottom:16px;max-width:760px}
+  .hint code{font-family:var(--mono);font-size:12px;color:var(--text)}
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));margin:0 0 22px;gap:1px;
+         background:var(--line);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+  .stat{padding:14px 18px;background:var(--panel)}
+  .stat b{display:block;font:700 22px/1.2 var(--mono);letter-spacing:-.02em}
+  .stat:first-child b{color:var(--accent)}
+  .stat span{color:var(--faint);font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase}
+  .stat .live{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--ok);margin-right:7px;
+              vertical-align:middle;box-shadow:0 0 0 0 rgba(110,231,183,.6);animation:pulse 1.6s infinite}
+  @keyframes pulse{70%{box-shadow:0 0 0 7px rgba(110,231,183,0)}100%{box-shadow:0 0 0 0 rgba(110,231,183,0)}}
+  nav{display:inline-flex;gap:2px;padding:4px;margin-bottom:18px;background:var(--panel);
+      border:1px solid var(--line);border-radius:12px;flex-wrap:wrap}
+  nav a{padding:7px 14px;color:var(--dim);cursor:pointer;border-radius:9px;font-size:13px;font-weight:600;
+        transition:color .12s,background .12s;user-select:none}
+  nav a:hover{color:var(--text)}
+  nav a.on{color:#1a1300;background:var(--accent)}
+  .bar{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:stretch}
+  input,select{background:var(--panel);border:1px solid var(--line);color:var(--text);
+        padding:10px 12px;border-radius:10px;font:inherit;transition:border-color .12s,box-shadow .12s}
+  select{cursor:pointer;color:var(--dim)}
+  select:hover{color:var(--text)}
+  input::placeholder{color:var(--faint)}
+  input:focus,select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(250,204,21,.12)}
+  .bar .q{flex:1;min-width:220px}
+  .srch{flex:1;min-width:240px;position:relative;display:flex}
+  .srch input{flex:1;padding-left:38px;font-size:15px}
+  .srch svg{position:absolute;left:13px;top:50%;transform:translateY(-50%);color:var(--faint);pointer-events:none}
+  button{background:var(--accent);color:#1a1300;border:none;padding:9px 16px;
+         border-radius:10px;font:inherit;font-weight:700;cursor:pointer;transition:filter .12s}
+  button:hover{filter:brightness(1.08)}
+  button:disabled{opacity:.45;cursor:default}
+  button.quiet{background:var(--panel);color:var(--dim);border:1px solid var(--line);font-weight:500}
+  button.quiet:hover{color:var(--text);border-color:var(--line2)}
+  button.quiet.on{background:var(--accent);color:#1a1300;border-color:transparent}
+  table{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+  td,th{padding:10px 12px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+  tr:last-child td{border-bottom:none}
+  th{color:var(--faint);font-weight:600;font-size:11px;letter-spacing:.06em;text-transform:uppercase;background:var(--panel2)}
+  tr.row{cursor:pointer}
+  tr.row:hover td{background:var(--panel2)}
+  .url{word-break:break-all;font-family:var(--mono);font-size:12px}
+  .dim{color:var(--dim);font-size:12px}
+  .num{text-align:right;white-space:nowrap;font-family:var(--mono)}
+  .chip{display:inline-block;background:var(--panel2);border:1px solid var(--line);border-radius:999px;
+        padding:1px 9px;font-size:11px;color:var(--dim);margin:1px 2px 1px 0;
+        max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle}
+  .bar select{max-width:220px}
+  .chip.ok{color:var(--ok);border-color:#1f4f3f;background:rgba(110,231,183,.06)}
+  .chip.bad{color:var(--bad);border-color:#4f1f1f;background:rgba(248,113,113,.06)}
+  .m{display:inline-block;font:700 10px/1 var(--mono);letter-spacing:.04em;padding:4px 6px;border-radius:5px;
+     margin-right:7px;vertical-align:2px;color:var(--post);background:rgba(250,204,21,.12)}
+  .m.get{color:var(--get);background:rgba(52,211,153,.12)}
+  .m.put,.m.patch{color:var(--put);background:rgba(96,165,250,.12)}
+  .m.delete{color:var(--del);background:rgba(248,113,113,.12)}
+  img.ic{width:18px;height:18px;border-radius:5px;vertical-align:middle;margin-right:6px}
+  .pager{display:flex;gap:10px;align-items:center;justify-content:center;margin:22px 0;color:var(--dim);font-size:13px}
+  #status{color:var(--dim);font-size:12px;min-height:1.5em;margin:0 0 6px;transition:color .12s}
+  #status.err{color:var(--bad)}
+  #status.warn{color:var(--accent2)}
+  #status.err::before,#status.warn::before{content:"";display:inline-block;width:6px;height:6px;
+        border-radius:50%;background:currentColor;margin-right:7px;vertical-align:middle;opacity:.85}
+  .empty{color:var(--dim);padding:60px 0;text-align:center;border:1px dashed var(--line2);border-radius:var(--r)}
+  a{color:inherit}
+  #drawer{position:fixed;top:0;right:0;bottom:0;width:min(640px,100%);background:var(--panel);
+          border-left:1px solid var(--line);padding:26px;overflow:auto;transform:translateX(100%);
+          transition:transform .2s cubic-bezier(.2,.8,.2,1);box-shadow:-30px 0 60px -20px rgba(0,0,0,.6);z-index:10}
+  #drawer.open{transform:none}
+  #drawer h2{font-size:19px;font-weight:700;margin-bottom:6px;padding-right:70px;word-break:break-word}
+  #drawer h3{font-size:11px;color:var(--faint);font-weight:600;letter-spacing:.08em;margin:22px 0 8px}
+  #drawer table{font-size:13px}
+  pre{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:12px;font-family:var(--mono);
+      overflow:auto;font-size:12px;white-space:pre-wrap;word-break:break-all}
+  .x{position:absolute;top:18px;right:20px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:14px;transition:border-color .15s}
+  .card:hover{border-color:var(--line2)}
+  .card .name{font-weight:700;margin-bottom:4px}
+  .seg{display:inline-flex;padding:3px;background:var(--panel);border:1px solid var(--line);border-radius:10px}
+  .seg a{display:flex;align-items:center;padding:0 12px;color:var(--dim);cursor:pointer;font-size:12px;font-weight:600;border-radius:7px;user-select:none}
+  .seg a:hover{color:var(--text)}
+  .seg a.on{background:var(--accent);color:#1a1300}
+  .srv{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:16px 18px;margin-bottom:12px}
+  .srv .top{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .srv .name{font-weight:700;font-size:15px}
+  .srv .tools{margin:10px 0 0;border-top:1px solid var(--line)}
+  .srv .tool{padding:8px 0;border-bottom:1px solid var(--line);cursor:pointer;font-size:13px}
+  .srv .tool:last-child{border-bottom:none}
+  .srv .tool:hover{color:var(--accent)}
+  .srv code{background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:5px 8px;font:11px var(--mono);word-break:break-all}
+  .ex{cursor:pointer}
+  .ex:hover{color:var(--text);border-color:var(--accent)}
+  .score{color:var(--accent);font:600 11px var(--mono)}
+  .tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px}
+  .tile{aspect-ratio:1;background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--line);
+        border-radius:var(--r);padding:16px;display:flex;flex-direction:column;gap:8px;cursor:pointer;overflow:hidden;
+        min-width:0;position:relative;transition:transform .15s,border-color .15s,box-shadow .15s}
+  .tile:hover{transform:translateY(-2px);border-color:rgba(250,204,21,.45);
+              box-shadow:0 12px 30px -12px rgba(0,0,0,.7),0 0 0 1px rgba(250,204,21,.08)}
+  .tile .hd{display:flex;align-items:center;gap:7px;min-width:0}
+  .tile .hd .ic{margin:0;flex:none}
+  .tile .host{font:12px var(--mono);color:var(--faint);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+  .tile .price{font:700 13px var(--mono);color:var(--accent);flex:none;background:rgba(250,204,21,.1);
+               border:1px solid rgba(250,204,21,.22);border-radius:999px;padding:2px 9px;cursor:pointer}
+  .tile .price:hover{background:rgba(250,204,21,.2)}
+  .price-pop{position:fixed;z-index:50;background:var(--panel);border:1px solid var(--line2);border-radius:10px;
+             padding:10px 12px;box-shadow:0 8px 24px -4px rgba(0,0,0,.8);font-size:12px}
+  .price-pop table{border:none;background:none;border-radius:0;font-size:12px}
+  .price-pop th{background:none;color:var(--faint);font-size:10px;letter-spacing:.06em;text-transform:uppercase;padding:2px 8px 5px;border:none}
+  .price-pop td{border:none;padding:3px 8px;font-family:var(--mono)}
+  .price-pop td:first-child{color:var(--dim);font-family:var(--sans)}
+  .price-pop td:nth-child(3){color:var(--accent)}
+  .tile .nm{font-weight:700;font-size:15px;line-height:1.35;word-break:break-word;margin-top:4px;
+            display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .tile .nm .m{vertical-align:2px}
+  .tile .ds{color:var(--dim);font-size:13px;line-height:1.5;
+            display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
+  .tile .ft{margin-top:auto;display:flex;align-items:center;gap:4px;font-size:11px;color:var(--faint);min-width:0;
+            padding-top:10px;border-top:1px solid var(--line)}
+  .tile .ft .chip{max-width:90px}
+  .tile .ft .calls{margin-left:auto;flex:none;font-family:var(--mono);color:var(--dim)}
+  .tile .big{font:700 34px/1 var(--mono);color:var(--accent);letter-spacing:-.03em}
+  .chips{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 18px}
+  .pill{background:transparent;border:1px solid var(--line);border-radius:999px;padding:5px 13px;
+        color:var(--dim);font-size:12.5px;cursor:pointer;transition:all .12s;user-select:none}
+  .pill:hover{color:var(--text);border-color:var(--line2);background:var(--panel)}
+  .pill.ask{color:#1a1300;background:linear-gradient(135deg,var(--accent),var(--accent2));border-color:transparent;font-weight:700;margin-left:auto}
+  .pill.ask:hover{filter:brightness(1.08)}
+  .empty .pill.ask{margin-left:6px}
+  #agent{display:none;background:var(--panel);border:1px solid rgba(250,204,21,.3);border-radius:var(--r);padding:18px;margin-bottom:18px;
+         box-shadow:0 0 0 4px rgba(250,204,21,.04)}
+  #agent.open{display:block}
+  #agent .ah{display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap}
+  #agent .ah b{letter-spacing:.06em;font-size:12px;color:var(--accent)}
+  #agent .ah .sp{flex:1}
+  #agent .turn{margin:12px 0;padding-top:12px;border-top:1px solid var(--line)}
+  #agent .turn:first-child{border-top:none;margin-top:0;padding-top:0}
+  #agent .you{color:var(--text);font-weight:700;margin-bottom:6px}
+  #agent .steps{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px}
+  #agent .ans{white-space:pre-wrap;font-size:14px;line-height:1.6}
+  #agent .ans code{background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:0 4px;font:12px var(--mono)}
+  #agent .tiles{margin-top:12px}
+  #agent form{display:flex;gap:8px;margin-top:12px}
+  #agent form input{flex:1}
+  h3.cat{color:var(--faint);margin:22px 0 10px;font-size:11px;font-weight:600;letter-spacing:.08em}
+  .star{position:absolute;top:8px;right:8px;background:none;border:none;cursor:pointer;font-size:14px;
+        color:var(--faint);padding:0;line-height:1;z-index:1}
+  .star.on{color:var(--accent)}
+  .cmp-tog{position:absolute;top:8px;left:8px;background:none;border:none;cursor:pointer;font-size:13px;
+           color:var(--faint);padding:0;line-height:1;z-index:1}
+  .cmp-tog.on{color:var(--accent)}
+  #cmpbar{position:fixed;bottom:0;left:0;right:0;z-index:15;background:var(--panel);
+          border-top:1px solid var(--line);padding:12px 24px;display:none;align-items:center;
+          gap:12px;box-shadow:0 -8px 24px -8px rgba(0,0,0,.5)}
+  .pill.on{background:var(--accent);color:#1a1300;border-color:transparent;font-weight:700}
+  .pill.starred.on{background:var(--accent);color:#1a1300;border-color:transparent;font-weight:700}
+  #netbar{display:none;margin:0 0 14px;border-radius:8px;overflow:hidden;height:28px;background:var(--panel);border:1px solid var(--line)}
+  .nb-seg{display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;overflow:hidden;padding:0 8px;gap:4px;cursor:pointer;transition:filter .12s;white-space:nowrap;min-width:0}
+  .nb-seg:hover{filter:brightness(1.4)}
+  .nb-reset{flex:none!important;border-left:1px solid var(--line);padding:0 12px;background:var(--panel);color:var(--faint)}
+  .nb-active{box-shadow:inset 0 0 0 2px var(--accent)}
+  @media (max-width:640px){body{padding:18px 14px 50px}.stat{padding:12px 14px}.stat b{font-size:18px}
+    .pill.ask{margin-left:0}.bar select{flex:1}
+    .tile{aspect-ratio:auto;min-height:190px}}
+  #acct{display:none;position:absolute;top:calc(100% + 6px);right:0;width:300px;max-width:95vw;
+        background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:14px;
+        z-index:20;box-shadow:0 16px 40px -8px rgba(0,0,0,.8);font-size:13px;line-height:1.5;
+        overflow:auto;max-height:90vh}
+  #acct.open{display:block}
+  .pal{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100;display:none;align-items:flex-start;justify-content:center;padding-top:12vh;backdrop-filter:blur(4px)}
+  .pal.open{display:flex}
+  .pal-box{width:min(620px,94vw);background:var(--panel);border:1px solid var(--line2);border-radius:18px;overflow:hidden;box-shadow:0 30px 80px -20px rgba(0,0,0,.9),0 0 0 1px rgba(250,204,21,.06)}
+  .pal-in{display:flex;align-items:center;padding:14px 18px;gap:10px;border-bottom:1px solid var(--line)}
+  .pal-in svg{color:var(--faint);flex:none}
+  .pal-in input{flex:1;background:none;border:none;outline:none;font:16px var(--sans);color:var(--text);padding:0}
+  .pal-in input::placeholder{color:var(--faint)}
+  .pal-in input:focus{border-color:transparent;box-shadow:none}
+  .pal-kbd{font:11px var(--mono);color:var(--faint);background:var(--panel2);border:1px solid var(--line);border-radius:5px;padding:2px 6px;flex:none}
+  .pal-rows{max-height:360px;overflow-y:auto}
+  .pal-row{display:flex;align-items:center;gap:10px;padding:10px 18px;cursor:pointer;transition:background .08s}
+  .pal-row:hover,.pal-row.sel{background:var(--panel2)}
+  .pal-row.sel{outline:2px solid var(--accent);outline-offset:-2px;border-radius:4px}
+  .pal-ic{width:22px;height:22px;border-radius:6px;flex:none}
+  .pal-pi{width:22px;height:22px;border-radius:6px;background:var(--panel2);border:1px solid var(--line);flex:none;display:grid;place-items:center;font:700 10px var(--mono);color:var(--faint)}
+  .pal-nm{font-weight:600;font-size:14px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .pal-pc{font:700 12px var(--mono);color:var(--accent);flex:none}
+  .pal-ds{color:var(--dim);font-size:12px;flex:2;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .pal-sec{padding:7px 18px 3px;font:600 10px var(--sans);letter-spacing:.07em;text-transform:uppercase;color:var(--faint)}
+  .pal-empty{padding:24px 18px;color:var(--faint);font-size:13px;text-align:center}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">402</div>
+  <div><h1>x402</h1><div class="sub">Every pay-per-request API, in one local index</div></div>
+  <div id="who"></div>
+</header>
+<div class="stats" id="stats"></div>
+<div id="netbar"></div>
+<nav id="tabs">
+  <a data-t="services" class="on">Services</a>
+  <a data-t="mcp">MCP servers</a>
+  <a data-t="hosts">Providers</a>
+  <a data-t="sources">Facilitators</a>
+  <a data-t="partners">Ecosystem</a>
+</nav>
+<div id="status"></div>
+<section id="agent">
+  <div class="ah"><b>FINDER AGENT</b><span class="dim">searches the index for you, with read-only tools · never pays</span>
+    <span class="sp"></span><button class="quiet" id="anew">new chat</button><button class="quiet" id="aclose">close</button></div>
+  <div class="log" id="alog"></div>
+  <form id="af2"><input name="q" placeholder="what do you need? e.g. cheap token risk check on base" autocomplete="off"><button>ask</button></form>
+</section>
+<div id="view"></div>
+<aside id="drawer"><button class="quiet x" id="close">close</button><button class="quiet" id="drawercopy" style="position:absolute;top:18px;right:136px;display:none" title="Copy link to this service">copy link</button><button class="quiet" id="drawerstar" style="position:absolute;top:18px;right:76px;display:none">☆ Save</button><div id="dbody"></div></aside>
+<div id="cmpbar"></div>
+<div id="pal" class="pal">
+  <div class="pal-box">
+    <div class="pal-in">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+      <input id="palinput" placeholder="Search services…" autocomplete="off" spellcheck="false">
+      <span class="pal-kbd">Esc</span>
+    </div>
+    <div id="palrows" class="pal-rows"></div>
+  </div>
+</div>
+
+<script src="/passport/passport.js"></script>
+<script>
+const API = 'api/';   // relative: resolves under /x402/ locally and behind the gateway
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const usd = p => p == null ? '<span class="dim">?</span>' : '$' + (p >= 1 ? p.toFixed(2) : +p.toPrecision(3));
+const big = n => n == null ? '0' : n >= 1e6 ? (n/1e6).toFixed(1)+'M' : n >= 1e3 ? (n/1e3).toFixed(1)+'k' : String(n);
+const ago = t => { if (!t) return 'never'; const s = Date.now()/1000 - t;
+  return s < 90 ? 'just now' : s < 5400 ? Math.round(s/60)+'m ago' : s < 129600 ? Math.round(s/3600)+'h ago' : Math.round(s/86400)+'d ago'; };
+function renderResult(r) {
+  const ct = (r.content_type || '').toLowerCase();
+  // 1. base64 image
+  if (r.base64 && ct.startsWith('image/')) {
+    return `<img src="data:${esc(ct)};base64,${r.base64}" style="max-width:100%;border-radius:8px;margin-top:8px">`;
+  }
+  if (r.json != null) {
+    const j = r.json;
+    // 3. top-level URL field that looks like an image
+    const imgFields = ['url','image_url','image'];
+    for (const k of imgFields) {
+      if (typeof j[k] === 'string' && /\.(png|jpe?g|gif|webp|svg)(\?|$)/i.test(j[k])) {
+        return `<img src="${esc(j[k])}" style="max-width:100%;border-radius:8px;margin-top:8px">`;
+      }
+    }
+    // 2. LLM response shapes
+    let llmText = null;
+    if (j.choices && j.choices[0] && j.choices[0].message && typeof j.choices[0].message.content === 'string') llmText = j.choices[0].message.content;
+    else if (j.output && j.output[0] && typeof j.output[0].text === 'string') llmText = j.output[0].text;
+    else if (typeof j.result === 'string') llmText = j.result;
+    else if (typeof j.text === 'string') llmText = j.text;
+    else if (typeof j.response === 'string') llmText = j.response;
+    else if (typeof j.answer === 'string') llmText = j.answer;
+    if (llmText != null) {
+      return `<p style="margin-top:8px;line-height:1.6;color:var(--text);white-space:pre-wrap;font-size:13px;border-left:2px solid var(--accent);padding-left:10px">${esc(llmText.slice(0,2000))}</p>`;
+    }
+    // 4. shallow flat object → key-value table
+    const vals = Object.values(j);
+    if (vals.length && vals.every(v => v === null || typeof v !== 'object')) {
+      const rows = Object.entries(j).map(([k,v]) => {
+        const isNum = typeof v === 'number' || typeof v === 'boolean';
+        return `<tr><td style="color:var(--faint);font-family:var(--mono);font-size:11px;padding:3px 10px 3px 0;white-space:nowrap">${esc(k)}</td><td style="${isNum?'color:var(--accent)':''}font-size:12px;padding:3px 0">${esc(String(v))}</td></tr>`;
+      }).join('');
+      return `<table style="margin-top:8px;border-collapse:collapse">${rows}</table>`;
+    }
+    // 5. fallback
+    const body = JSON.stringify(j, null, 2).slice(0, 2000);
+    return `<pre style="margin-top:6px;max-height:200px">${esc(body)}</pre>`;
+  }
+  // 5. text fallback
+  const body = (r.text || '').slice(0, 2000);
+  return body ? `<pre style="margin-top:6px;max-height:200px">${esc(body)}</pre>` : '';
+}
+
+// Sign-in is the fleet auth protocol (orbit/passport): one session shared with
+// every console and build; the server asks passport who the token belongs to.
+const PP = window.Passport;
+function authed(h = {}) {
+  const s = PP && PP.session();
+  return s ? {...h, Authorization: 'Bearer ' + s.token} : h;
+}
+async function who() {
+  const box = $('#who');
+  const s = PP && PP.session();
+  if (!PP) { box.innerHTML = '<span class="dim">sign-in unavailable</span>'; return; }
+  me = null;
+  try { me = await get('whoami'); } catch {}
+  const badge = me ? `<span class="tier" title="click for score breakdown" style="cursor:pointer">${esc(me.tier)} · ${me.score}</span>` : '';
+  if (s) {
+    box.innerHTML = `${badge}<span class="addr" title="${esc(s.address)}">${esc(s.address.slice(0, 6) + '…' + s.address.slice(-4))}</span>
+      <button class="quiet" id="signout">sign out</button><div id="acct"></div>`;
+    $('#signout').onclick = e => { e.stopPropagation(); PP.signOut(); };
+  } else {
+    box.innerHTML = `${badge}<button id="signin">sign in</button><div id="acct"></div>`;
+    $('#signin').onclick = async e => {
+      e.stopPropagation();
+      try { await PP.signIn('x402'); } catch (err) { status('sign in: ' + err.message, true); }
+    };
+  }
+  if (me) box.onclick = e => { if (!e.target.closest('#acct') && e.target.tagName !== 'BUTTON') toggleAcct(); };
+}
+
+async function toggleAcct() {
+  const panel = $('#acct');
+  if (!panel) return;
+  if (panel.classList.contains('open')) { closeAcct(); return; }
+  panel.classList.add('open');
+  let data = me;
+  try { data = await get('whoami', {limit: 20}); me = data; } catch {}
+  if (!data) { panel.innerHTML = '<div class="dim" style="padding:4px">unavailable</div>'; return; }
+  renderAcct(panel, data);
+}
+
+function closeAcct() {
+  const p = $('#acct');
+  if (p) p.className = '';
+}
+
+function renderAcct(panel, data) {
+  const score = data.score || 0;
+  const pct = Math.min(100, score);
+  const tierColor = score >= 70 ? 'var(--ok)' : score >= 40 ? 'var(--accent)' : score >= 20 ? 'var(--put)' : 'var(--faint)';
+
+  const meterHtml = `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+    <span style="font-weight:700">${esc(data.tier || '')}</span>
+    <span style="font:700 22px/1 var(--mono);color:${tierColor}">${score}</span>
+  </div>
+  <div style="background:var(--line);border-radius:4px;height:6px;overflow:hidden;margin-bottom:12px">
+    <div style="width:${pct}%;height:100%;background:${tierColor};border-radius:4px"></div>
+  </div>`;
+
+  const PARTS = [['base','base'],['tenure','tenure'],['activity','active days'],['settled','paid calls'],['throttled','throttled'],['denied','denied']];
+  const parts = data.parts || {};
+  const partsRows = PARTS.map(([k, label]) => {
+    const v = parts[k] ?? 0;
+    const signed = v > 0 ? '+' + v : String(v);
+    const col = v > 0 ? 'var(--ok)' : v < 0 ? 'var(--bad)' : 'inherit';
+    return `<tr><td style="padding:3px 0;color:var(--dim)">${label}</td><td style="padding:3px 0 3px 12px;text-align:right;font-family:var(--mono);color:${col}">${signed}</td></tr>`;
+  }).join('');
+  const breakdownHtml = `<table style="width:100%;font-size:12px;border:none">${partsRows}</table>`;
+
+  const nt = data.next_tier;
+  const ntHtml = nt && nt.need > 0 ? `<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line)">
+    <div style="font-size:11px;color:var(--faint);letter-spacing:.06em;text-transform:uppercase;margin-bottom:5px">Next: ${esc(nt.tier || '')}</div>
+    <div style="background:var(--line);border-radius:4px;height:4px;overflow:hidden">
+      <div style="width:${Math.max(2, Math.min(98, pct / (pct + nt.need) * 100)).toFixed(0)}%;height:100%;background:var(--accent);border-radius:4px"></div>
+    </div>
+    <div style="font-size:11px;color:var(--dim);margin-top:3px">${nt.need} pts to go</div>
+  </div>` : '';
+
+  const h = data.house || {};
+  const houseHtml = h.daily_usd != null ? `<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line)">
+    <div style="font-size:11px;color:var(--faint);letter-spacing:.06em;text-transform:uppercase;margin-bottom:4px">House budget</div>
+    <div style="font-size:12px">${h.enabled ? '<span class="chip ok">active</span>' : '<span class="chip bad">off</span>'}${h.why ? ' ' + esc(h.why) : ''} &nbsp;<span style="font-family:var(--mono)">${usd(h.spent_today)}</span> / ${usd(h.daily_usd)}</div>
+  </div>` : '';
+
+  const howHtml = data.how_to_rise ? `<div style="margin-top:10px;padding:8px;background:var(--panel2);border-radius:8px;font-size:12px;color:var(--dim)">${esc(data.how_to_rise)}</div>` : '';
+
+  const recent = (data.recent || []).slice(0, 10);
+  let recentHtml = '';
+  if (recent.length) {
+    const rows = recent.map(r => {
+      const tool = (r.tool || '').replace('x402_', '');
+      const outcome = String(r.outcome || r.status || '');
+      const chipCls = /^(ok|settled)$/.test(outcome) ? 'ok' : /error|throttl|deny|denied/.test(outcome) ? 'bad' : '';
+      const chipStyle = /quote/.test(outcome) ? 'color:var(--accent);border-color:rgba(250,204,21,.25)' : '';
+      let host = ''; try { host = new URL(r.url || '').hostname; } catch {}
+      const usdStr = r.usd > 0 ? `<span style="font-family:var(--mono);color:var(--ok);margin-left:4px">${usd(r.usd)}</span>` : '';
+      const ts = ago(r.ts || r.time || r.created_at);
+      return `<tr class="row" ${r.url ? `data-rurl="${esc(r.url)}"` : ''}>
+        <td style="padding:4px 6px 4px 0"><span class="chip ${chipCls}" style="${chipStyle}">${esc(tool)}</span></td>
+        <td style="padding:4px 3px;max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dim)">${esc(host)}</td>
+        <td style="padding:4px 3px;white-space:nowrap">${usdStr}</td>
+        <td style="padding:4px 0 4px 3px;white-space:nowrap;font-size:11px;color:var(--faint)">${ts}</td>
+      </tr>`;
+    }).join('');
+    recentHtml = `<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line)">
+      <div style="font-size:11px;color:var(--faint);letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px">Recent</div>
+      <table style="width:100%;border:none;font-size:12px">${rows}</table>
+    </div>`;
+  }
+
+  panel.innerHTML = meterHtml + breakdownHtml + ntHtml + houseHtml + howHtml + recentHtml;
+  panel.querySelectorAll('tr[data-rurl]').forEach(tr => {
+    tr.onclick = e => { e.stopPropagation(); closeAcct(); detail(tr.dataset.rurl); };
+  });
+}
+
+async function get(fn, args = {}) {
+  const qs = new URLSearchParams(Object.entries(args).filter(([, v]) => v !== '' && v != null));
+  const r = await fetch(API + fn + (qs.toString() ? '?' + qs : ''), {headers: authed()});
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error || r.status);
+  return j;
+}
+async function post(fn, body = {}) {
+  const r = await fetch(API + fn, {method: 'POST', headers: authed({'Content-Type': 'application/json'}), body: JSON.stringify(body)});
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error || r.status);
+  return j;
+}
+function status(msg, err) { const s = $('#status'); s.textContent = msg || ''; s.className = msg ? (err === 'warn' ? 'warn' : err ? 'err' : '') : ''; }
+
+let me = null;  // module-level cache of whoami response
+
+const st = {tab: 'services', q: '', network: '', max_price: '', sort: 'popular', offset: 0, host: '',
+            meaning: localStorage.getItem('x402.meaning') !== '0', mq: '', starred: false, tag: '',
+            source: '', sourceName: '',
+            compare: new Map(), cmpCalls: 100, open: null};
+const PAGE = 50;
+
+function stateToHash() {
+  const p = new URLSearchParams();
+  if (st.q) p.set('q', st.q);
+  if (st.network) p.set('network', st.network);
+  if (st.max_price) p.set('max_price', st.max_price);
+  if (st.sort && st.sort !== 'popular') p.set('sort', st.sort);
+  if (st.host) p.set('host', st.host);
+  if (st.source) { p.set('source', st.source); if (st.sourceName) p.set('sourceName', st.sourceName); }
+  if (st.mq) p.set('mq', st.mq);
+  if (st.open) p.set('open', st.open);
+  const qs = p.toString();
+  history.replaceState(null, '', '#' + st.tab + (qs ? '?' + qs : ''));
+}
+function hashToState() {
+  const h = window.location.hash.slice(1);
+  if (!h) return;
+  const qi = h.indexOf('?');
+  const t = qi >= 0 ? h.slice(0, qi) : h;
+  if (t && VIEWS[t]) st.tab = t;
+  const qs = qi >= 0 ? new URLSearchParams(h.slice(qi + 1)) : new URLSearchParams();
+  st.q = qs.get('q') || '';
+  st.network = qs.get('network') || '';
+  st.max_price = qs.get('max_price') || '';
+  st.sort = qs.get('sort') || 'popular';
+  st.host = qs.get('host') || '';
+  st.source = qs.get('source') || '';
+  st.sourceName = qs.get('sourceName') || '';
+  st.mq = qs.get('mq') || '';
+  st.open = qs.get('open') || null;
+  st.offset = 0;
+}
+
+async function loadStats() {
+  try {
+    const i = await get('info'), x = i.index;
+    $('#stats').innerHTML = [
+      [big(x.services), 'services'], [big(x.hosts), 'providers'],
+      [x.listing_sources + '/' + x.sources, 'facilitators listing'],
+      [big(x.calls_30d), 'paid calls 30d'], [usd(x.median_price_usd), 'median price'],
+      [i.syncing ? '<i class="live"></i>syncing' : ago(i.last_sync), 'last crawl'],
+    ].map(([b, s]) => `<div class="stat"><b>${b}</b><span>${s}</span></div>`).join('');
+    const nets = Object.keys(x.networks).slice(0, 30);
+    window.NETS = nets.map(n => [n, x.networks[n]]);
+    renderNetBar();
+    if (!x.services) status('Index is empty. The server crawls on start; check back in a few minutes.');
+  } catch (e) { status(e.message, true); }
+}
+
+function renderNetBar() {
+  const nb = document.getElementById('netbar');
+  if (!nb) return;
+  const nets = (window.NETS || []).slice(0, 8);
+  const total = nets.reduce((s, [, c]) => s + c, 0);
+  if (!nets.length || !total) { nb.style.display = 'none'; return; }
+  nb.style.display = '';
+  const COLORS = ['#facc15','#34d399','#60a5fa','#f87171','#a78bfa','#fb923c','#38bdf8','#4ade80'];
+  const segs = nets.map(([n, c], i) => {
+    const col = COLORS[i % COLORS.length];
+    const active = st.network === n;
+    return `<div class="nb-seg${active ? ' nb-active' : ''}" title="${esc(n)}: ${c.toLocaleString()} services" data-net="${esc(n)}"
+      style="flex:${c / total};background:${col}1a;${i > 0 ? 'border-left:1px solid var(--line)' : ''}">
+      <span style="color:${col};overflow:hidden;text-overflow:ellipsis">${esc(n)}</span>
+      <span style="opacity:.55">${big(c)}</span>
+    </div>`;
+  }).join('');
+  const allActive = !st.network;
+  nb.innerHTML = segs +
+    `<div class="nb-seg nb-reset${allActive ? ' nb-active' : ''}" title="show all networks" data-net="">all</div>`;
+  nb.querySelectorAll('.nb-seg').forEach(seg => {
+    seg.onclick = () => { st.network = seg.dataset.net; tab('services'); };
+  });
+}
+
+async function loadTags() {
+  try { window.TAGS = await get('tags'); } catch {}
+}
+
+function getStarred() {
+  try { return JSON.parse(localStorage.getItem('x402.starred') || '[]'); } catch { return []; }
+}
+function isStarred(url) { return getStarred().some(s => s.url === url); }
+function toggleStar(url, svc) {
+  let list = getStarred();
+  const i = list.findIndex(s => s.url === url);
+  if (i >= 0) { list.splice(i, 1); }
+  else {
+    list.push({url, name: svc.name || '', host: svc.host || '', price_usd: svc.price_usd ?? null,
+               description: svc.description || '', method: svc.method || '',
+               networks: svc.networks || [], calls_30d: svc.calls_30d || 0});
+    if (list.length > 50) list.splice(0, list.length - 50);
+  }
+  localStorage.setItem('x402.starred', JSON.stringify(list));
+}
+function updateStarPill() {
+  const sp = $('#starpill');
+  if (!sp) return;
+  const n = getStarred().length;
+  if (!n) { sp.remove(); return; }
+  sp.textContent = '★ Starred (' + n + ')';
+}
+
+function bar() {
+  const starred = getStarred();
+  const nets = (window.NETS || []).map(([n, c]) =>
+    `<option value="${esc(n)}" ${st.network === n ? 'selected' : ''}>${esc(n)} (${big(c)})</option>`).join('');
+  return `<form class="bar" id="f">
+    <span class="srch">${SEARCH_ICON}<input name="q" placeholder="Search paid APIs: weather, image, llm, twitter..." value="${esc(st.q)}" autofocus></span>
+    <select name="network"><option value="">any network</option>${nets}</select>
+    <select name="max_price">${['', '0.001', '0.01', '0.1', '1'].map(v =>
+      `<option value="${v}" ${st.max_price === v ? 'selected' : ''}>${v ? 'up to $' + v : 'any price'}</option>`).join('')}</select>
+    <select name="sort">${[['popular','most used'],['cheap','cheapest'],['new','newest'],['recent','recently updated'],['pricey','priciest']].map(([v, l]) =>
+      `<option value="${v}" ${st.sort === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
+    <span class="seg" title="words: exact text match · meaning: what the service does"><a data-m="0" class="${st.meaning ? '' : 'on'}">words</a><a data-m="1" class="${st.meaning ? 'on' : ''}">meaning</a></span>
+    ${st.host ? `<button type="button" class="quiet" id="clearhost">host: ${esc(st.host)} &times;</button>` : ''}
+    ${st.source ? `<button type="button" class="quiet" id="clearsource">source: ${esc(st.sourceName || st.source)} &times;</button>` : ''}
+  </form>
+  <div class="chips">${starred.length ? `<span class="pill starred${st.starred ? ' on' : ''}" id="starpill">★ Starred (${starred.length})</span>` : ''}${QUICK.map(q => `<span class="pill qk">${esc(q)}</span>`).join('')}
+    <span class="pill ask" id="askbtn">Ask the agent &rarr;</span></div>`;
+}
+const SEARCH_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>';
+const mcls = m => String(m || '').toLowerCase().replace(/[^a-z]/g, '');
+const QUICK = ['token price', 'web scraping', 'image generation', 'llm inference', 'wallet risk', 'weather'];
+
+function tagRow() {
+  const tags = window.TAGS;
+  if (!tags || !tags.length) return '';
+  const pills = tags.slice(0, 8).map(({tag, count}) =>
+    `<span class="pill${st.tag === tag ? ' on' : ''}" data-tag="${esc(tag)}">${esc(tag)} <span style="opacity:.5">${big(count)}</span></span>`
+  ).join('');
+  return `<div class="chips" id="tagrow">${pills}</div>`;
+}
+
+function tile(s, extra = '') {
+  const nets = s.networks || [];
+  const netPrice = {};
+  for (const o of (s.offers || [])) {
+    if (o.network && o.price_usd != null) {
+      if (netPrice[o.network] == null || o.price_usd < netPrice[o.network])
+        netPrice[o.network] = o.price_usd;
+    }
+  }
+  const snap = esc(JSON.stringify({url: s.url, name: s.name || '', host: s.host || '',
+    price_usd: s.price_usd ?? null, description: s.description || '', method: s.method || '',
+    networks: nets, calls_30d: s.calls_30d || 0, payers_30d: s.payers_30d || 0,
+    sources: s.sources || []}));
+  const activePrice = st.network && netPrice[st.network] != null ? netPrice[st.network] : s.price_usd;
+  const chipLabel = n => {
+    const p = netPrice[n];
+    if (p == null) return esc(n);
+    return esc(n) + ' $' + (p >= 1 ? p.toFixed(2) : +p.toPrecision(3));
+  };
+  return `<div class="tile" data-url="${esc(s.url)}" data-snap="${snap}" title="${esc(s.url)}">
+    <button class="star${isStarred(s.url) ? ' on' : ''}" data-star="${esc(s.url)}" title="save">★</button>
+    <button class="cmp-tog${st.compare.has(s.url) ? ' on' : ''}" data-cmp="${esc(s.url)}" title="add to compare">⊞</button>
+    <div class="hd">${s.icon ? `<img class="ic" src="${esc(s.icon)}" loading="lazy" onerror="this.remove()">` : ''}
+      <span class="host">${esc(s.host || '')}</span><span class="price" data-price="${activePrice ?? ''}">${usd(activePrice)}</span></div>
+    <div class="nm"><span class="m ${mcls(s.method)}">${esc(s.method)}</span>${esc(s.name || pathOf(s.url))}</div>
+    <div class="ds">${esc(s.description)}</div>
+    ${extra}
+    <div class="ft">${nets.slice(0, 2).map(n => `<span class="chip" title="${esc(n)}">${chipLabel(n)}</span>`).join('')}${nets.length > 2 ? `+${nets.length - 2}` : ''}
+      <span class="calls">${s.calls_30d ? big(s.calls_30d) + ' calls' : ''}</span></div></div>`;
+}
+const pathOf = u => { try { return new URL(u).pathname; } catch { return u; } };
+function wireTiles(root) {
+  root.querySelectorAll('.tile[data-url]').forEach(el => el.onclick = () => detail(el.dataset.url));
+  root.querySelectorAll('.star[data-star]').forEach(btn => btn.onclick = e => {
+    e.stopPropagation();
+    const url = btn.dataset.star;
+    let svc = {url};
+    try { svc = JSON.parse(btn.closest('.tile').dataset.snap || '{}'); } catch {}
+    toggleStar(url, svc);
+    btn.classList.toggle('on', isStarred(url));
+    updateStarPill();
+    if (st.starred) {
+      btn.closest('.tile').remove();
+      if (!getStarred().length) { st.starred = false; render(); }
+    }
+  });
+  root.querySelectorAll('.cmp-tog[data-cmp]').forEach(btn => btn.onclick = e => {
+    e.stopPropagation();
+    const url = btn.dataset.cmp;
+    if (st.compare.has(url)) {
+      st.compare.delete(url);
+      btn.classList.remove('on');
+    } else if (st.compare.size < 3) {
+      let svc = {url};
+      try { svc = JSON.parse(btn.closest('.tile').dataset.snap || '{}'); } catch {}
+      st.compare.set(url, svc);
+      btn.classList.add('on');
+    }
+    renderCompareBar();
+  });
+  root.querySelectorAll('.price[data-price]').forEach(badge => badge.onclick = e => {
+    e.stopPropagation();
+    closePop();
+    const raw = badge.dataset.price;
+    const price = raw !== '' ? parseFloat(raw) : null;
+    const pop = document.createElement('div');
+    pop.className = 'price-pop';
+    const rows = [1, 100, 1000, 10000].map(n => {
+      const label = n >= 1000 ? (n / 1000) + 'k' : n;
+      const daily = price != null ? price * n : null;
+      const monthly = price != null ? price * n * 30 : null;
+      return `<tr><td>${label}/day</td><td>${usd(daily)}</td><td>${usd(monthly)}/mo</td></tr>`;
+    }).join('');
+    pop.innerHTML = `<table><thead><tr><th>volume</th><th>daily</th><th>monthly</th></tr></thead><tbody>${rows}</tbody></table>`;
+    document.body.appendChild(pop);
+    const r = badge.getBoundingClientRect();
+    let left = r.left;
+    if (left + pop.offsetWidth + 8 > window.innerWidth) left = window.innerWidth - pop.offsetWidth - 8;
+    pop.style.top = (r.bottom + 6) + 'px';
+    pop.style.left = Math.max(8, left) + 'px';
+  });
+}
+
+async function services() {
+  if (st.starred) {
+    const list = getStarred();
+    if (!list.length) { st.starred = false; }
+    else {
+      $('#view').innerHTML = bar() + `<div class="tiles">${list.map(s => tile(s)).join('')}</div>`;
+      wireBar();
+      wireTiles($('#view'));
+      document.querySelectorAll('.qk').forEach(c => c.onclick = () => { Object.assign(st, {q: c.textContent, offset: 0, meaning: true, starred: false}); render(); });
+      $('#askbtn').onclick = () => openAgent(st.q);
+      const sp = $('#starpill'); if (sp) sp.onclick = () => { st.starred = false; render(); };
+      return;
+    }
+  }
+  const showShelf = !st.q && !st.host && !st.network && !st.max_price && !st.starred && !st.source;
+  const shelfP = showShelf ? get('services', {sort: 'new', limit: 8}).catch(() => null) : Promise.resolve(null);
+  const sem = st.meaning && st.q && !st.host;
+  const r = sem
+    ? await get('find', {q: st.q, network: st.network, max_price: st.max_price, k: 100})
+        .then(f => { semNote(f); return {items: f.items.map(x => ({...x, sources: []})), total: f.items.length, offset: 0, limit: 100, sem: true}; })
+    : await get('services', {q: st.q, network: st.network, max_price: st.max_price,
+                             sort: st.sort, host: st.host, source: st.source, limit: PAGE, offset: st.offset});
+  const cutoff = Date.now() / 1000 - 7 * 86400;
+  const shelfR = await shelfP;
+  const newItems = shelfR ? (shelfR.items || []).filter(s => s.first_seen > cutoff) : [];
+  const shelfHtml = newItems.length >= 2
+    ? `<div id="new-shelf"><div style="font-size:11px;color:var(--faint);font-weight:600;letter-spacing:.08em;text-transform:uppercase;margin:16px 0 8px">NEW THIS WEEK (${newItems.length})</div><div style="display:flex;overflow-x:auto;gap:10px;padding-bottom:8px">${newItems.map(s => `<div style="flex:none;width:210px">${tile(s, '<span class="chip ok">NEW</span>')}</div>`).join('')}</div></div>`
+    : '';
+  const tiles = r.items.map(s => tile(s, r.sem && s.why && s.why.length
+      ? `<div>${s.why.slice(0, 2).map(w => `<span class="chip ok">${esc(w)}</span>`).join('')}</div>` : '')).join('');
+  const probeHtml = localStorage.getItem('x402.probedismiss') ? '' :
+    `<form class="bar" id="probef"><input name="url" style="font-family:var(--mono);font-size:12px;flex:1" placeholder="https://api.example/endpoint — test if it's x402" autocomplete="off"><button>Test</button><button type="button" class="quiet" id="probedismiss" title="dismiss">&times;</button></form>`;
+  $('#view').innerHTML = bar() + probeHtml + shelfHtml + tagRow() + (r.items.length ? `<div class="tiles">${tiles}</div>
+      ${r.sem ? '' : pager(r)}` : `<div class="empty">nothing matches${st.q ? ` &middot; <a class="pill ask" id="askempty">ask the agent to look for "${esc(st.q)}"</a>` : ''}</div>`);
+  wireBar();
+  wireTiles($('#view'));
+  const pf = $('#probef');
+  if (pf) {
+    $('#probedismiss').onclick = () => { localStorage.setItem('x402.probedismiss', '1'); pf.remove(); };
+    pf.onsubmit = async e => {
+      e.preventDefault();
+      const url = pf.url.value.trim();
+      if (!url) return;
+      try {
+        const r = await post('probe', {url});
+        if (r.x402) { detail(r.service.url); status('x402 confirmed — ' + r.service.name, false); }
+        else { status('Not x402 — answered HTTP ' + r.status, true); }
+      } catch (err) { status(err.message, true); }
+    };
+  }
+  document.querySelectorAll('#tagrow [data-tag]').forEach(p => p.onclick = () => {
+    const t = p.dataset.tag;
+    if (st.tag === t) { Object.assign(st, {q: '', tag: '', offset: 0}); }
+    else { Object.assign(st, {q: t, tag: t, offset: 0, meaning: false}); }
+    render();
+  });
+  document.querySelectorAll('.qk').forEach(c => c.onclick = () => { Object.assign(st, {q: c.textContent, offset: 0, meaning: true}); render(); });
+  $('#askbtn').onclick = () => openAgent(st.q);
+  const ae = $('#askempty'); if (ae) ae.onclick = () => openAgent(st.q, true);
+  const sp = $('#starpill'); if (sp) sp.onclick = () => { st.starred = true; render(); };
+}
+
+function pager(r) {
+  const end = Math.min(r.offset + r.items.length, r.total);
+  return `<div class="pager">
+    <button class="quiet" id="prev" ${r.offset ? '' : 'disabled'}>prev</button>
+    <span>${r.offset + 1}-${end} of ${r.total.toLocaleString()}</span>
+    <button class="quiet" id="next" ${end < r.total ? '' : 'disabled'}>next</button></div>`;
+}
+
+function wireBar() {
+  const f = $('#f');
+  let t;
+  const apply = () => { const d = new FormData(f);
+    const newQ = d.get('q') || '';
+    if (newQ !== st.tag) st.tag = '';
+    Object.assign(st, {q: newQ, network: d.get('network'), max_price: d.get('max_price'), sort: d.get('sort'), offset: 0, starred: false}); render(); };
+  f.onsubmit = e => { e.preventDefault(); apply(); };
+  f.q.oninput = () => { clearTimeout(t); t = setTimeout(apply, 300); };
+  f.querySelectorAll('select').forEach(s => s.onchange = apply);
+  f.querySelectorAll('.seg a').forEach(a => a.onclick = () => {
+    st.meaning = a.dataset.m === '1'; localStorage.setItem('x402.meaning', st.meaning ? '1' : '0'); apply(); });
+  const ch = $('#clearhost'); if (ch) ch.onclick = () => { st.host = ''; st.offset = 0; render(); };
+  const cs = $('#clearsource'); if (cs) cs.onclick = () => { st.source = ''; st.sourceName = ''; st.offset = 0; render(); };
+  const p = $('#prev'), n = $('#next');
+  if (p) p.onclick = () => { st.offset = Math.max(0, st.offset - PAGE); render(); };
+  if (n) n.onclick = () => { st.offset += PAGE; render(); };
+  const q = f.q; q.focus(); q.setSelectionRange(q.value.length, q.value.length);
+}
+
+async function detail(url, ctx = {}) {
+  st.open = url; stateToHash();
+  $('#drawer').classList.add('open');
+  $('#dbody').innerHTML = '<div class="dim">loading</div>';
+  try {
+    const [s, me] = await Promise.all([get('service', {url}), get('whoami').catch(() => null)]);
+    const dc = $('#drawercopy');
+    if (dc) {
+      dc.style.display = '';
+      dc.onclick = () => { navigator.clipboard.writeText(window.location.href).then(() => { const t = dc.textContent; dc.textContent = 'copied!'; setTimeout(() => { dc.textContent = t; }, 1500); }).catch(() => {}); };
+    }
+    const ds = $('#drawerstar');
+    if (ds) {
+      ds.dataset.url = url;
+      ds.style.display = '';
+      const refreshDs = () => { const on = isStarred(url); ds.textContent = on ? '★ Saved' : '☆ Save'; };
+      refreshDs();
+      ds.onclick = () => {
+        toggleStar(url, s);
+        refreshDs();
+        document.querySelectorAll('.star[data-star]').forEach(b => { if (b.dataset.star === url) b.classList.toggle('on', isStarred(url)); });
+        updateStarPill();
+      };
+    }
+    const ex = (((s.raw.extensions || {}).bazaar || {}).info) || {};
+    const offers = s.offers.map(o => `<tr><td>${esc(o.network)}</td><td>${esc(o.scheme)}</td>
+      <td>${esc(o.asset_name || o.asset.slice(0, 10))}</td><td class="num">${o.price_usd != null ? usd(o.price_usd) : esc(o.amount)}</td>
+      <td class="dim url">${esc(o.pay_to)}</td></tr>`).join('');
+    $('#dbody').innerHTML = `
+      <h2>${esc(s.name || s.host)}</h2>
+      <div class="url dim"><span class="m ${mcls(s.method)}">${esc(s.method)}</span><a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.url)}</a></div>
+      <p style="margin-top:10px">${esc(s.description)}</p>
+      <div style="margin-top:8px">${s.tags.map(t => `<span class="chip">${esc(t)}</span>`).join('')}</div>
+      <h3>PRICE OPTIONS</h3>
+      <table><tr><th>network</th><th>scheme</th><th>asset</th><th class="num">price</th><th>pays to</th></tr>${offers}</table>
+      <h3>ACTIVITY</h3>
+      <div class="dim">${big(s.calls_30d)} paid calls · ${big(s.payers_30d)} payers in 30d · x402 v${s.x402_version} · first seen ${ago(s.first_seen)}${s.pinned ? ' · <span class="chip ok">probed</span>' : ''}</div>
+      ${s.observed && s.observed.calls > 0 ? `<div class="dim" style="margin-top:4px">This node: ${big(s.observed.calls)} calls · ${s.observed.ok_rate != null ? Math.round(s.observed.ok_rate * 100) + '% ok · ' : ''}${big(s.observed.users)} users · last ${ago(s.observed.last)}</div>` : ''}
+      <h3>LISTED BY</h3><div>${s.sources.map(x => `<span class="chip">${esc(x)}</span>`).join('')}</div>
+      ${ctx.mcp && ctx.mcp.connect ? `<h3>PART OF MCP SERVER</h3>
+      <div style="margin-bottom:6px"><strong>${esc(ctx.mcp.name)}</strong><span class="dim url" style="margin-left:6px">${esc(ctx.mcp.server)}</span></div>
+      <div id="mcp-srv-conn" data-mode="cli" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:4px">
+        <button class="quiet mcp-srv-mode on" data-m="cli">CLI</button><button class="quiet mcp-srv-mode" data-m="json">JSON config</button><button class="quiet mcp-srv-mode" data-m="auth">ready to use</button>
+        <code id="mcp-srv-code" style="flex:1;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:5px 8px;font:11px var(--mono);word-break:break-all">${esc(ctx.mcp.connect.claude)}</code><button class="quiet" id="mcp-srv-copy">copy</button></div>` : ''}
+      <h3>TRY IT</h3>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><div class="seg" id="tc-tabs"><a class="on" data-tab="curl">curl</a><a data-tab="js">JavaScript</a><a data-tab="py">Python</a><a data-tab="node">via node</a></div><button class="quiet" id="tc-copy" style="font-size:11px;padding:4px 10px">copy</button></div>
+      <pre id="tc-code" style="overflow-x:auto"></pre>
+      ${ex.output ? `<h3>OUTPUT EXAMPLE</h3><pre>${esc(JSON.stringify(ex.output, null, 2).slice(0, 3000))}</pre>` : ''}
+      <h3>REQUEST BODY <span style="font-weight:400;text-transform:none;letter-spacing:0">(optional)</span> <a id="rbreset" href="#" style="font-weight:600;letter-spacing:0;text-transform:none;margin-left:8px">reset</a></h3>
+      <textarea id="reqbody" rows="6" style="width:100%;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:12px;font:12px/1.5 var(--mono);color:var(--text);resize:vertical;outline:none;box-sizing:border-box">${esc(ex.input ? JSON.stringify(ex.input, null, 2) : '')}</textarea>
+      <h3>PROVIDER</h3><button class="quiet" id="byhost">all ${esc(s.host)} services</button>
+      <h3>LIVE QUOTE</h3>${me && me.score >= 20
+        ? `<button class="quiet" id="livequote">Get live quote</button> <span id="lq" class="dim"></span>`
+        : `<span class="dim">sign in with a wallet to get a live quote</span>`}<div id="lqtable"></div>
+      <h3>SIGN &amp; PAY</h3>${me && me.score >= 20 && window.ethereum
+        ? `<div id="sppanel"><button class="quiet" id="spquote">Get Quote</button> <span id="spst" class="dim"></span><div id="spres"></div></div>`
+        : me && me.score >= 20
+          ? `<span class="dim">install MetaMask to pay from this browser</span>`
+          : ''}
+      ${me && me.score >= 40 && me.house
+        ? me.house.enabled
+          ? `<div style="margin-top:8px"><button class="quiet" id="hpbtn">Pay with house budget (${usd(Math.max(0, me.house.daily_usd - me.house.spent_today))} left today)</button><div id="hpres"></div></div>`
+          : `<div style="margin-top:6px" class="dim">${esc(me.house.why || 'house budget not available')}</div>`
+        : ''}
+      <div id="similar" style="margin-top:24px"></div>`;
+    const rbOrig = ex.input ? JSON.stringify(ex.input, null, 2) : '';
+    $('#rbreset').onclick = e => { e.preventDefault(); $('#reqbody').value = rbOrig; };
+    const _m = s.method, _u = s.url;
+    const buildSnippets = bodyJson => {
+      const curlSnip = `curl -i${_m !== 'GET' ? ' -X ' + _m : ''} '${_u}'${bodyJson ? ` \\\n  -H 'Content-Type: application/json' \\\n  -d '${bodyJson}'` : ''}\n# answers 402 with its price; pay with any x402 client and retry`;
+      const fetchOpts = _m !== 'GET' || bodyJson ? `, {\n  method: '${_m}',${bodyJson ? `\n  headers: { 'Content-Type': 'application/json' },\n  body: JSON.stringify(${bodyJson}),` : ''}\n}` : '';
+      const jsSnip = `// npm install x402-fetch\nimport { withPaymentInterceptor } from 'x402-fetch';\n\nconst fetch402 = withPaymentInterceptor(fetch, { privateKey: '<YOUR_KEY>' });\nconst res = await fetch402('${_u}'${fetchOpts});\nconsole.log(await res.json());`;
+      const pySnip = `import requests\n\n# Step 1: probe (expect 402)\nr = requests.${_m.toLowerCase()}('${_u}'${bodyJson ? `, json=${bodyJson}` : ''})\n# r.status_code == 402 -> r.json() shows payment options\n\n# Step 2: pay and call\n# pip install x402-python\nfrom x402 import Client\nclient = Client(private_key='<YOUR_KEY>')\ndata = client.call('${_u}', method='${_m}'${bodyJson ? `, json=${bodyJson}` : ''})\nprint(data)`;
+      const nodeSess = PP && PP.session();
+      const nodeOrigin = nodeSess ? window.location.origin : '<NODE_ORIGIN>';
+      const nodeToken = nodeSess ? nodeSess.token : '<YOUR_SESSION_TOKEN>';
+      const nodePayloadParts = [`"url":"${_u}","method":"${_m}","pay":"none"`];
+      if (bodyJson) nodePayloadParts.push(`"body":${bodyJson}`);
+      const nodePayload = '{' + nodePayloadParts.join(',') + '}';
+      const houseComment = me && me.score >= 40 && me.house && me.house.enabled
+        ? `\n# or swap "pay":"none" for "pay":"house" to draw from your house budget` : '';
+      const nodeSnip = `curl -X POST '${nodeOrigin}/x402/api/call' \\\n  -H 'Authorization: Bearer ${nodeToken}' \\\n  -H 'Content-Type: application/json' \\\n  -d '${nodePayload}'${houseComment}\n# no x402 SDK needed — this node proxies the call and handles payment`;
+      return { curl: curlSnip, js: jsSnip, py: pySnip, node: nodeSnip };
+    };
+    const _inpOne = ex.input ? JSON.stringify(ex.input) : null;
+    let tcSnippets = buildSnippets(_inpOne);
+    let tcTab = 'curl';
+    const tcPre = $('#tc-code'), tcCopy = $('#tc-copy');
+    tcPre.textContent = tcSnippets.curl;
+    $('#tc-tabs').querySelectorAll('a').forEach(a => a.onclick = () => {
+      tcTab = a.dataset.tab;
+      $('#tc-tabs').querySelectorAll('a').forEach(x => x.classList.toggle('on', x === a));
+      tcPre.textContent = tcSnippets[tcTab];
+    });
+    tcCopy.onclick = async () => {
+      try { await navigator.clipboard.writeText(tcSnippets[tcTab]); tcCopy.textContent = 'copied'; }
+      catch { tcCopy.textContent = 'select it'; }
+      setTimeout(() => tcCopy.textContent = 'copy', 1500);
+    };
+    $('#reqbody').oninput = () => {
+      const val = $('#reqbody').value.trim();
+      let bodyJson = null;
+      try { if (val) bodyJson = JSON.stringify(JSON.parse(val)); } catch { bodyJson = val || null; }
+      tcSnippets = buildSnippets(bodyJson);
+      tcPre.textContent = tcSnippets[tcTab];
+    };
+    $('#byhost').onclick = () => { closeDrawer(); Object.assign(st, {tab: 'services', host: s.host, q: '', offset: 0}); tab('services'); };
+    if (me && me.score >= 20) {
+      $('#livequote').onclick = async () => {
+        const btn = $('#livequote'), lq = $('#lq'), lqt = $('#lqtable');
+        btn.disabled = true; lq.textContent = 'fetching...';
+        const rbVal = $('#reqbody').value.trim();
+        let reqBody; if (rbVal) { try { reqBody = JSON.parse(rbVal); } catch { reqBody = rbVal; } }
+        try {
+          const r = await post('call', {url: s.url, method: s.method, pay: 'none', body: reqBody});
+          lq.textContent = '';
+          if (r.offers && r.offers.length) {
+            lqt.innerHTML = `<table style="margin-top:6px"><tr><th>network</th><th>scheme</th><th>asset</th><th class="num">price</th><th>pays to</th></tr>` +
+              r.offers.map(o => `<tr><td>${esc(o.network)}</td><td>${esc(o.scheme)}</td>` +
+                `<td>${esc(o.asset_name || (o.asset || '').slice(0, 10))}</td>` +
+                `<td class="num">${o.price_usd != null ? usd(o.price_usd) : esc(String(o.amount))}</td>` +
+                `<td class="dim url">${esc(o.pay_to)}</td></tr>`).join('') + '</table>';
+          } else {
+            lq.textContent = r.payment_required === false ? 'no payment required' : 'no offers returned';
+          }
+        } catch (e) { lq.textContent = e.message; }
+        finally { btn.disabled = false; }
+      };
+    }
+    if (me && me.score >= 20 && window.ethereum) {
+      let spQid = null, spSig = null, spTyped = null;
+      const spAddr = PP && PP.session() ? PP.session().address : null;
+      $('#spquote').onclick = async () => {
+        const btn = $('#spquote'), spst = $('#spst'), spres = $('#spres');
+        btn.disabled = true; spst.textContent = 'fetching quote...';
+        const rbVal = $('#reqbody').value.trim();
+        let reqBody; if (rbVal) { try { reqBody = JSON.parse(rbVal); } catch { reqBody = rbVal; } }
+        try {
+          const q = await post('quote', {url: s.url, method: s.method, body: reqBody});
+          spst.textContent = '';
+          if (!q.quote_id) { spst.textContent = q.note || 'no payment required'; btn.disabled = false; return; }
+          spQid = q.quote_id; spTyped = q.typed_data;
+          const chosen = q.offers && q.chosen != null ? q.offers[q.chosen] : null;
+          const priceStr = q.price_usd != null ? usd(q.price_usd) : (chosen ? esc(String(chosen.amount)) : '?');
+          spres.innerHTML = `<div style="margin:8px 0 6px;font-size:13px">
+            ${chosen ? `<span class="chip ok">${esc(chosen.network)}</span> ${esc(chosen.asset_name || (chosen.asset||'').slice(0,10))} ${priceStr}` : priceStr}
+            <span class="dim" style="margin-left:8px">expires in ${Math.round((q.expires_in||600)/60)}m</span>
+          </div><button class="quiet" id="spsign">Sign with MetaMask</button>`;
+          $('#spsign').onclick = async () => {
+            const signBtn = $('#spsign'); signBtn.disabled = true;
+            try {
+              spSig = await window.ethereum.request({method: 'eth_signTypedData_v4', params: [spAddr, JSON.stringify(spTyped)]});
+              spres.innerHTML += `<div class="dim" style="margin:6px 0;font-size:12px">signed · ${esc(spSig.slice(0,18))}…</div><button id="spcall">Submit &amp; Call</button>`;
+              $('#spcall').onclick = async () => {
+                const callBtn = $('#spcall'); callBtn.disabled = true;
+                try {
+                  const r = await post('call', {quote_id: spQid, signature: spSig});
+                  const rcpt = r.receipt ? `<div style="margin-top:8px"><span class="dim">receipt:</span> <code>${esc(JSON.stringify(r.receipt).slice(0,200))}</code></div>` : '';
+                  spres.innerHTML += `<div style="margin-top:8px"><span class="chip ${r.status < 300 ? 'ok' : 'bad'}">HTTP ${r.status}</span></div>${renderResult(r)}${rcpt}`;
+                } catch (e) { callBtn.disabled = false; spres.innerHTML += `<div style="margin-top:6px;color:var(--bad);font-size:12px">${esc(e.message)}</div>`; }
+              };
+            } catch (e) { signBtn.disabled = false; spres.innerHTML += `<div style="color:var(--bad);font-size:12px;margin-top:4px">${esc(e.message)}</div>`; }
+          };
+        } catch (e) { spst.textContent = e.message; btn.disabled = false; }
+      };
+    }
+    if (me && me.score >= 40 && me.house && me.house.enabled) {
+      const hpbtn = $('#hpbtn');
+      if (hpbtn) hpbtn.onclick = async () => {
+        hpbtn.disabled = true;
+        const hpres = $('#hpres');
+        const rbVal = $('#reqbody').value.trim();
+        let reqBody; if (rbVal) { try { reqBody = JSON.parse(rbVal); } catch { reqBody = rbVal; } }
+        try {
+          const r = await post('call', {url: s.url, method: s.method, pay: 'house', body: reqBody});
+          const rcpt = r.receipt ? `<div style="margin-top:8px"><span class="dim">receipt:</span> <code>${esc(JSON.stringify(r.receipt).slice(0, 200))}</code></div>` : '';
+          hpres.innerHTML = `<div style="margin-top:8px"><span class="chip ${r.status < 300 ? 'ok' : 'bad'}">HTTP ${r.status}</span></div>${renderResult(r)}${rcpt}`;
+        } catch (e) { hpbtn.disabled = false; hpres.innerHTML = `<div style="margin-top:6px;color:var(--bad);font-size:12px">${esc(e.message)}</div>`; }
+      };
+    }
+    if (ctx.mcp && ctx.mcp.connect) {
+      const mcpConn = $('#mcp-srv-conn');
+      const mcpCode = $('#mcp-srv-code');
+      const mcpCopy = $('#mcp-srv-copy');
+      const mcpG = ctx.mcp;
+      const getMcpText = m => {
+        if (m === 'auth') {
+          const slug = Object.keys(mcpG.connect.json.mcpServers)[0];
+          const tok = PP && PP.session() ? PP.session().token : '<YOUR_SESSION_TOKEN>';
+          const noteSuffix = PP && PP.session() ? '' : '\n# sign in to pre-fill your token';
+          return `claude mcp add --transport http ${slug} ${mcpG.server} --header "Authorization: Bearer ${tok}"${noteSuffix}`;
+        }
+        return m === 'cli' ? mcpG.connect.claude : JSON.stringify(mcpG.connect.json, null, 2);
+      };
+      mcpConn.querySelectorAll('.mcp-srv-mode').forEach(b => b.onclick = () => {
+        const m = b.dataset.m;
+        mcpConn.dataset.mode = m;
+        mcpConn.querySelectorAll('.mcp-srv-mode').forEach(x => x.classList.toggle('on', x.dataset.m === m));
+        mcpCode.textContent = getMcpText(m);
+      });
+      mcpCopy.onclick = async () => {
+        const m = mcpConn.dataset.mode;
+        try { await navigator.clipboard.writeText(getMcpText(m)); mcpCopy.textContent = 'copied!'; }
+        catch { mcpCopy.textContent = 'select it'; }
+        setTimeout(() => mcpCopy.textContent = 'copy', 1500);
+      };
+    }
+    get('find', {q: (s.name || '') + (s.description ? ' ' + s.description : ''), k: 6}).then(r => {
+      const sim = $('#similar');
+      if (!sim) return;
+      const items = (r.services || r.items || []).filter(x => x.url !== url).slice(0, 3);
+      if (items.length < 2) return;
+      sim.innerHTML = `<h3>SIMILAR SERVICES</h3><div class="tiles" style="display:flex;flex-wrap:wrap;gap:10px">${items.map(x => tile(x)).join('')}</div>`;
+      wireTiles(sim);
+    }).catch(() => {});
+  } catch (e) { $('#dbody').innerHTML = `<div class="dim">${esc(e.message)}</div>`; }
+}
+function closeDrawer() { st.open = null; stateToHash(); $('#drawer').classList.remove('open'); const ds = $('#drawerstar'); if (ds) ds.style.display = 'none'; const dc = $('#drawercopy'); if (dc) dc.style.display = 'none'; }
+function closePop() { document.querySelectorAll('.price-pop').forEach(p => p.remove()); }
+$('#close').onclick = closeDrawer;
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { closePal(); closeDrawer(); closeAcct(); closePop(); } });
+document.addEventListener('click', e => {
+  const w = $('#who');
+  if ($('#acct') && $('#acct').classList.contains('open') && w && !w.contains(e.target)) closeAcct();
+  if (document.querySelector('.price-pop') && !e.target.closest('.price') && !e.target.closest('.price-pop')) closePop();
+});
+
+async function openHostDrawer(h) {
+  $('#drawer').classList.add('open');
+  const ds = $('#drawerstar'); if (ds) ds.style.display = 'none';
+  const dc = $('#drawercopy'); if (dc) dc.style.display = 'none';
+  $('#dbody').innerHTML = '<div class="dim">loading</div>';
+  try {
+    const r = await get('services', {host: h.host, limit: 6, sort: 'popular'});
+    const svcs = r.items || [];
+    const nets = [...new Set(svcs.flatMap(s => s.networks || []))].slice(0, 6);
+    const priceRange = usd(h.min_price) + (h.max_price !== h.min_price ? ' – ' + usd(h.max_price) : '');
+    $('#dbody').innerHTML = `
+      <h2>${h.icon ? `<img class="ic" src="${esc(h.icon)}" loading="lazy" onerror="this.remove()">` : ''}${esc(h.name || h.host)}</h2>
+      <div class="dim" style="margin-top:4px"><a href="https://${esc(h.host)}" target="_blank" rel="noopener">${esc(h.host)}</a></div>
+      <div style="margin-top:8px"><span style="font:700 13px var(--mono);color:var(--accent)">${priceRange}</span>
+        ${nets.map(n => `<span class="chip">${esc(n)}</span>`).join('')}</div>
+      ${svcs.length ? `<h3>TOP SERVICES</h3><div class="tiles" id="hdtiles">${svcs.map(s => tile(s)).join('')}</div>` : ''}
+      <div style="margin-top:16px">
+        <button class="quiet" id="hdbrowse">Browse all ${h.services} service${h.services === 1 ? '' : 's'} &rarr;</button>
+      </div>`;
+    if (svcs.length) wireTiles($('#hdtiles'));
+    $('#hdbrowse').onclick = () => { closeDrawer(); Object.assign(st, {host: h.host, q: '', offset: 0}); tab('services'); };
+  } catch (e) { $('#dbody').innerHTML = `<div class="dim">${esc(e.message)}</div>`; }
+}
+
+async function openMcpDrawer(g) {
+  $('#drawer').classList.add('open');
+  const ds = $('#drawerstar'); if (ds) ds.style.display = 'none';
+  const dc = $('#drawercopy'); if (dc) dc.style.display = 'none';
+  $('#dbody').innerHTML = '<div class="dim">loading</div>';
+  try {
+    const hostname = new URL(g.server).hostname;
+    const r = await get('services', {host: hostname, limit: 50});
+    const svcs = r.items || [];
+    const priceRange = usd(g.min_price) + (g.max_price !== g.min_price ? ' – ' + usd(g.max_price) : '');
+    const getMcpText = m => {
+      if (m === 'auth') {
+        const slug = Object.keys(g.connect.json.mcpServers)[0];
+        const tok = PP && PP.session() ? PP.session().token : '<YOUR_SESSION_TOKEN>';
+        const noteSuffix = PP && PP.session() ? '' : '\n# sign in to pre-fill your token';
+        return `claude mcp add --transport http ${slug} ${g.server} --header "Authorization: Bearer ${tok}"${noteSuffix}`;
+      }
+      return m === 'cli' ? g.connect.claude : JSON.stringify(g.connect.json, null, 2);
+    };
+    $('#dbody').innerHTML = `
+      <h2>${g.icon ? `<img class="ic" src="${esc(g.icon)}" loading="lazy" onerror="this.remove()">` : ''}${esc(g.name)}</h2>
+      <div class="dim" style="margin-top:4px"><a href="${esc(g.server)}" target="_blank" rel="noopener">${esc(g.server)}</a></div>
+      <div style="margin-top:8px"><span style="font:700 13px var(--mono);color:var(--accent)">${priceRange}</span>
+        ${g.networks.slice(0, 6).map(n => `<span class="chip">${esc(n)}</span>`).join('')}</div>
+      <h3>TOOLS (${g.tools.length})</h3>
+      <div class="tools">${g.tools.map(t => `<div class="tool" data-url="${esc(t.url)}">
+        <span class="m ${mcls(t.method)}">${esc(t.method)}</span>${esc(t.description || t.url).slice(0, 160)} <span class="dim">${usd(t.price_usd)}</span></div>`).join('')}</div>
+      <h3>CONNECT</h3>
+      <div id="mcp-draw-conn" data-mode="cli" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:4px">
+        <button class="quiet mode-btn on" data-m="cli">CLI</button><button class="quiet mode-btn" data-m="json">JSON config</button><button class="quiet mode-btn" data-m="auth">ready to use</button>
+        <code id="mcp-draw-code" style="flex:1;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:5px 8px;font:11px var(--mono);word-break:break-all">${esc(g.connect.claude)}</code>
+        <button class="quiet" id="mcp-draw-copy">copy</button></div>
+      ${svcs.length ? `<h3>SERVICES</h3><div class="tiles" id="mddtiles">${svcs.map(s => tile(s)).join('')}</div>` : ''}
+      <div style="margin-top:16px">
+        <button class="quiet" id="mdbrowse">Browse all ${r.total || svcs.length} service${(r.total || svcs.length) === 1 ? '' : 's'} &rarr;</button>
+      </div>`;
+    $('#dbody').querySelectorAll('.tool[data-url]').forEach(el => el.onclick = () => detail(el.dataset.url, {mcp: g}));
+    const connDiv = $('#mcp-draw-conn');
+    connDiv.querySelectorAll('.mode-btn').forEach(b => b.onclick = () => {
+      const m = b.dataset.m;
+      connDiv.dataset.mode = m;
+      connDiv.querySelectorAll('.mode-btn').forEach(x => x.classList.toggle('on', x.dataset.m === m));
+      $('#mcp-draw-code').textContent = getMcpText(m);
+    });
+    $('#mcp-draw-copy').onclick = async () => {
+      const m = connDiv.dataset.mode;
+      try { await navigator.clipboard.writeText(getMcpText(m)); $('#mcp-draw-copy').textContent = 'copied!'; }
+      catch { $('#mcp-draw-copy').textContent = 'select it'; }
+      setTimeout(() => { const btn = $('#mcp-draw-copy'); if (btn) btn.textContent = 'copy'; }, 1500);
+    };
+    if (svcs.length) wireTiles($('#mddtiles'));
+    $('#mdbrowse').onclick = () => { closeDrawer(); Object.assign(st, {host: hostname, q: '', offset: 0}); tab('services'); };
+  } catch (e) { $('#dbody').innerHTML = `<div class="dim">${esc(e.message)}</div>`; }
+}
+
+async function hosts() {
+  const r = await get('hosts', {q: st.q, limit: 200});
+  $('#view').innerHTML = `<form class="bar" id="hf"><input class="q" name="q" placeholder="filter providers" value="${esc(st.q)}"></form>
+    <div class="tiles">${r.items.map((h, i) => `<div class="tile" data-i="${i}">
+      <div class="hd">${h.icon ? `<img class="ic" src="${esc(h.icon)}" loading="lazy" onerror="this.remove()">` : ''}<span class="host">${esc(h.host)}</span></div>
+      <div class="nm">${esc(h.name || h.host)}</div>
+      <div class="ds"><span class="big">${big(h.services)}</span><br>service${h.services === 1 ? '' : 's'}</div>
+      <div class="ft"><span>${usd(h.min_price)}${h.max_price !== h.min_price ? ' - ' + usd(h.max_price) : ''}</span>
+        <span class="calls">${h.calls_30d ? big(h.calls_30d) + ' calls' : ''}</span></div></div>`).join('')}</div>
+    <div class="dim" style="margin-top:10px">${r.total.toLocaleString()} providers${r.total > 200 ? ' (top 200 shown; filter to narrow)' : ''}</div>`;
+  let t; const f = $('#hf');
+  f.onsubmit = e => e.preventDefault();
+  f.q.oninput = () => { clearTimeout(t); t = setTimeout(() => { st.q = f.q.value; hosts().then(() => { $('#hf').q.focus(); }); }, 300); };
+  document.querySelectorAll('.tile[data-i]').forEach(tr => tr.onclick = () => {
+    openHostDrawer(r.items[+tr.dataset.i]); });
+}
+
+// ── the finder agent: claude over this module's own read-only MCP tools ──
+const ag = {session: localStorage.getItem('x402.agent.session') || '', busy: false};
+function md(t) {
+  return esc(t).replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>').replace(/`([^`\n]+)`/g, '<code>$1</code>')
+    .replace(/^#{1,4} +(.*)$/gm, '<b>$1</b>');
+}
+function openAgent(q, go) {
+  $('#agent').classList.add('open');
+  const f = $('#af2'); if (q && !f.q.value) f.q.value = q;
+  f.q.focus();
+  if (go && f.q.value.trim()) askAgent(f.q.value);
+  window.scrollTo({top: $('#agent').offsetTop - 10, behavior: 'smooth'});
+}
+async function askAgent(q) {
+  if (ag.busy || !q.trim()) return;
+  ag.busy = true;
+  const f = $('#af2'); f.q.value = ''; f.querySelector('button').disabled = true;
+  const turn = document.createElement('div'); turn.className = 'turn';
+  turn.innerHTML = `<div class="you">&gt; ${esc(q)}</div><div class="steps"></div><div class="ans dim">thinking</div><div class="tiles"></div>`;
+  $('#alog').appendChild(turn);
+  const steps = turn.querySelector('.steps'), ans = turn.querySelector('.ans'), tl = turn.querySelector('.tiles');
+  let said = '';
+  try {
+    const r = await fetch(API + 'ask', {method: 'POST', headers: authed({'Content-Type': 'application/json'}),
+      body: JSON.stringify({question: q, session: ag.session || undefined})});
+    const rd = r.body.getReader(), dec = new TextDecoder(); let buf = '';
+    for (;;) {
+      const {value, done} = await rd.read(); if (done) break;
+      buf += dec.decode(value, {stream: true});
+      let i; while ((i = buf.indexOf('\n\n')) >= 0) {
+        const line = buf.slice(0, i); buf = buf.slice(i + 2);
+        if (!line.startsWith('data: ')) continue;
+        const e = JSON.parse(line.slice(6));
+        if (e.type === 'tool') {
+          const arg = e.input.q || e.input.query || e.input.url || e.input.network || '';
+          steps.insertAdjacentHTML('beforeend', `<span class="chip" title="${esc(JSON.stringify(e.input))}">${esc(e.tool.replace('x402_', ''))}${arg ? ': ' + esc(String(arg).slice(0, 40)) : ''}</span>`);
+          ans.textContent = 'searching';
+        } else if (e.type === 'text') { said = e.text; ans.className = 'ans'; ans.innerHTML = md(said); }
+        else if (e.type === 'done') {
+          ans.className = 'ans'; ans.innerHTML = md(e.answer || said) +
+            (e.grounded ? '' : '\n<span class="dim">(answered without searching the index)</span>');
+          if (e.session) { ag.session = e.session; localStorage.setItem('x402.agent.session', e.session); }
+          tl.innerHTML = e.picks.map(s => tile(s)).join(''); wireTiles(tl);
+          if (!e.picks.length) tl.remove();
+          if (e.picks.length >= 2) {
+            const cmpBtn = document.createElement('button');
+            cmpBtn.className = 'quiet';
+            cmpBtn.style.marginTop = '8px';
+            cmpBtn.textContent = 'Compare all →';
+            cmpBtn.onclick = () => {
+              st.compare.clear();
+              tl.querySelectorAll('.tile[data-snap]').forEach(el => {
+                if (st.compare.size < 3) {
+                  try { const s = JSON.parse(el.dataset.snap); st.compare.set(s.url, s); } catch {}
+                }
+              });
+              tl.querySelectorAll('.cmp-tog').forEach(b => b.classList.toggle('on', st.compare.has(b.dataset.cmp)));
+              renderCompareBar();
+            };
+            tl.after(cmpBtn);
+          }
+        } else if (e.type === 'error') {
+          ans.className = 'ans'; ans.innerHTML = `<span style="color:var(--bad)">${esc(e.error)}</span>` +
+            (e.login ? ` <a href="${esc(e.login)}" target="_blank">sign in</a>` : '');
+        }
+      }
+    }
+  } catch (err) { ans.innerHTML = `<span style="color:var(--bad)">${esc(err.message)}</span>`; }
+  ag.busy = false; f.querySelector('button').disabled = false; f.q.focus();
+}
+$('#af2').onsubmit = e => { e.preventDefault(); askAgent(e.target.q.value); };
+$('#aclose').onclick = () => $('#agent').classList.remove('open');
+$('#anew').onclick = () => { ag.session = ''; localStorage.removeItem('x402.agent.session'); $('#alog').innerHTML = ''; $('#af2').q.focus(); };
+
+async function sources() {
+  const rows = await get('sources');
+  const state = s => s.lists ? (s.status === 'error' ? `<span class="chip bad" title="${esc(s.error)}">error</span>`
+      : s.status === 'crawling' ? `<span class="chip">crawling ${esc(s.progress || '')}</span>` : '<span class="chip ok">lists</span>')
+      : s.lists === 0 ? '<span class="chip">no public list</span>' : '<span class="chip">unchecked</span>';
+  $('#view').innerHTML = `<p class="hint">Facilitators settle x402 payments. Those that publish the spec's discovery list
+    (<code>/discovery/resources</code>) are crawled every few hours; the rest are found and re-checked daily from the
+    coinbase/x402 ecosystem registry. Add your own below, from this machine.</p>
+    <form class="bar" id="af"><input class="q" name="base_url" placeholder="https://facilitator.example (base URL)">
+      <button>add facilitator</button><button type="button" class="quiet" id="sync">crawl now</button></form>
+    <form class="bar" id="pf"><input class="q" name="url" placeholder="https://api.example/paid-endpoint (probe one URL for its 402)">
+      <button>probe + pin</button></form>
+    <table><tr><th>facilitator</th><th>state</th><th class="num">indexed</th><th class="num">reported</th><th>last crawl</th><th>found via</th></tr>
+    ${rows.map(s => `<tr style="cursor:pointer" data-sid="${esc(s.id)}" data-sname="${esc(s.name)}"><td>${esc(s.name)}<div class="dim url">${esc(s.base_url)}</div></td><td>${state(s)}</td>
+      <td class="num">${s.indexed.toLocaleString()}</td><td class="num">${s.total != null ? s.total.toLocaleString() : '-'}</td>
+      <td class="dim">${ago(s.last_ok)}</td><td class="dim">${esc(s.origin)}</td></tr>`).join('')}</table>`;
+  $('#af').onsubmit = async e => { e.preventDefault();
+    try { const r = await post('add_source', {base_url: e.target.base_url.value});
+      status(r.lists ? `added; it lists ${r.total} services. Crawl now to index them.` : 'added, but it publishes no discovery list'); sources(); }
+    catch (err) { status(err.message, true); } };
+  $('#pf').onsubmit = async e => { e.preventDefault();
+    try { const r = await post('probe', {url: e.target.url.value});
+      status(r.x402 ? `x402 service indexed: ${r.service.url}` : `not x402: answered ${r.status}${r.error ? ' (' + r.error + ')' : ''}`, !r.x402); loadStats(); }
+    catch (err) { status(err.message, true); } };
+  $('#sync').onclick = async () => { try { await post('sync'); status('crawl started; this takes a few minutes'); setTimeout(sources, 2000); }
+    catch (err) { status(err.message, true); } };
+  document.querySelectorAll('tr[data-sid]').forEach(tr => {
+    tr.onclick = () => { Object.assign(st, {source: tr.dataset.sid, sourceName: tr.dataset.sname, tab: 'services', offset: 0}); tab('services'); };
+  });
+}
+
+async function partners() {
+  const rows = await get('partners');
+  const cats = [...new Set(rows.map(p => p.category))];
+  $('#view').innerHTML = `<p class="hint">${rows.length} projects in the coinbase/x402 ecosystem registry: who builds, pays, settles and sells over x402.</p>` +
+    cats.map(c => `<h3 class="cat">${esc(c.toUpperCase())}</h3><div class="grid">` +
+      rows.filter(p => p.category === c).map(p => `<div class="card">
+        <div class="name">${p.logo ? `<img class="ic" src="${esc(p.logo)}" loading="lazy" onerror="this.remove()">` : ''}${esc(p.name)}</div>
+        <div class="dim">${esc(p.description).slice(0, 180)}</div>
+        ${p.website ? `<div class="dim" style="margin-top:6px"><a href="${esc(p.website)}" target="_blank" rel="noopener">${esc(p.website.replace(/^https?:\/\//, ''))}</a></div>` : ''}
+      </div>`).join('') + '</div>').join('');
+}
+
+function semNote(f) {
+  const i = f.index || {};
+  if (f.mode === 'lexical') { status('matching keywords — meaning-based ranking isn’t available on this machine', 'warn'); return; }
+  const msg = f.mode === 'partial'
+    ? `still learning the index (${big(i.vectors)} of ${big(i.services)} services); results improve as it finishes`
+    : `ranked by meaning in ${f.elapsed_ms} ms, on this machine`;
+  status(msg, false);
+}
+
+const EXAMPLES = ['is this token a rug', 'turn a web page into markdown', 'check a wallet before paying it',
+                  'make a short video', 'stablecoin yields', 'current weather', 'search the news'];
+
+async function mcp() {
+  $('#view').innerHTML = `<p class="hint">Describe the job. Every paid MCP server in the index is ranked by what its tools do, not by the words they use.</p>
+    <form class="bar" id="mf"><input class="q" name="q" placeholder="what should the server do?" value="${esc(st.mq)}" autofocus>
+      <select name="max_price">${['', '0.001', '0.01', '0.1', '1'].map(v =>
+        `<option value="${v}" ${st.max_price === v ? 'selected' : ''}>${v ? 'up to $' + v + ' a call' : 'any price'}</option>`).join('')}</select></form>
+    <div id="mres"></div>`;
+  const f = $('#mf'); let t;
+  const go = () => { st.mq = f.q.value; st.max_price = f.max_price.value; mcpResults(); };
+  f.onsubmit = e => { e.preventDefault(); go(); };
+  f.q.oninput = () => { clearTimeout(t); t = setTimeout(go, 350); };
+  f.max_price.onchange = go;
+  f.q.focus(); f.q.setSelectionRange(f.q.value.length, f.q.value.length);
+  mcpResults();
+}
+
+async function mcpResults() {
+  const box = $('#mres');
+  if (!st.mq.trim()) {
+    const i = (await get('info')).semantic || {};
+    box.innerHTML = `<div class="dim" style="margin:8px 0">${i.mcp_servers ? big(i.mcp_servers) + ' MCP servers indexed. ' : ''}Try:</div>` +
+      EXAMPLES.map(e => `<span class="chip ex">${esc(e)}</span>`).join(' ');
+    box.querySelectorAll('.ex').forEach(c => c.onclick = () => { $('#mf').q.value = c.textContent; st.mq = c.textContent; mcpResults(); });
+    status('');
+    return;
+  }
+  box.innerHTML = '<div class="dim">searching</div>';
+  const r = await get('mcp_servers', {q: st.mq, max_price: st.max_price, k: 25});
+  semNote(r);
+  if (!r.items.length) { box.innerHTML = '<div class="empty">no MCP server does that yet</div>'; return; }
+  box.innerHTML = r.items.map((g, gi) => `<div class="srv">
+    <div class="top" data-g="${gi}" style="cursor:pointer">${g.icon ? `<img class="ic" src="${esc(g.icon)}" loading="lazy" onerror="this.remove()">` : ''}
+      <span class="name">${esc(g.name)}</span><span class="score">${g.score.toFixed(2)}</span>
+      <span class="dim">${usd(g.min_price)}${g.max_price !== g.min_price ? ' - ' + usd(g.max_price) : ''} a call</span>
+      ${g.networks.slice(0, 4).map(n => `<span class="chip">${esc(n)}</span>`).join('')}
+      ${g.why.map(w => `<span class="chip ok">${esc(w)}</span>`).join('')}</div>
+    <div class="url dim" style="margin-top:4px">${esc(g.server)}</div>
+    <div class="tools">${g.tools.slice(0, 4).map((t, ti) => `<div class="tool" data-g="${gi}" data-t="${ti}">
+      <span class="m ${mcls(t.method)}">${esc(t.method)}</span>${esc(t.description || t.url).slice(0, 160)} <span class="dim">${usd(t.price_usd)}</span></div>`).join('')}
+      ${g.tools.length > 4 ? `<div class="dim" style="padding-top:6px">+${g.tools.length - 4} more matching tools</div>` : ''}</div>
+    <div class="conn" data-g="${gi}" data-mode="cli" style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <button class="quiet mode-btn on" data-m="cli">CLI</button><button class="quiet mode-btn" data-m="json">JSON config</button><button class="quiet mode-btn" data-m="auth">ready to use</button>
+      <code class="conn-code">${esc(g.connect.claude)}</code><button class="quiet cp">copy</button></div>
+  </div>`).join('');
+  box.querySelectorAll('.tool').forEach(el => el.onclick = () => detail(r.items[+el.dataset.g].tools[+el.dataset.t].url, {mcp: r.items[+el.dataset.g]}));
+  box.querySelectorAll('.top[data-g]').forEach(el => el.onclick = e => { if (!e.target.closest('.tool')) openMcpDrawer(r.items[+el.dataset.g]); });
+  box.querySelectorAll('.mode-btn').forEach(b => b.onclick = () => {
+    const conn = b.closest('.conn');
+    const gi = +conn.dataset.g;
+    const m = b.dataset.m;
+    conn.dataset.mode = m;
+    conn.querySelectorAll('.mode-btn').forEach(x => x.classList.toggle('on', x.dataset.m === m));
+    const g = r.items[gi];
+    if (m === 'auth') {
+      const slug = Object.keys(g.connect.json.mcpServers)[0];
+      const tok = PP && PP.session() ? PP.session().token : '<YOUR_SESSION_TOKEN>';
+      const noteSuffix = PP && PP.session() ? '' : '\n# sign in to pre-fill your token';
+      conn.querySelector('.conn-code').textContent = `claude mcp add --transport http ${slug} ${g.server} --header "Authorization: Bearer ${tok}"${noteSuffix}`;
+    } else {
+      conn.querySelector('.conn-code').textContent = m === 'cli' ? g.connect.claude : JSON.stringify(g.connect.json, null, 2);
+    }
+  });
+  box.querySelectorAll('.cp').forEach(b => b.onclick = async () => {
+    const conn = b.closest('.conn');
+    const gi = +conn.dataset.g;
+    const m = conn.dataset.mode;
+    const g = r.items[gi];
+    let text;
+    if (m === 'auth') {
+      const slug = Object.keys(g.connect.json.mcpServers)[0];
+      const tok = PP && PP.session() ? PP.session().token : '<YOUR_SESSION_TOKEN>';
+      text = `claude mcp add --transport http ${slug} ${g.server} --header "Authorization: Bearer ${tok}"`;
+    } else {
+      text = m === 'cli' ? g.connect.claude : JSON.stringify(g.connect.json, null, 2);
+    }
+    try { await navigator.clipboard.writeText(text); b.textContent = 'copied!'; }
+    catch { b.textContent = 'select it'; }
+    setTimeout(() => b.textContent = 'copy', 1500); });
+}
+
+function renderCompare() {
+  const svcs = [...st.compare.values()];
+  if (!svcs.length) { tab('services'); return; }
+  const minPrice = Math.min(...svcs.map(s => s.price_usd != null ? s.price_usd : Infinity));
+  const minMo = Math.min(...svcs.map(s => s.price_usd != null ? s.price_usd * st.cmpCalls * 30 : Infinity));
+  const ROWS = [
+    ['Price', svcs.map(s => s.price_usd != null
+      ? `<span style="font:700 13px var(--mono);${s.price_usd === minPrice ? 'color:var(--ok)' : ''}">${usd(s.price_usd)}</span>`
+      : '<span class="dim">?</span>')],
+    ['Monthly cost', svcs.map(s => { const m = s.price_usd != null ? s.price_usd * st.cmpCalls * 30 : null; return m != null ? `<span style="font:700 13px var(--mono);${m === minMo ? 'color:var(--ok)' : ''}">${usd(m)}</span>` : '<span class="dim">?</span>'; })],
+    ['Annual cost', svcs.map(s => { const a = s.price_usd != null ? s.price_usd * st.cmpCalls * 365 : null; return a != null ? `<span style="font:700 13px var(--mono)">${usd(a)}</span>` : '<span class="dim">?</span>'; })],
+    ['Networks', svcs.map(s => (s.networks || []).map(n => `<span class="chip">${esc(n)}</span>`).join('') || '<span class="dim">—</span>')],
+    ['Method', svcs.map(s => `<span class="m ${mcls(s.method || '')}">${esc(s.method || '?')}</span>`)],
+    ['30d calls', svcs.map(s => `<span style="font-family:var(--mono)">${big(s.calls_30d || 0)}</span>`)],
+    ['30d payers', svcs.map(s => `<span style="font-family:var(--mono)">${big(s.payers_30d || 0)}</span>`)],
+    ['Sources', svcs.map(s => { const n = (s.sources || []).length; return n ? `<span style="font-family:var(--mono)">${n}</span>` : '<span class="dim">—</span>'; })],
+    ['Description', svcs.map(s => `<div style="display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;font-size:12px;color:var(--dim);line-height:1.5">${esc(s.description || '')}</div>`)],
+    ['', svcs.map((s, i) => `<a class="pill" data-copen="${i}" style="cursor:pointer;display:inline-block">→ Open</a>`)],
+  ];
+  const colW = Math.floor(80 / svcs.length);
+  $('#view').innerHTML = `
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:18px;flex-wrap:wrap">
+      <span style="font-size:17px;font-weight:700">Comparing ${svcs.length} service${svcs.length !== 1 ? 's' : ''}</span>
+      <span style="flex:1"></span>
+      <button class="quiet" id="cmpback">← Back</button>
+      <button class="quiet" id="cmpclear2">Clear ×</button>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:13px">
+      <span style="color:var(--dim)">Estimate for</span>
+      <input type="number" id="cmpcalls" value="${st.cmpCalls}" min="1" style="width:80px;padding:3px 6px;background:var(--input);border:1px solid var(--line);border-radius:4px;color:var(--fg);font-size:13px;font-family:var(--mono)" oninput="st.cmpCalls = +this.value || 1; renderCompare()">
+      <span style="color:var(--dim)">calls/day</span>
+    </div>
+    <div style="overflow-x:auto">
+    <table style="width:100%;table-layout:fixed;background:var(--panel);border:1px solid var(--line);border-radius:var(--r)">
+      <colgroup><col style="width:110px">${svcs.map(() => `<col style="width:${colW}%">`).join('')}</colgroup>
+      <thead><tr style="background:var(--panel2)">
+        <th></th>
+        ${svcs.map(s => `<th>
+          <div style="font-weight:700;font-size:14px;margin-bottom:2px;word-break:break-word">${esc(s.name || s.host)}</div>
+          <div class="dim" style="font-family:var(--mono);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(s.host)}</div>
+        </th>`).join('')}
+      </tr></thead>
+      <tbody>
+        ${ROWS.map(([label, cells]) => `<tr>
+          <td style="color:var(--faint);font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap">${esc(label)}</td>
+          ${cells.map(c => `<td>${c}</td>`).join('')}
+        </tr>`).join('')}
+      </tbody>
+    </table>
+    </div>`;
+  $('#cmpback').onclick = () => tab('services');
+  $('#cmpclear2').onclick = () => { st.compare.clear(); renderCompareBar(); tab('services'); };
+  $('#view').querySelectorAll('[data-copen]').forEach(a => a.onclick = () => detail(svcs[+a.dataset.copen].url));
+}
+
+function renderCompareBar() {
+  const bar = document.getElementById('cmpbar');
+  if (!bar) return;
+  if (!st.compare.size) { bar.style.display = 'none'; return; }
+  bar.style.display = 'flex';
+  const names = [...st.compare.values()].map(s => esc(s.name || s.host || s.url)).join(' · ');
+  bar.innerHTML = `<span style="font-weight:700">Compare (${st.compare.size})</span>
+    <span class="dim" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${names}</span>
+    <button class="quiet" id="cmpclear">× Clear</button>
+    <button id="cmpgo">Compare →</button>`;
+  document.getElementById('cmpclear').onclick = () => {
+    st.compare.clear();
+    document.querySelectorAll('.cmp-tog.on').forEach(b => b.classList.remove('on'));
+    renderCompareBar();
+  };
+  document.getElementById('cmpgo').onclick = () => tab('compare');
+}
+
+const VIEWS = {services, mcp, hosts, sources, partners, compare: renderCompare};
+function tab(t) {
+  st.tab = t;
+  document.querySelectorAll('#tabs a').forEach(a => a.classList.toggle('on', a.dataset.t === t));
+  render();
+}
+async function render() {
+  status('');
+  try { await VIEWS[st.tab](); } catch (e) { status(e.message, true); }
+  stateToHash();
+  renderCompareBar();
+}
+document.querySelectorAll('#tabs a').forEach(a => a.onclick = () => { st.q = ''; tab(a.dataset.t); });
+
+window.addEventListener('hashchange', () => { hashToState(); render().then(() => { if (st.open) detail(st.open); }); });
+hashToState();
+if (PP) { PP.onChange(who); PP.ready().then(who); } else who();
+Promise.all([loadStats(), loadTags()]).then(() => render().then(() => { if (st.open) detail(st.open); }));
+setInterval(loadStats, 30000);
+
+// ── command palette ──────────────────────────────────────────────────────
+const PALCMDS = [
+  {label: 'MCP servers →',   fn: () => tab('mcp')},
+  {label: 'Providers →',     fn: () => tab('hosts')},
+  {label: 'Facilitators →',  fn: () => tab('sources')},
+];
+let palSel = -1, palItems = [], palTimer = null;
+function openPal() {
+  $('#pal').classList.add('open');
+  const inp = $('#palinput'); inp.value = ''; inp.focus();
+  palSel = -1; palRenderStatic();
+}
+function closePal() {
+  $('#pal').classList.remove('open');
+  if (palTimer) { clearTimeout(palTimer); palTimer = null; }
+}
+function palRenderStatic() {
+  palSel = -1; palItems = [];
+  let h = '<div class="pal-sec">Quick jump</div>';
+  PALCMDS.forEach((c, i) => {
+    palItems.push({type: 'cmd', fn: c.fn});
+    h += `<div class="pal-row" data-pi="${i}"><div class="pal-pi">⌘</div><div class="pal-nm">${esc(c.label)}</div></div>`;
+  });
+  h += '<div class="pal-sec">Quick search</div>';
+  QUICK.forEach((q, i) => {
+    palItems.push({type: 'search', q});
+    h += `<div class="pal-row" data-pi="${i + PALCMDS.length}"><div class="pal-pi">/</div><div class="pal-nm">${esc(q)}</div></div>`;
+  });
+  $('#palrows').innerHTML = h; palWire();
+}
+function palWire() {
+  $('#palrows').querySelectorAll('.pal-row').forEach(r => {
+    r.onmouseenter = () => { palSel = +r.dataset.pi; palHighlight(); };
+    r.onclick = () => palSelect(+r.dataset.pi);
+  });
+}
+function palHighlight() {
+  $('#palrows').querySelectorAll('.pal-row').forEach(r => r.classList.toggle('sel', +r.dataset.pi === palSel));
+}
+function palSelect(i) {
+  const item = palItems[i]; if (!item) return;
+  closePal();
+  if (item.type === 'cmd') item.fn();
+  else if (item.type === 'search') { Object.assign(st, {q: item.q, offset: 0}); tab('services'); }
+  else if (item.type === 'svc') detail(item.url);
+}
+async function palSearch(q) {
+  palSel = -1; palItems = [];
+  $('#palrows').innerHTML = '<div class="pal-empty">searching…</div>';
+  try {
+    const r = await get('find', {q, k: 8});
+    const items = r.items || [];
+    if (!items.length) { $('#palrows').innerHTML = '<div class="pal-empty">no results</div>'; return; }
+    let h = '<div class="pal-sec">Services</div>';
+    items.forEach((s, i) => {
+      palItems.push({type: 'svc', url: s.url});
+      const icon = s.icon ? `<img class="pal-ic" src="${esc(s.icon)}" loading="lazy" onerror="this.style.display='none'">` : `<div class="pal-pi">${esc((s.name || s.host || '?').slice(0, 1).toUpperCase())}</div>`;
+      const price = s.price_usd != null ? `<span class="pal-pc">${usd(s.price_usd)}</span>` : '';
+      h += `<div class="pal-row" data-pi="${i}">${icon}<div class="pal-nm">${esc(s.name || s.url)}</div>${price}<div class="pal-ds">${esc((s.description || '').slice(0, 80))}</div></div>`;
+    });
+    $('#palrows').innerHTML = h; palWire();
+  } catch (e) { $('#palrows').innerHTML = `<div class="pal-empty">${esc(e.message)}</div>`; }
+}
+function palScrollSel() { const r = $('#palrows .pal-row.sel'); if (r) r.scrollIntoView({block: 'nearest'}); }
+$('#palinput').addEventListener('input', () => {
+  const q = $('#palinput').value.trim();
+  if (palTimer) clearTimeout(palTimer);
+  if (!q) { palRenderStatic(); return; }
+  palTimer = setTimeout(() => palSearch(q), 200);
+});
+$('#palinput').addEventListener('keydown', e => {
+  if (e.key === 'ArrowDown') { e.preventDefault(); palSel = Math.min(palSel + 1, palItems.length - 1); palHighlight(); palScrollSel(); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); palSel = Math.max(palSel - 1, 0); palHighlight(); palScrollSel(); }
+  else if (e.key === 'Enter' && palSel >= 0) palSelect(palSel);
+});
+$('#pal').addEventListener('click', e => { if (e.target === $('#pal')) closePal(); });
+document.addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && e.key === 'k') { e.preventDefault(); $('#pal').classList.contains('open') ? closePal() : openPal(); } });
+</script>
+</body>
+</html>

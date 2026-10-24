@@ -12,11 +12,18 @@ it should say so on the map.
 
 from __future__ import annotations
 
+import datetime
+
 from typing import Any, Callable, Dict, List, Optional
 
+from . import crime as CR
+from . import demographics as DM
+from . import news as NW
 from . import prices as P
+from . import realestate as RE
 from . import rents as R
 from . import sources as S
+from . import traffic as TR
 
 WEEK = 7 * S.DAY
 
@@ -94,8 +101,10 @@ def subway_stations() -> dict:
     return S.cached('transit-subway-stations', WEEK, fetch)
 
 
-def subway_ridership(since: str = '2025-01-01') -> dict:
+def subway_ridership(since: str = None) -> dict:
     """Station complexes sized by ridership. The source table is monthly."""
+    if since is None:
+        since = f'{datetime.date.today().year}-01-01'
     def fetch():
         rows = S.soql(
             S.NYS, 'ak4z-sape',
@@ -187,9 +196,10 @@ def collisions() -> dict:
             select=('crash_date,crash_time,borough,on_street_name,'
                     'number_of_persons_injured,number_of_persons_killed,'
                     'number_of_pedestrians_injured,number_of_cyclist_injured,'
+                    'number_of_motorist_injured,'
                     'contributing_factor_vehicle_1,latitude,longitude'),
             where=('latitude IS NOT NULL and latitude > 40 and '
-                   'crash_date > "2025-01-01T00:00:00.000" and '
+                   f'crash_date > "{datetime.date.today().year}-01-01T00:00:00.000" and '
                    '(number_of_persons_injured > 0 or number_of_persons_killed > 0)'),
             order='crash_date DESC')
         for r in rows:
@@ -199,14 +209,15 @@ def collisions() -> dict:
             r['killed'] = int(float(r.pop('number_of_persons_killed', 0) or 0))
             r['peds'] = int(float(r.pop('number_of_pedestrians_injured', 0) or 0))
             r['cyclists'] = int(float(r.pop('number_of_cyclist_injured', 0) or 0))
+            r['motorists'] = int(float(r.pop('number_of_motorist_injured', 0) or 0))
             r['street'] = r.pop('on_street_name', '') or ''
             r['cause'] = r.pop('contributing_factor_vehicle_1', '') or ''
             r['borough'] = (r.get('borough') or '').title()
         return S.points_from_rows(
             rows, 'latitude', 'longitude',
-            props=['date', 'borough', 'street', 'injured', 'killed',
-                   'peds', 'cyclists', 'cause'])
-    return S.cached('safety-collisions', 2 * S.DAY, fetch)
+            props=['date', 'time', 'borough', 'street', 'injured', 'killed',
+                   'peds', 'cyclists', 'motorists', 'cause'])
+    return S.cached(f'safety-collisions-{datetime.date.today().year}', 2 * S.DAY, fetch)
 
 
 # Every income band the affordable-housing file reports, in the order HPD
@@ -353,6 +364,22 @@ LAYERS: List[Dict[str, Any]] = [
         'source': _src('NYC DOF Citywide Rolling Sales', 'w2pb-icbu'),
     },
     {
+        'id': 'forsale',
+        'title': 'Homes for sale',
+        'category': 'Housing',
+        'kind': 'choropleth',
+        'geometry': 'polygon',
+        'default_on': False,
+        'description': ('The for-sale market by neighborhood: median ASKING '
+                        'price (what sellers want, vs the deed layers\' '
+                        'recorded prices), active listings, days on market '
+                        'and the share of listings with a price cut.'),
+        'endpoint': '/layers/forsale',
+        'source': {'name': 'StreetEasy Data Dashboard', 'dataset': 'sales',
+                   'url': 'https://streeteasy.com/blog/data-dashboard/',
+                   'portal': 'streeteasy.com'},
+    },
+    {
         'id': 'affordable_rents',
         'title': 'Affordable homes for rent',
         'category': 'Housing',
@@ -377,6 +404,27 @@ LAYERS: List[Dict[str, Any]] = [
         'style': {'color': '#4ade80', 'size_by': 'units'},
         'endpoint': '/layers/affordable_housing',
         'source': _src('HPD Affordable Housing Production by Building', 'hg8x-zxpr'),
+    },
+
+    # ── People ───────────────────────────────────────────────────────────
+    {
+        'id': 'population',
+        'title': 'Population density & census',
+        'category': 'People',
+        'kind': 'choropleth',
+        'geometry': 'polygon',
+        'default_on': False,
+        'description': ('People per square mile by census tract, or switch to '
+                        'income, rent, rent burden, vacancy, poverty, new homes '
+                        'since 2020 and price-to-income. Full brief at /report.'),
+        'controls': {'metric': list(DM.METRICS), 'geography': list(DM.GEOS)},
+        'metrics': DM.METRICS,
+        'geographies': {k: {'label': v['label']} for k, v in DM.GEOS.items()},
+        'endpoint': '/layers/population',
+        'report': '/report',
+        'source': {'name': 'US Census ACS 5-year + NYC DCP + NYC DOF',
+                   'dataset': 'acs5', 'portal': 'census.gov',
+                   'url': 'https://www2.census.gov/programs-surveys/acs/summary_file/'},
     },
 
     # ── Transit ──────────────────────────────────────────────────────────
@@ -456,7 +504,65 @@ LAYERS: List[Dict[str, Any]] = [
         'source': _src('Hurricane Evacuation Zones', 'epne-qv9x'),
     },
 
+    # ── Traffic ──────────────────────────────────────────────────────────
+    {
+        'id': 'traffic_speeds',
+        'title': 'Live traffic speeds',
+        'category': 'Traffic',
+        'kind': 'line',
+        'geometry': 'line',
+        'default_on': False,
+        'live': True,
+        # Refetched behind the scenes on this cadence, and the browser is told
+        # to hold the response only this long — a live layer served with the
+        # catalogue's hour-long cache would sit frozen on screen.
+        'refresh_seconds': TR.SPEED_TTL,
+        'description': ('How fast traffic is moving right now, from DOT sensors '
+                        'on the highways and major arterials.'),
+        'style': {'color_by': 'band', 'width': 2.6},
+        'endpoint': '/layers/traffic_speeds',
+        'source': _src('NYC DOT Real-Time Traffic Speeds', 'i4gi-tjb9'),
+    },
+    {
+        'id': 'traffic_volume',
+        'title': 'Traffic volume by hour',
+        'category': 'Traffic',
+        'kind': 'point',
+        'geometry': 'point',
+        'default_on': False,
+        'description': ('DOT count locations sized by daily traffic. Click one '
+                        'for its 24-hour profile and the calmest hour to drive it.'),
+        'style': {'color': '#22d3ee', 'size_by': 'daily'},
+        'endpoint': '/layers/traffic_volume',
+        'source': _src('NYC DOT Automated Traffic Volume Counts', '7ym2-wayt'),
+    },
+
     # ── Safety ───────────────────────────────────────────────────────────
+    {
+        'id': 'crime',
+        'title': 'Crime by precinct',
+        'category': 'Safety',
+        'kind': 'choropleth',
+        'geometry': 'polygon',
+        'default_on': False,
+        'description': ('Complaints reported to the NYPD this year per precinct — '
+                        'felony, misdemeanor and violation counts, shootings, and '
+                        'the change against the same window last year.'),
+        'endpoint': '/layers/crime',
+        'source': _src('NYPD Complaint Data Current + Historic', '5uac-w243'),
+    },
+    {
+        'id': 'shootings',
+        'title': 'Shootings',
+        'category': 'Safety',
+        'kind': 'heatmap',
+        'geometry': 'point',
+        'default_on': False,
+        'description': 'Shooting incidents over the last three years.',
+        'style': {'color': '#fb923c'},
+        'endpoint': '/layers/shootings',
+        'source': _src('NYPD Shooting Incident Data', '5ucz-vwe8'),
+    },
     {
         'id': 'collisions',
         'title': 'Traffic injuries',
@@ -464,10 +570,30 @@ LAYERS: List[Dict[str, Any]] = [
         'kind': 'heatmap',
         'geometry': 'point',
         'default_on': False,
-        'description': 'Crashes since Jan 2025 that injured or killed someone.',
+        'description': 'Crashes this year that injured or killed someone.',
         'style': {'color': '#f87171', 'weight_by': 'injured'},
         'endpoint': '/layers/collisions',
         'source': _src('Motor Vehicle Collisions – Crashes', 'h9gi-nx95'),
+    },
+
+    # ── News ─────────────────────────────────────────────────────────────
+    {
+        'id': 'news',
+        'title': 'News on the map',
+        'category': 'News',
+        'kind': 'point',
+        'geometry': 'point',
+        'default_on': False,
+        # The feeds refresh every 15 minutes; so should the dots.
+        'refresh_seconds': 900,
+        'description': ('Today\'s headlines pinned to the neighborhood, '
+                        'landmark or borough they name, coloured by topic. '
+                        'Click a dot to read the story.'),
+        'style': {'color_by': 'topic'},
+        'endpoint': '/layers/news',
+        'source': {'name': 'Gothamist · THE CITY · NYT Metro (RSS feeds)',
+                   'dataset': 'rss',
+                   'url': 'https://gothamist.com', 'portal': 'newsroom feeds'},
     },
 
     # ── Boundaries ───────────────────────────────────────────────────────
@@ -497,8 +623,8 @@ LAYERS: List[Dict[str, Any]] = [
     },
 ]
 
-# id → loader for every layer served straight from a source (housing_prices and
-# sales are parameterised, so they're handled by the API rather than here).
+# id → loader for every layer served straight from a source (housing_prices,
+# sales and population are parameterised, so they're handled by the API rather than here).
 LOADERS: Dict[str, Callable[[], dict]] = {
     'subway_lines': subway_lines,
     'subway_stations': subway_stations,
@@ -507,8 +633,14 @@ LOADERS: Dict[str, Callable[[], dict]] = {
     'parks': parks,
     'evacuation_zones': evacuation_zones,
     'collisions': collisions,
+    'crime': CR.by_precinct,
+    'shootings': CR.shooting_points,
+    'traffic_speeds': TR.speeds,
+    'traffic_volume': TR.volume,
     'affordable_housing': affordable_housing,
     'affordable_rents': affordable_rents,
+    'forsale': RE.forsale_choropleth,
+    'news': NW.points,
     'boroughs': boroughs,
     'neighborhoods': neighborhoods,
     'zips': zips,
@@ -517,24 +649,60 @@ LOADERS: Dict[str, Callable[[], dict]] = {
 
 def catalog() -> Dict[str, Any]:
     """The full layer catalogue, grouped by category — this drives the UI."""
+    # Owner-added datasets ride along as a trailing "Your data" category; the
+    # rail and the map both read this catalogue, so they need nothing else.
+    from . import userdata
+    try:
+        extra = userdata.catalog_entries()
+    except Exception:
+        extra = []
+    all_layers = LAYERS + extra
     cats: Dict[str, List[dict]] = {}
-    for layer in LAYERS:
+    for layer in all_layers:
         cats.setdefault(layer['category'], []).append(layer)
     return {
-        'layers': LAYERS,
+        'layers': all_layers,
         'categories': [{'name': c, 'layers': [l['id'] for l in ls]}
                        for c, ls in cats.items()],
-        'count': len(LAYERS),
+        'count': len(all_layers),
         'attribution': [
             {'name': 'NYC Open Data', 'url': 'https://opendata.cityofnewyork.us'},
             {'name': 'NY State Open Data / MTA', 'url': 'https://data.ny.gov'},
             {'name': 'OpenStreetMap contributors', 'url': 'https://www.openstreetmap.org/copyright'},
+            # StreetEasy's dashboard terms require attribution wherever shown.
+            {'name': 'StreetEasy Data Dashboard', 'url': 'https://streeteasy.com/blog/data-dashboard/'},
+            {'name': 'Gothamist / THE CITY / NYT Metro', 'url': 'https://gothamist.com'},
         ],
     }
 
 
+def cache_control(layer_id: str, default: str) -> str:
+    """
+    The ``Cache-Control`` a layer's response should carry.
+
+    Most layers move daily at most and are worth an hour in the browser. A
+    layer that declares ``refresh_seconds`` is live, and gets a matching
+    lifetime instead — otherwise the browser would keep showing an hour-old
+    "live" reading no matter how often the server refreshed it.
+    """
+    for layer in LAYERS:
+        if layer['id'] == layer_id and layer.get('refresh_seconds'):
+            n = int(layer['refresh_seconds'])
+            return f'public, max-age={n}, stale-while-revalidate={n * 4}'
+    from . import userdata
+    if layer_id in userdata.slugs():
+        # Owner data can be edited or refreshed at any moment — don't let the
+        # browser hold it for an hour like the civic layers.
+        return 'public, max-age=120'
+    return default
+
+
 def get(layer_id: str) -> dict:
     loader = LOADERS.get(layer_id)
-    if not loader:
-        raise KeyError(f'unknown layer {layer_id!r}; known: {sorted(LOADERS)}')
-    return loader()
+    if loader:
+        return loader()
+    from . import userdata
+    if layer_id in userdata.slugs():
+        return userdata.data(layer_id)
+    raise KeyError(f'unknown layer {layer_id!r}; known: '
+                   f'{sorted(LOADERS) + userdata.slugs()}')

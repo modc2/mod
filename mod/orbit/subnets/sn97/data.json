@@ -1,0 +1,189 @@
+{
+  "netuid": 97,
+  "name": "Ingot",
+  "symbol": "ა",
+  "owner": "5GnW8owmMGn83WqL9JNYytmw458UYrTT6Ra5fH8TTUkzEbTb",
+  "description": "Open models, cast small.",
+  "github": "https://github.com/DendriteLabs/ingot",
+  "url": "https://theingot.ai",
+  "discord": null,
+  "logo": "https://theingot.ai/brand/ingot-logo.png",
+  "registered_at": 7735450,
+  "tempo": 360,
+  "active": true,
+  "block": 9322663,
+  "related": [],
+  "market": {
+    "price": 0.012799704,
+    "moving_price": 0.012783210258930922,
+    "market_cap": 26167.813566126617,
+    "tao_in": 10859.729144848,
+    "alpha_in": 848436.363260576,
+    "alpha_out": 1195971.348521401,
+    "volume": 555195.582603693,
+    "vol_24h": 1772.4632861319697,
+    "emission": 0.0,
+    "change_1h": 0.010884248710629763,
+    "change_24h": -1.1377836725737445,
+    "change_7d": -6.319167146426086
+  },
+  "spark_24h": [
+    0.012947013,
+    0.012876869,
+    0.012539333,
+    0.012536655,
+    0.012536733,
+    0.012536765,
+    0.01273959,
+    0.01272767,
+    0.0128329,
+    0.012968542,
+    0.012967726,
+    0.012967764,
+    0.012770004,
+    0.012738405,
+    0.012738442,
+    0.012809087,
+    0.012773937,
+    0.012741364,
+    0.012743183,
+    0.012740409,
+    0.012740466,
+    0.01273826,
+    0.01273833,
+    0.012738815,
+    0.012739297,
+    0.012739279,
+    0.012739773,
+    0.01273999,
+    0.012740524,
+    0.012740975,
+    0.012741083,
+    0.012741353,
+    0.012741687,
+    0.012742312,
+    0.012743146,
+    0.012727157,
+    0.012727368,
+    0.012724659,
+    0.012724979,
+    0.01272535,
+    0.012761178,
+    0.012796787,
+    0.012797308,
+    0.012797499,
+    0.012797902,
+    0.012798311,
+    0.012798617,
+    0.012799704
+  ],
+  "trades_24h": {
+    "trades": 117,
+    "buys": 52,
+    "sells": 65,
+    "buy_tao": 855.249224114,
+    "sell_tao": 894.118380937,
+    "net_tao": -38.869156823000026,
+    "traders": 46
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5DqKWm43cjo2GTKptXhYzA1dXJzM8MZUN68nhdYxwyVyLk6W",
+      "net_tao": 0.158754179000006,
+      "gross_tao": 299.841245821,
+      "trades": 6
+    },
+    {
+      "coldkey": "5Cw2qFy2tZy9ZLt4LsJc9b68nffQndZDHF1KZynmVbA4Z3pC",
+      "net_tao": -0.6217942010000002,
+      "gross_tao": 240.621794201,
+      "trades": 8
+    },
+    {
+      "coldkey": "5GCcH9R6SS7xtobP3EvrgSBXuowAtpjgMBP6FVTLWfqGbZ9g",
+      "net_tao": -0.6234996829999986,
+      "gross_tao": 160.623499683,
+      "trades": 7
+    },
+    {
+      "coldkey": "5FNuEwSB4LyYNPQi8zvN6XPEovYB7AoY5Kverkca9eNNjQyv",
+      "net_tao": -1.9096382200000006,
+      "gross_tao": 100.276543438,
+      "trades": 11
+    },
+    {
+      "coldkey": "5F1XjkDCLVygZb73otM2ePzRgyZ6U2g2F6CMLD4uwuktzi8g",
+      "net_tao": -0.08314737299999919,
+      "gross_tao": 80.083147373,
+      "trades": 4
+    }
+  ],
+  "news": [
+    {
+      "ts": 1792426914,
+      "kind": "commit",
+      "source": "github",
+      "title": "feat(model_validation): reject models with NaN or infinite weights",
+      "url": "https://github.com/DendriteLabs/ingot/commit/8c22cdacb16b57abae07eebb352ca090f6ebd83f",
+      "publisher": "DendriteLabs/ingot"
+    },
+    {
+      "ts": 1792425873,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(web): lineage rows share the chart's height when there are few kings",
+      "url": "https://github.com/DendriteLabs/ingot/commit/a7a3681846c0df8fc1e5fe07a79533254d9ac79b",
+      "publisher": "DendriteLabs/ingot"
+    },
+    {
+      "ts": 1792425706,
+      "kind": "commit",
+      "source": "github",
+      "title": "feat(web): kings lineage beside the staircase; three benchmarks in on…",
+      "url": "https://github.com/DendriteLabs/ingot/commit/e719abc456373c40ecef10379bb3e393ddad122b",
+      "publisher": "DendriteLabs/ingot"
+    },
+    {
+      "ts": 1792423856,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(web): stop iOS Safari enlarging the fails table's text",
+      "url": "https://github.com/DendriteLabs/ingot/commit/ba3e9dcf1236c83a0d5d414fb436ac86cd7a72ee",
+      "publisher": "DendriteLabs/ingot"
+    },
+    {
+      "ts": 1792420615,
+      "kind": "commit",
+      "source": "github",
+      "title": "feat(web): better charts",
+      "url": "https://github.com/DendriteLabs/ingot/commit/62732716aea52e69fa536f9b8ff6a93325e0a5d1",
+      "publisher": "DendriteLabs/ingot"
+    },
+    {
+      "ts": 1792413368,
+      "kind": "commit",
+      "source": "github",
+      "title": "feat(model_dedup): only near-identical copies are duplicates (corr 0.…",
+      "url": "https://github.com/DendriteLabs/ingot/commit/83097373f8a5a2b4209b5c66ff1a69988c1ae914",
+      "publisher": "DendriteLabs/ingot"
+    },
+    {
+      "ts": 1792408644,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(web): push the HTML as no-store and stamp scripts, styles and imp…",
+      "url": "https://github.com/DendriteLabs/ingot/commit/1fba61df978c3c6d05954e7285146a09bc62beb5",
+      "publisher": "DendriteLabs/ingot"
+    },
+    {
+      "ts": 1792408111,
+      "kind": "commit",
+      "source": "github",
+      "title": "feat: win margins as a share of the king's score (KL 1.5%, distance 0…",
+      "url": "https://github.com/DendriteLabs/ingot/commit/67a4a2413322ce355c849253dcc36670a0170abf",
+      "publisher": "DendriteLabs/ingot"
+    }
+  ],
+  "updated": 1792474861,
+  "updated_day": "2026-10-20"
+}

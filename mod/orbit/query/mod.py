@@ -4,6 +4,8 @@ Query module - Unified interface for querying free AI models.
 Automatically uses free models from OpenRouter or Venice AI.
 """
 
+import sys
+
 import mod as m
 
 
@@ -19,6 +21,7 @@ class Mod:
     fns = [
         'query',
         'list_free_models',
+        'list_venice_models',
         'openrouter_query',
         'venice_query',
     ]
@@ -55,6 +58,22 @@ class Mod:
         router = self._get_openrouter()
         return router.free_models(update=update, info=info)
 
+    def list_venice_models(self, update=False, info=False):
+        """
+        List all available models from Venice.
+
+        Args:
+            update: Force refresh from API
+            info: Return full model info instead of just IDs
+
+        Returns:
+            list: Model IDs or model info dicts
+        """
+        venice = self._get_venice()
+        if info:
+            return venice.model_infos(update=update)
+        return venice.models(update=update)
+
     def openrouter_query(
         self,
         query: str,
@@ -62,6 +81,7 @@ class Mod:
         stream: bool = False,
         max_tokens: int = 4096,
         temperature: float = 1.0,
+        system: str = None,
         **kwargs
     ):
         """
@@ -73,6 +93,7 @@ class Mod:
             stream: Whether to stream the response
             max_tokens: Maximum response tokens
             temperature: Sampling temperature
+            system: Optional system prompt
             **kwargs: Additional arguments passed to forward()
 
         Returns:
@@ -80,25 +101,51 @@ class Mod:
         """
         router = self._get_openrouter()
 
-        # Get free models if no model specified
-        if model is None:
-            free_models = router.free_models()
-            if not free_models:
-                free_models = router.free_models(update=True)
-            if not free_models:
-                raise ValueError("No free models available on OpenRouter")
-            model = free_models[0]
-            print(f"Using free model: {model}")
+        # If model explicitly provided, call once without fallback
+        if model is not None:
+            return router.forward(
+                query,
+                model=model,
+                stream=stream,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                system=system,
+                **kwargs
+            )
 
-        return router.forward(
-            query,
-            model=model,
-            stream=stream,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            free=True,
-            **kwargs
-        )
+        # Get free models and try each in order until one succeeds
+        free_models = router.free_models()
+        if not free_models:
+            free_models = router.free_models(update=True)
+        if not free_models:
+            raise ValueError("No free models available on OpenRouter")
+
+        # Rotate last known-working model to front to avoid cold-start retries
+        last_working = self.store.get('last_working_model')
+        if last_working and last_working in free_models:
+            free_models = [last_working] + [m for m in free_models if m != last_working]
+
+        last_exc = None
+        for candidate in free_models:
+            print(f"Using free model: {candidate}", file=sys.stderr)
+            try:
+                result = router.forward(
+                    query,
+                    model=candidate,
+                    stream=stream,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    system=system,
+                    free=True,
+                    **kwargs
+                )
+                self.store.put('last_working_model', candidate)
+                return result
+            except Exception as e:
+                print(f"Model {candidate} failed: {e}, trying next...", file=sys.stderr)
+                last_exc = e
+
+        raise last_exc
 
     def venice_query(
         self,
@@ -107,6 +154,7 @@ class Mod:
         stream: bool = False,
         max_tokens: int = 4096,
         temperature: float = 1.0,
+        system: str = None,
         **kwargs
     ):
         """
@@ -118,6 +166,7 @@ class Mod:
             stream: Whether to stream the response
             max_tokens: Maximum response tokens
             temperature: Sampling temperature
+            system: Optional system prompt
             **kwargs: Additional arguments passed to forward()
 
         Returns:
@@ -126,9 +175,9 @@ class Mod:
         venice = self._get_venice()
 
         if model:
-            print(f"Using Venice model: {model}")
+            print(f"Using Venice model: {model}", file=sys.stderr)
         else:
-            print(f"Using Venice default model: {venice.model}")
+            print(f"Using Venice default model: {venice.model}", file=sys.stderr)
 
         return venice.forward(
             query,
@@ -136,6 +185,7 @@ class Mod:
             stream=stream,
             max_tokens=max_tokens,
             temperature=temperature,
+            system=system,
             **kwargs
         )
 
@@ -147,6 +197,7 @@ class Mod:
         stream: bool = False,
         max_tokens: int = 4096,
         temperature: float = 1.0,
+        system: str = None,
         **kwargs
     ):
         """
@@ -159,6 +210,7 @@ class Mod:
             stream: Whether to stream the response
             max_tokens: Maximum response tokens
             temperature: Sampling temperature
+            system: Optional system prompt (sets persona, format, constraints)
             **kwargs: Additional arguments
 
         Returns:
@@ -175,6 +227,9 @@ class Mod:
 
             >>> # Use Venice
             >>> q.query("Explain quantum computing", use_venice=True)
+
+            >>> # Set a system prompt
+            >>> q.query("What is AI?", system="You are a concise technical writer.")
         """
         if use_venice:
             return self.venice_query(
@@ -183,17 +238,33 @@ class Mod:
                 stream=stream,
                 max_tokens=max_tokens,
                 temperature=temperature,
+                system=system,
                 **kwargs
             )
         else:
-            return self.openrouter_query(
-                query,
-                model=model,
-                stream=stream,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                **kwargs
-            )
+            try:
+                return self.openrouter_query(
+                    query,
+                    model=model,
+                    stream=stream,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    system=system,
+                    **kwargs
+                )
+            except Exception as exc:
+                if model is not None:
+                    raise
+                print(f"OpenRouter exhausted ({exc}), falling back to Venice...", file=sys.stderr)
+                return self.venice_query(
+                    query,
+                    model=None,
+                    stream=stream,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    system=system,
+                    **kwargs
+                )
 
     def test(self):
         """Test the query module."""

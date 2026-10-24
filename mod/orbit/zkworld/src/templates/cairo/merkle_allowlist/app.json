@@ -1,0 +1,63 @@
+{
+  "title": "Claim your share",
+  "intro": "A list of who gets how much was fixed when this started. If you are on it, you can claim once, with a proof that only works for you.",
+  "steps": [
+    "Pick who you are at the top right.",
+    "Check \"Have I claimed?\" to see where you stand.",
+    "To claim, enter your amount and the proof you were given, then press Claim."
+  ],
+  "fns": {
+    "total_claimed": {
+      "label": "Claimed so far, by everyone",
+      "show": "big"
+    },
+    "is_claimed": {
+      "label": "Have I claimed?",
+      "yes": "Claimed",
+      "no": "Not yet",
+      "inputs": {
+        "who": {
+          "hide": true
+        }
+      }
+    },
+    "claimed_of": {
+      "label": "How much I got",
+      "inputs": {
+        "who": {
+          "hide": true
+        }
+      }
+    },
+    "claim": {
+      "label": "Claim",
+      "button": "Claim",
+      "help": "Works once per person, and only with the proof issued to you.",
+      "inputs": {
+        "amount": {
+          "label": "Your amount"
+        },
+        "proof": {
+          "label": "Your proof",
+          "placeholder": "paste the numbers you were given, comma separated"
+        }
+      }
+    },
+    "root": {
+      "hide": true
+    }
+  },
+  "constructor": {
+    "help": "Paste the list's root (the one number that seals who gets what) and press Start.",
+    "inputs": {
+      "root": {
+        "label": "List root"
+      }
+    }
+  },
+  "events": {
+    "Claimed": {
+      "say": "{who} claimed {amount}"
+    }
+  }
+}

@@ -3,7 +3,8 @@
 import { Suspense, useEffect, useRef, useState, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
-  fetchWalletTradesUntil, fetchPositions, TopTrader, MAX_LOOKBACK_DAYS,
+  fetchWalletTradesUntil, fetchPositions, fetchClosedPositions,
+  TopTrader, ClosedPosition, MAX_LOOKBACK_DAYS,
 } from "../../lib/polymarket";
 import { PolymarketTrade, PolymarketPosition, TradeFilters } from "../../lib/types";
 import TraderProfile from "../../components/TraderProfile";
@@ -41,7 +42,7 @@ function TraderPageInner() {
   const params = useParams();
   const router = useRouter();
   const {
-    daysAgo, setSearch, category, setCategory, marketQuery, setMarketQuery, reloadKey,
+    daysAgo, search, setSearch, category, setCategory, marketQuery, setMarketQuery, reloadKey,
   } = useFilters();
   const { auth } = useAuth();
   const eoa = getOwnerAddress() ?? auth.address ?? null;
@@ -54,16 +55,34 @@ function TraderPageInner() {
     MAX_LOOKBACK_DAYS,
   );
 
-  // Clear the global search on mount — this page has no search box (trade
-  // filtering is click-a-market instead), so a query carried over from the
-  // traders list would otherwise linger invisibly in the shared context.
-  const cleared = useRef(false);
+  // The keyword you found this trader with STAYS ON.
+  //
+  // This page used to wipe the shared search on mount, on the theory that a
+  // page with no search box shouldn't hold an invisible query. But the board
+  // scores each row on ONLY the markets matching that keyword (the server
+  // recomputes P&L, volume and win rate over them — routes.rs
+  // `apply_pagination`), so clicking a row you picked for its "election"
+  // record and landing on their whole tape means none of the numbers you
+  // decided on are the numbers on screen. The filter rail below now renders
+  // and edits it, so it is neither invisible nor one-way: it's a KEYWORD box
+  // sitting next to the TOPIC box, on every profile.
+  //
+  // One exception: a 40-hex address. The TopBar search box doubles as a
+  // teleport (type an address, press Enter, land here), which leaves the
+  // address itself in `search` — and as a market-title keyword it matches
+  // nothing, so it would empty the whole profile. Treat arriving-by-address
+  // as arriving with no keyword.
+  const ADDR_RE = /^0x[a-fA-F0-9]{40}$/;
+  const searchFilter = ADDR_RE.test(search.trim()) ? "" : search;
   useEffect(() => {
-    if (!cleared.current) {
-      cleared.current = true;
-      setSearch("");
-    }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    // Watch `search`, don't sample it once on mount: the URL seed
+    // (useUrlSync effect #1) lands AFTER the first render, so a mount-only
+    // check read the pre-seed value and left the address parked in context.
+    // An address is never a legitimate market keyword, so clearing on sight
+    // can't eat a real search.
+    if (ADDR_RE.test(search.trim())) setSearch("");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search]);
 
   const address = String(
     Array.isArray(params.address) ? params.address[0] : params.address || "",
@@ -139,6 +158,7 @@ function TraderPageInner() {
 
   const [trades, setTrades] = useState<PolymarketTrade[]>([]);
   const [positions, setPositions] = useState<PolymarketPosition[]>([]);
+  const [settled, setSettled] = useState<ClosedPosition[] | null>(null);
   const [loading, setLoading] = useState(true);
   // Non-null when the /activity sync ultimately failed (e.g. upstream
   // rate-limit) — the UI must say so instead of rendering $0 stats that
@@ -174,6 +194,7 @@ function TraderPageInner() {
       prevAddress.current = address;
       setTrades([]);
       setPositions([]);
+      setSettled(null);
       setProgress({ pages: 0, totalTrades: 0, oldestMs: 0, done: false });
     }
     setLoading(true);
@@ -215,6 +236,20 @@ function TraderPageInner() {
         if (!cancelled) setLoading(false);
       });
 
+    // The SETTLED book — one row per position the market has finished
+    // deciding, with realized P&L. It is the only source that contains the
+    // losers: a position that expires worthless leaves no sell and no
+    // redeem, so a win rate counted off the trade feed can only see winners.
+    // `null` stays "unknown" so a failed fetch never renders as a rate.
+    fetchClosedPositions(address)
+      .then((c) => {
+        if (!cancelled) setSettled(c);
+      })
+      .catch(() => {
+        // Leave it null — the profile shows "—" rather than the
+        // exit-only number, which reads high by construction.
+      });
+
     // Fetch positions independently — failure here won't touch trades
     fetchPositions(address)
       .then((p) => {
@@ -243,7 +278,10 @@ function TraderPageInner() {
       sellVolume,
       pnl: 0,
       winRate: -1,
+      resolveRate: -1,
+      decidedPositions: 0,
       sharpe: 0,
+      exitEntry: -1,
       positions: positions.length,
       marketTitles: positions.map((p) => p.market).slice(0, 20),
       recentTrades: recent.length,
@@ -305,6 +343,7 @@ function TraderPageInner() {
           trader={trader}
           trades={trades}
           positions={positions}
+          settled={settled}
           loading={loading && trades.length === 0}
           tradesError={tradesError}
           feedDepthCapped={progress.depthCapped === true}
@@ -318,6 +357,11 @@ function TraderPageInner() {
           onDaysChange={changeDays}
           categoryFilter={category}
           onCategoryChange={setCategory}
+          // The board's keyword filter, still applied and still editable here
+          // — see the note above. `useUrlSync` keeps it in ?q= so the slice is
+          // shareable and survives a reload.
+          searchFilter={searchFilter}
+          onSearchChange={setSearch}
           // The topic keyword the leaderboard was filtered by (?mq=, carried
           // over by CopyTrading's row click). The list scored this trader on
           // matching markets only; the profile now shows the same slice, so

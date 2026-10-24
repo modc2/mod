@@ -1,0 +1,766 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>agenti · money for AI agents</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230b0d10'/%3E%3Ctext x='16' y='23' font-family='sans-serif' font-size='20' font-weight='700' fill='%237ce0a8' text-anchor='middle'%3Ea%3C/text%3E%3C/svg%3E">
+<style>
+:root{
+  --bg:#0b0d10;--panel:#12151a;--panel2:#171b21;--line:#232830;--line2:#2e3540;
+  --text:#e8ebef;--dim:#9aa3ad;--faint:#68717c;
+  --acc:#7ce0a8;--acc2:#5fc2ff;--warn:#ffcf5c;--bad:#ff7a7a;--accbg:rgba(124,224,168,.1);
+  --r:12px;--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif}
+a{color:var(--acc2);text-decoration:none}a:hover{text-decoration:underline}
+button,input,select,textarea{font:inherit;color:inherit}
+.wrap{max-width:1180px;margin:0 auto;padding:0 18px}
+header{position:sticky;top:0;z-index:10;background:rgba(11,13,16,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+.bar{display:flex;align-items:center;gap:14px;min-height:58px;flex-wrap:wrap}
+.brand{display:flex;align-items:baseline;gap:10px}
+.brand b{font-size:19px;letter-spacing:-.02em}
+.brand b i{font-style:normal;color:var(--acc)}
+.brand span{color:var(--faint);font-size:12.5px}
+nav{display:flex;gap:2px;flex-wrap:wrap;margin-left:auto}
+nav button{background:none;border:0;padding:8px 12px;border-radius:8px;color:var(--dim);cursor:pointer;font-size:13px;font-weight:600;letter-spacing:.02em}
+nav button:hover{color:var(--text);background:var(--panel)}
+nav button.on{color:var(--bg);background:var(--acc)}
+.who{font-size:11.5px;padding:4px 9px;border-radius:99px;border:1px solid var(--line2);color:var(--dim);white-space:nowrap}
+.who.owner{border-color:rgba(124,224,168,.4);color:var(--acc)}
+main{padding:22px 0 80px}
+section.tab{display:none}section.tab.on{display:block}
+h1{font-size:26px;margin:0 0 4px;letter-spacing:-.02em}
+h2{font-size:15px;margin:0 0 12px;letter-spacing:.01em}
+h3{font-size:13px;margin:0 0 8px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em;font-weight:700}
+p.lead{color:var(--dim);margin:0 0 18px;max-width:720px}
+.grid{display:grid;gap:14px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(340px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+.g4{grid-template-columns:repeat(auto-fit,minmax(180px,1fr))}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:16px}
+.card.flat{background:transparent}
+.row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.row.sp{justify-content:space-between}
+.col{display:flex;flex-direction:column;gap:8px}
+.muted{color:var(--dim)}.faint{color:var(--faint)}.small{font-size:12.5px}.tiny{font-size:11.5px}
+.mono{font-family:var(--mono);font-size:12.5px}
+.big{font-size:34px;font-weight:700;letter-spacing:-.03em}
+.stat .v{font-size:22px;font-weight:700;letter-spacing:-.02em}
+.stat .k{color:var(--faint);font-size:12px}
+.btn{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line2);background:var(--panel2);padding:8px 13px;border-radius:9px;cursor:pointer;font-weight:600;font-size:13px;white-space:nowrap}
+.btn:hover{border-color:var(--faint)}
+.btn.pri{background:var(--acc);color:#06120b;border-color:var(--acc)}
+.btn.pri:hover{filter:brightness(1.07)}
+.btn.ghost{background:transparent}
+.btn.danger{color:var(--bad);border-color:rgba(255,122,122,.35)}
+.btn.armed{background:var(--bad);color:#1a0505;border-color:var(--bad)}
+.btn.sm{padding:5px 9px;font-size:12px;border-radius:7px}
+.btn:disabled{opacity:.45;cursor:default}
+.btn svg{width:15px;height:15px}
+input,select,textarea{background:var(--bg);border:1px solid var(--line2);border-radius:9px;padding:9px 11px;outline:none;width:100%}
+input:focus,select:focus,textarea:focus{border-color:var(--acc)}
+textarea{font-family:var(--mono);font-size:12.5px;resize:vertical;min-height:70px}
+label.f{display:flex;flex-direction:column;gap:5px;font-size:12px;color:var(--dim);font-weight:600}
+.addr{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:12.5px;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:5px 8px;max-width:100%}
+.addr span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.icon{cursor:pointer;color:var(--faint);display:inline-flex;background:none;border:0;padding:0}
+.icon:hover{color:var(--text)}
+.icon svg{width:14px;height:14px}
+.pill{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px;background:var(--panel2);border:1px solid var(--line2);color:var(--dim);letter-spacing:.02em}
+.pill.ok{color:var(--acc);border-color:rgba(124,224,168,.35);background:var(--accbg)}
+.pill.warn{color:var(--warn);border-color:rgba(255,207,92,.35)}
+.pill.bad{color:var(--bad);border-color:rgba(255,122,122,.35)}
+.pill.blue{color:var(--acc2);border-color:rgba(95,194,255,.35)}
+table{width:100%;border-collapse:collapse}
+th{text-align:left;color:var(--faint);font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;padding:8px 10px;border-bottom:1px solid var(--line)}
+td{padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:middle}
+tr:last-child td{border-bottom:0}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+.tablewrap{overflow-x:auto}
+.wallet{cursor:pointer;transition:border-color .12s}
+.wallet:hover{border-color:var(--line2)}
+.wallet.sel{border-color:var(--acc);box-shadow:0 0 0 1px var(--acc) inset}
+.seg{display:inline-flex;border:1px solid var(--line2);border-radius:9px;overflow:hidden}
+.seg button{background:none;border:0;padding:7px 12px;cursor:pointer;color:var(--dim);font-weight:600;font-size:12.5px}
+.seg button.on{background:var(--panel2);color:var(--text)}
+.empty{padding:28px;text-align:center;color:var(--faint);border:1px dashed var(--line2);border-radius:var(--r)}
+pre{margin:0;background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:12px;overflow:auto;font-family:var(--mono);font-size:12px;line-height:1.55;max-height:460px;white-space:pre-wrap;word-break:break-word}
+.svc{cursor:pointer;display:flex;flex-direction:column;gap:6px}
+.svc:hover{border-color:var(--acc2)}
+.svc .d{color:var(--dim);font-size:12.5px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.svc img{width:28px;height:28px;border-radius:7px;background:var(--panel2);object-fit:cover}
+.offer{display:flex;align-items:center;gap:12px;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--bg)}
+.offer .p{font-size:20px;font-weight:700;min-width:84px}
+.offer.no{opacity:.55}
+.secret{background:#1a1408;border:1px solid rgba(255,207,92,.35);border-radius:10px;padding:12px}
+.secret .mono{word-break:break-all;color:var(--warn)}
+.qr{background:#fff;border-radius:10px;padding:8px;display:inline-flex;width:max-content}
+.qr svg{display:block;width:180px;height:180px}
+.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--panel2);border:1px solid var(--line2);padding:10px 16px;border-radius:10px;z-index:99;box-shadow:0 8px 30px rgba(0,0,0,.4);max-width:90vw;font-size:13px}
+.toast.bad{border-color:var(--bad);color:var(--bad)}
+.hero{background:linear-gradient(135deg,rgba(124,224,168,.09),rgba(95,194,255,.05) 60%,transparent);border:1px solid var(--line);border-radius:16px;padding:22px}
+.step{display:flex;gap:12px;align-items:flex-start}
+.step .num{flex:none;width:26px;height:26px;border-radius:50%;background:var(--accbg);color:var(--acc);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px}
+.tool{padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--panel)}
+.tool b{font-family:var(--mono);font-size:12.5px}
+.md{line-height:1.6}.md h1,.md h2,.md h3{margin:18px 0 8px;text-transform:none;letter-spacing:-.01em;color:var(--text)}
+.md h1{font-size:22px}.md h2{font-size:17px}.md h3{font-size:14px}
+.md code{font-family:var(--mono);font-size:12px;background:var(--bg);border:1px solid var(--line);padding:1px 5px;border-radius:5px}
+.md pre code{border:0;padding:0;background:none}
+.md ul{padding-left:20px}
+.lock{display:flex;gap:10px;align-items:center;padding:12px 14px;border:1px solid var(--line2);border-radius:10px;background:var(--panel);color:var(--dim)}
+.bal-total{display:flex;align-items:baseline;gap:10px}
+.sw{position:relative;display:inline-block;width:36px;height:20px;flex:none}
+.sw input{opacity:0;width:0;height:0}
+.sw span{position:absolute;inset:0;background:var(--line2);border-radius:99px;cursor:pointer;transition:.15s}
+.sw span:before{content:"";position:absolute;width:14px;height:14px;left:3px;top:3px;background:var(--text);border-radius:50%;transition:.15s}
+.sw input:checked+span{background:var(--acc)}
+.sw input:checked+span:before{transform:translateX(16px);background:#06120b}
+.spin{display:inline-block;width:13px;height:13px;border:2px solid var(--line2);border-top-color:var(--acc);border-radius:50%;animation:sp .7s linear infinite;vertical-align:-2px}
+@keyframes sp{to{transform:rotate(360deg)}}
+.hide{display:none!important}
+footer{color:var(--faint);font-size:12px;padding:20px 0;border-top:1px solid var(--line)}
+</style>
+</head>
+<body>
+<header><div class="wrap bar">
+  <div class="brand"><b>agent<i>i</i></b><span>money for your AI agents</span></div>
+  <nav id="nav">
+    <button data-tab="home" class="on">HOME</button>
+    <button data-tab="wallets">WALLETS</button>
+    <button data-tab="pay">PAY</button>
+    <button data-tab="receive">GET PAID</button>
+    <button data-tab="activity">ACTIVITY</button>
+    <button data-tab="toolkit">TOOLKIT</button>
+  </nav>
+  <span class="who" id="who">...</span>
+</div></header>
+
+<main class="wrap">
+
+<!-- HOME -->
+<section class="tab on" id="t-home">
+  <div class="hero">
+    <div class="row sp" style="align-items:flex-start">
+      <div>
+        <h1>Give your AI agent a wallet.</h1>
+        <p class="lead" style="margin-bottom:0">Your agent gets its own crypto wallet so it can pay for APIs by itself (x402, in USDC), get paid, and check its balance. You set the spending limits.</p>
+      </div>
+      <div class="col" style="align-items:flex-end;min-width:200px" id="home-total"></div>
+    </div>
+  </div>
+  <div style="height:16px"></div>
+  <div id="home-owner" class="hide">
+    <div class="grid g4" id="home-stats"></div>
+    <div style="height:14px"></div>
+    <div class="grid g2">
+      <div class="card">
+        <div class="row sp"><h2>Get started</h2></div>
+        <div class="col" style="gap:14px">
+          <div class="step"><div class="num">1</div><div><b>Create a wallet</b><div class="muted small" id="s1">One wallet gives your agent an address on Base, Ethereum, Arbitrum, Polygon and Solana.</div></div></div>
+          <div class="step"><div class="num">2</div><div><b>Add some USDC</b><div class="muted small">Send a few dollars of USDC on Base to the wallet. Paid APIs usually cost a cent or less per call. <a href="#" data-go="receive">Show my address</a></div></div></div>
+          <div class="step"><div class="num">3</div><div><b>Try a paid API</b><div class="muted small">Find one, see its price, and pay for a single call. <a href="#" data-go="pay">Open PAY</a></div></div></div>
+          <div class="step"><div class="num">4</div><div><b>Hand it to your agent</b><div class="muted small">Connect Claude or any MCP client to this node so the agent can pay inside your limits. <a href="#" data-go="toolkit" data-sub="connect">How to connect</a></div></div></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="row sp"><h2>Recent activity</h2><a href="#" data-go="activity" class="small">See all</a></div>
+        <div id="home-recent"></div>
+      </div>
+    </div>
+  </div>
+  <div id="home-anon" class="hide">
+    <div class="lock"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+      <div>You are viewing this node read-only. Wallets and payments belong to its owner. You can still look up any address, browse paid APIs and read the toolkit.</div></div>
+    <div style="height:14px"></div>
+    <div class="card">
+      <h2>Look up any wallet</h2>
+      <div class="row"><input id="lk-addr" placeholder="0x... or a Solana address" style="flex:1;min-width:260px"><button class="btn pri" id="lk-go">Check balance</button></div>
+      <div id="lk-out" style="margin-top:12px"></div>
+    </div>
+  </div>
+</section>
+
+<!-- WALLETS -->
+<section class="tab" id="t-wallets">
+  <div class="row sp" style="margin-bottom:14px">
+    <div><h1>Wallets</h1><p class="lead" style="margin:0">Each wallet is one recovery phrase with an EVM address and a Solana address. Keys stay on this machine.</p></div>
+    <div class="row owner-only"><button class="btn" id="w-import-btn">Import</button><button class="btn pri" id="w-new-btn">+ New wallet</button></div>
+  </div>
+  <div class="owner-gate"></div>
+  <div class="owner-only">
+    <div class="card hide" id="w-new" style="margin-bottom:14px">
+      <h2>New wallet</h2>
+      <div class="row"><input id="w-new-name" placeholder="Name, e.g. research-agent" style="flex:1;min-width:200px"><button class="btn pri" id="w-new-go">Create</button><button class="btn ghost" data-close="w-new">Cancel</button></div>
+    </div>
+    <div class="card hide" id="w-imp" style="margin-bottom:14px">
+      <h2>Import a wallet</h2>
+      <div class="seg" id="w-imp-seg" style="margin-bottom:10px"><button data-k="phrase" class="on">Recovery phrase</button><button data-k="key">Private key</button></div>
+      <div class="col">
+        <input id="w-imp-name" placeholder="Name">
+        <textarea id="w-imp-phrase" placeholder="12 or 24 words"></textarea>
+        <div class="col hide" id="w-imp-keys"><input id="w-imp-evm" placeholder="EVM private key (0x...)" autocomplete="off"><input id="w-imp-sol" placeholder="Solana secret key (base58)" autocomplete="off"></div>
+        <div class="row"><button class="btn pri" id="w-imp-go">Import</button><button class="btn ghost" data-close="w-imp">Cancel</button></div>
+      </div>
+    </div>
+    <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(300px,1fr))" id="w-list"></div>
+    <div style="height:18px"></div>
+    <div id="w-detail"></div>
+  </div>
+</section>
+
+<!-- PAY -->
+<section class="tab" id="t-pay">
+  <h1>Pay for an API</h1>
+  <p class="lead">Paste the link of an x402 paid API, or pick one below. You see the price before anything is paid.</p>
+  <div class="owner-gate"></div>
+  <div class="grid g2" style="align-items:start">
+    <div class="col" style="gap:14px">
+      <div class="card owner-only">
+        <h2>Call</h2>
+        <div class="col">
+          <div class="row" style="flex-wrap:nowrap"><select id="p-method" style="width:96px;flex:none"><option>GET</option><option>POST</option></select><input id="p-url" placeholder="https://api.example.com/paid-endpoint"></div>
+          <textarea id="p-body" class="hide" placeholder='Request body (JSON), e.g. {"q":"hello"}'></textarea>
+          <div class="row"><button class="btn pri" id="p-probe">Check price</button><span class="small faint" id="p-wallet-note"></span></div>
+        </div>
+        <div id="p-quote" style="margin-top:14px"></div>
+      </div>
+      <div class="owner-only"><div class="card hide" id="p-result-card">
+        <div class="row sp"><h2>Response</h2><span id="p-result-meta"></span></div>
+        <div id="p-result"></div>
+      </div></div>
+      <div class="card owner-only">
+        <div class="row sp"><h2>Spending limits</h2><span class="small muted" id="lim-spent"></span></div>
+        <div class="grid g2" style="gap:10px">
+          <label class="f">Most per call (USD)<input id="lim-call" type="number" step="0.01" min="0"></label>
+          <label class="f">Most per day (USD)<input id="lim-day" type="number" step="0.1" min="0"></label>
+        </div>
+        <div class="row" style="margin:12px 0"><label class="sw"><input type="checkbox" id="lim-main"><span></span></label><span class="small">Allow real-money (mainnet) payments</span></div>
+        <details><summary class="small muted" style="cursor:pointer">Allowed and blocked sites</summary>
+          <div class="grid g2" style="gap:10px;margin-top:10px">
+            <label class="f">Only pay these sites (empty = any)<textarea id="lim-allow" placeholder="api.example.com"></textarea></label>
+            <label class="f">Never pay these sites<textarea id="lim-block"></textarea></label>
+          </div>
+        </details>
+        <div class="row" style="margin-top:12px"><button class="btn" id="lim-save">Save limits</button></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="row sp"><h2>Find a paid API</h2><span class="tiny faint" id="d-count"></span></div>
+      <div class="row" style="margin-bottom:12px;flex-wrap:nowrap"><input id="d-q" placeholder="weather, search, images, crypto prices..."><button class="btn" id="d-go">Search</button></div>
+      <div class="row" style="gap:6px;margin-bottom:12px" id="d-chips"></div>
+      <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px" id="d-list"></div>
+    </div>
+  </div>
+</section>
+
+<!-- RECEIVE -->
+<section class="tab" id="t-receive">
+  <h1>Get paid</h1>
+  <p class="lead">Ask someone (or another agent) to pay your wallet in USDC. Share the link or QR code; this page notices when the money arrives.</p>
+  <div class="owner-gate"></div>
+  <div class="grid g2 owner-only" style="align-items:start">
+    <div class="col" style="gap:14px">
+      <div class="card">
+        <h2>Request a payment</h2>
+        <div class="grid g2" style="gap:10px">
+          <label class="f">Amount (USDC)<input id="r-amt" type="number" step="0.01" min="0.01" value="5"></label>
+          <label class="f">Network<select id="r-chain"></select></label>
+          <label class="f">To wallet<select id="r-wallet"></select></label>
+          <label class="f">Note (optional)<input id="r-memo" placeholder="what it is for" maxlength="140"></label>
+        </div>
+        <div class="row" style="margin-top:12px"><button class="btn pri" id="r-go">Create request</button></div>
+      </div>
+      <div class="card">
+        <h2>Or just share an address</h2>
+        <div id="r-addrs"></div>
+      </div>
+    </div>
+    <div class="col" style="gap:14px">
+      <div id="r-current"></div>
+      <div class="card"><h2>Requests</h2><div id="r-list"></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ACTIVITY -->
+<section class="tab" id="t-activity">
+  <div class="row sp" style="margin-bottom:14px">
+    <div><h1>Activity</h1><p class="lead" style="margin:0">Every price check and payment made from this node.</p></div>
+    <div class="seg owner-only" id="a-seg"><button data-k="" class="on">All</button><button data-k="pay">Payments</button><button data-k="probe">Price checks</button></div>
+  </div>
+  <div class="owner-gate"></div>
+  <div class="card owner-only"><div class="tablewrap" id="a-list"></div></div>
+</section>
+
+<!-- TOOLKIT -->
+<section class="tab" id="t-toolkit">
+  <h1>Toolkit</h1>
+  <p class="lead">What ships in <a href="https://github.com/nirholas/agenti" target="_blank" rel="noopener">nirholas/agenti</a>, the open-source project this app is built on, and how to plug your agent in.</p>
+  <div class="seg" id="k-seg" style="margin-bottom:14px"><button data-k="connect" class="on">Connect</button><button data-k="tools">Agent tools</button><button data-k="packages">Packages</button><button data-k="examples">Examples</button><button data-k="docs">Docs</button></div>
+  <div id="k-connect" class="ksub"></div>
+  <div id="k-tools" class="ksub hide">
+    <div class="row" style="margin-bottom:12px"><input id="k-tq" placeholder="Filter tools" style="max-width:320px"><div class="row" id="k-tg" style="gap:6px"></div></div>
+    <div id="k-tlist"></div>
+  </div>
+  <div id="k-packages" class="ksub hide"><div class="grid g3" id="k-plist"></div></div>
+  <div id="k-examples" class="ksub hide"><div class="grid g2" style="align-items:start"><div class="col" id="k-elist" style="gap:6px"></div><div id="k-esrc"></div></div></div>
+  <div id="k-docs" class="ksub hide"><div class="row" style="margin-bottom:12px" id="k-dsel"></div><div class="card md" id="k-doc"></div></div>
+</section>
+
+</main>
+<footer><div class="wrap row sp"><span>agenti for mod · built on nirholas/agenti <span class="mono" id="f-commit"></span></span><span id="f-ver"></span></div></footer>
+
+<script>
+(() => {
+'use strict';
+const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
+const BASE = (() => { const p = location.pathname; const i = p.indexOf('/agenti'); return (i >= 0 ? p.slice(0, i) + '/agenti' : '') + '/api'; })();
+const ROOT = BASE.replace(/\/api$/, '');
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const ICON = {
+  copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>',
+  ext: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 4h6v6M20 4l-9 9M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5"/></svg>',
+  refresh: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5"/></svg>',
+};
+let TOKEN = null, WHO = {owner:false}, STATE = {wallets:[], chains:{}, sel:null, policy:null};
+
+// ── session: reuse the build console sign-in ──
+try { TOKEN = localStorage.getItem('build_jobs_token') || null; } catch (_) {}
+window.addEventListener('message', e => {
+  const d = e.data || {};
+  if (d.type === 'mod.session' && d.token) { TOKEN = d.token; boot(); }
+  if (d.type === 'mod.session.end') { TOKEN = null; boot(); }
+});
+if (window.parent !== window) try { parent.postMessage({type:'mod.session.request'}, '*'); } catch (_) {}
+
+async function api(fn, args, post) {
+  const h = {'Accept': 'application/json'};
+  if (TOKEN) h.Authorization = 'Bearer ' + TOKEN;
+  let url = BASE + '/' + fn, opt = {headers: h};
+  if (post) { opt.method = 'POST'; h['Content-Type'] = 'application/json'; opt.body = JSON.stringify(args || {}); }
+  else if (args) url += '?' + new URLSearchParams(Object.entries(args).filter(([, v]) => v != null && v !== ''));
+  const r = await fetch(url, opt);
+  const d = await r.json().catch(() => ({error: 'bad response (' + r.status + ')'}));
+  if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+  return d;
+}
+function toast(msg, bad) {
+  const t = document.createElement('div'); t.className = 'toast' + (bad ? ' bad' : ''); t.textContent = msg;
+  document.body.appendChild(t); setTimeout(() => t.remove(), bad ? 5200 : 2600);
+}
+const fail = e => toast(e.message || String(e), true);
+function copy(text) { navigator.clipboard?.writeText(text).then(() => toast('Copied'), () => toast('Copy failed', true)); }
+function short(a, n = 6) { a = String(a || ''); return a.length > 2 * n + 3 ? a.slice(0, n + 2) + '…' + a.slice(-n) : a; }
+function usd(v, d = 2) { return v == null ? '–' : '$' + Number(v).toLocaleString(undefined, {minimumFractionDigits: d, maximumFractionDigits: Math.max(d, v && v < 0.01 ? 4 : d)}); }
+function num(v, d = 4) { return v == null ? '–' : Number(v).toLocaleString(undefined, {maximumFractionDigits: d}); }
+function ago(ts) { const s = Date.now() / 1000 - ts; if (s < 60) return 'just now'; if (s < 3600) return Math.floor(s / 60) + 'm ago'; if (s < 86400) return Math.floor(s / 3600) + 'h ago'; return new Date(ts * 1000).toLocaleDateString(); }
+function host(u) { try { return new URL(u).host; } catch (_) { return u; } }
+function addrChip(a, label) {
+  if (!a) return '<span class="faint small">none</span>';
+  return `<span class="addr" title="${esc(a)}">${label ? `<b class="faint" style="font-family:inherit">${esc(label)}</b>` : ''}<span>${esc(short(a, 8))}</span><button class="icon" data-copy="${esc(a)}" title="Copy">${ICON.copy}</button></span>`;
+}
+// arm-then-confirm: first click arms, second within 4s fires
+function armed(btn, label, fn) {
+  if (btn.dataset.armed) { delete btn.dataset.armed; btn.classList.remove('armed'); btn.textContent = btn.dataset.orig; return fn(); }
+  btn.dataset.orig = btn.textContent; btn.dataset.armed = '1'; btn.classList.add('armed'); btn.textContent = label;
+  setTimeout(() => { if (btn.dataset.armed) { delete btn.dataset.armed; btn.classList.remove('armed'); btn.textContent = btn.dataset.orig; } }, 4000);
+}
+document.addEventListener('click', e => {
+  const c = e.target.closest('[data-copy]'); if (c) { e.preventDefault(); e.stopPropagation(); copy(c.dataset.copy); return; }
+  const g = e.target.closest('[data-go]'); if (g) { e.preventDefault(); go(g.dataset.go); if (g.dataset.sub) ksub(g.dataset.sub); return; }
+  const x = e.target.closest('[data-close]'); if (x) { $('#' + x.dataset.close).classList.add('hide'); }
+});
+
+// ── tabs ──
+const LOADERS = {};
+function go(tab) {
+  $$('#nav button').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
+  $$('section.tab').forEach(s => s.classList.toggle('on', s.id === 't-' + tab));
+  history.replaceState(null, '', '#' + tab);
+  (LOADERS[tab] || (() => {}))();
+  window.scrollTo(0, 0);
+}
+$$('#nav button').forEach(b => b.onclick = () => go(b.dataset.tab));
+
+function gateOwner() {
+  $$('.owner-only').forEach(el => el.classList.toggle('hide', !WHO.owner));
+  $$('.owner-gate').forEach(el => el.innerHTML = WHO.owner ? '' :
+    '<div class="lock">This part belongs to the owner of this node. Open it on the machine itself, or from the build console signed in as the owner.</div>');
+  const w = $('#who'); w.className = 'who' + (WHO.owner ? ' owner' : '');
+  w.textContent = WHO.owner ? (WHO.via === 'local' ? 'owner · this machine' : 'owner · ' + short(WHO.address || '', 4)) : 'read-only';
+}
+
+// ── HOME ──
+LOADERS.home = async () => {
+  try {
+    const o = await api('overview');
+    $('#f-commit').textContent = o.summary.commit.slice(0, 8); $('#f-ver').textContent = 'v' + o.version;
+    $('#home-owner').classList.toggle('hide', !o.owner); $('#home-anon').classList.toggle('hide', o.owner);
+    if (!o.owner) { $('#home-total').innerHTML = ''; return; }
+    STATE.wallets = o.wallets; STATE.policy = o.policy;
+    const def = o.wallets.find(w => w.default);
+    $('#s1').innerHTML = o.wallets.length ? `You have ${o.wallets.length} wallet${o.wallets.length > 1 ? 's' : ''}. <a href="#" data-go="wallets">Manage</a>` : `One wallet gives your agent an address on Base, Ethereum, Arbitrum, Polygon and Solana. <a href="#" data-go="wallets">Create one</a>`;
+    const p = o.policy;
+    $('#home-stats').innerHTML = [
+      ['Wallets', o.wallets.length, def ? 'default: ' + esc(def.name) : 'none yet'],
+      ['Spent today', usd(o.spent_today), 'limit ' + usd(p.max_per_day_usd) + ' / day'],
+      ['Per-call limit', usd(p.max_per_call_usd), p.allow_mainnet ? 'real money on' : 'test networks only'],
+      ['Open requests', o.open_invoices, 'waiting to be paid'],
+    ].map(([k, v, s]) => `<div class="card stat"><div class="k">${k}</div><div class="v">${v}</div><div class="tiny faint">${s}</div></div>`).join('');
+    $('#home-recent').innerHTML = o.recent.length ? ledgerTable(o.recent, true) : '<div class="empty">Nothing yet. Price checks and payments show up here.</div>';
+    if (def) {
+      $('#home-total').innerHTML = '<span class="small faint">' + esc(def.name) + '</span><span class="spin"></span>';
+      api('balances', {wallet: def.id, testnets: 0}).then(b => {
+        const usdc = b.rows.reduce((s, r) => s + (r.ok ? r.usdc : 0), 0);
+        $('#home-total').innerHTML = `<span class="small faint">${esc(def.name)} · all networks</span><span class="big">${usd(b.usd_total)}</span><span class="small muted">${num(usdc, 2)} USDC ready to spend</span>`;
+      }).catch(() => $('#home-total').innerHTML = '');
+    } else $('#home-total').innerHTML = '<button class="btn pri" data-go="wallets">Create a wallet</button>';
+  } catch (e) { fail(e); }
+};
+$('#lk-go').onclick = async () => {
+  const a = $('#lk-addr').value.trim(); if (!a) return;
+  $('#lk-out').innerHTML = '<span class="spin"></span>';
+  try { const b = await api('lookup', {address: a}); $('#lk-out').innerHTML = balTable(b); } catch (e) { $('#lk-out').innerHTML = ''; fail(e); }
+};
+
+function balTable(b) {
+  const rows = b.rows.map(r => `<tr><td>${esc(r.label)}${r.testnet ? ' <span class="pill">test</span>' : ''}</td>
+    <td class="n">${r.ok ? num(r.usdc, 2) : '<span class="pill bad" title="' + esc(r.error) + '">error</span>'}</td>
+    <td class="n">${r.ok ? num(r.native, 5) + ' <span class="faint">' + r.native_symbol + '</span>' : ''}</td>
+    <td class="n">${r.usd != null ? usd(r.usd) : '<span class="faint">–</span>'}</td>
+    <td><a href="${esc(r.explorer)}" target="_blank" rel="noopener" class="icon" title="Explorer">${ICON.ext}</a></td></tr>`).join('');
+  return `<div class="tablewrap"><table><thead><tr><th>Network</th><th class="n">USDC</th><th class="n">Gas coin</th><th class="n">Value</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+    <div class="row sp" style="margin-top:8px"><span class="small muted">Total (real networks): <b style="color:var(--text)">${usd(b.usd_total)}</b></span><span class="tiny faint">${b.prices.ETH ? 'ETH ' + usd(b.prices.ETH) + ' · SOL ' + usd(b.prices.SOL) : ''}</span></div>`;
+}
+
+// ── WALLETS ──
+LOADERS.wallets = async () => {
+  if (!WHO.owner) return;
+  try { STATE.wallets = await api('wallets'); } catch (e) { return fail(e); }
+  if (!STATE.sel || !STATE.wallets.find(w => w.id === STATE.sel)) STATE.sel = (STATE.wallets.find(w => w.default) || STATE.wallets[0] || {}).id;
+  renderWallets();
+};
+function renderWallets() {
+  const L = $('#w-list');
+  if (!STATE.wallets.length) { L.innerHTML = '<div class="empty" style="grid-column:1/-1">No wallets yet. Create one to give your agent an address on every network.</div>'; $('#w-detail').innerHTML = ''; return; }
+  L.innerHTML = STATE.wallets.map(w => `<div class="card wallet ${w.id === STATE.sel ? 'sel' : ''}" data-w="${w.id}">
+    <div class="row sp"><b>${esc(w.name)}</b>${w.default ? '<span class="pill ok">default</span>' : ''}</div>
+    <div class="col" style="gap:6px;margin-top:10px">${addrChip(w.evm, 'EVM')}${addrChip(w.solana, 'SOL')}</div>
+    <div class="tiny faint" style="margin-top:8px">${w.source === 'generated' ? 'created' : 'imported'} ${ago(w.created)}</div></div>`).join('');
+  $$('#w-list .wallet').forEach(c => c.onclick = () => { STATE.sel = c.dataset.w; renderWallets(); });
+  walletDetail();
+}
+async function walletDetail() {
+  const w = STATE.wallets.find(x => x.id === STATE.sel); if (!w) return;
+  const D = $('#w-detail');
+  D.innerHTML = `<div class="grid g2" style="align-items:start">
+    <div class="card"><div class="row sp"><h2>${esc(w.name)} · balances</h2><button class="btn sm ghost" id="wd-ref">${ICON.refresh} Refresh</button></div><div id="wd-bal"><span class="spin"></span></div></div>
+    <div class="col" style="gap:14px">
+      <div class="card"><h2>Manage</h2>
+        <div class="row" style="flex-wrap:nowrap"><input id="wd-name" value="${esc(w.name)}"><button class="btn" id="wd-rename">Rename</button></div>
+        <div class="row" style="margin-top:10px">
+          ${w.default ? '' : '<button class="btn" id="wd-def">Make default</button>'}
+          <button class="btn" id="wd-reveal">Show secret keys</button>
+          <button class="btn danger" id="wd-del">Delete</button>
+        </div>
+        <div id="wd-secret" style="margin-top:12px"></div>
+      </div>
+      <div class="card"><h2>Sign a message</h2><p class="small muted" style="margin-top:-6px">Prove this wallet is yours (EIP-191 personal_sign).</p>
+        <div class="row" style="flex-wrap:nowrap"><input id="wd-msg" placeholder="Message to sign"><button class="btn" id="wd-sign">Sign</button></div><div id="wd-sig" style="margin-top:10px"></div></div>
+    </div></div>`;
+  const load = fresh => { $('#wd-bal').innerHTML = '<span class="spin"></span>'; api('balances', {wallet: w.id, fresh: fresh ? 1 : ''}).then(b => $('#wd-bal').innerHTML = balTable(b)).catch(e => { $('#wd-bal').innerHTML = ''; fail(e); }); };
+  load(); $('#wd-ref').onclick = () => load(true);
+  $('#wd-rename').onclick = () => api('rename_wallet', {id: w.id, name: $('#wd-name').value}, 1).then(() => { toast('Renamed'); LOADERS.wallets(); }).catch(fail);
+  if ($('#wd-def')) $('#wd-def').onclick = () => api('default_wallet', {id: w.id}, 1).then(() => { toast('Default wallet set'); LOADERS.wallets(); }).catch(fail);
+  $('#wd-del').onclick = e => armed(e.target, 'Click again to delete', () => api('delete_wallet', {id: w.id}, 1).then(() => { toast('Deleted (a backup copy is kept on disk)'); STATE.sel = null; LOADERS.wallets(); }).catch(fail));
+  $('#wd-reveal').onclick = e => armed(e.target, 'Click again — anyone who sees these can take the money', async () => {
+    try {
+      const s = await api('reveal', {id: w.id}, 1);
+      const line = (k, v) => v ? `<div style="margin-bottom:8px"><div class="tiny faint">${k}</div><div class="row" style="flex-wrap:nowrap;align-items:flex-start"><span class="mono" style="flex:1">${esc(v)}</span><button class="icon" data-copy="${esc(v)}">${ICON.copy}</button></div></div>` : '';
+      $('#wd-secret').innerHTML = `<div class="secret">${line('Recovery phrase', s.mnemonic)}${line('EVM private key', s.evm_private_key)}${line('Solana secret key', s.solana_secret_key)}<div class="row sp"><span class="tiny" style="color:var(--warn)">Hidden again in 60 seconds.</span><button class="btn sm" id="wd-hide">Hide now</button></div></div>`;
+      const hide = () => { if ($('#wd-secret')) $('#wd-secret').innerHTML = ''; };
+      $('#wd-hide').onclick = hide; setTimeout(hide, 60000);
+    } catch (err) { fail(err); }
+  });
+  $('#wd-sign').onclick = () => api('sign', {message: $('#wd-msg').value, wallet: w.id}, 1).then(s => $('#wd-sig').innerHTML = `<div class="tiny faint">signature</div><div class="row" style="flex-wrap:nowrap"><span class="mono" style="word-break:break-all;flex:1">${esc(s.signature)}</span><button class="icon" data-copy="${esc(s.signature)}">${ICON.copy}</button></div>`).catch(fail);
+}
+$('#w-new-btn').onclick = () => { $('#w-imp').classList.add('hide'); $('#w-new').classList.toggle('hide'); $('#w-new-name').focus(); };
+$('#w-import-btn').onclick = () => { $('#w-new').classList.add('hide'); $('#w-imp').classList.toggle('hide'); };
+$('#w-new-go').onclick = () => api('create_wallet', {name: $('#w-new-name').value || 'agent'}, 1).then(w => {
+  toast('Wallet created'); $('#w-new').classList.add('hide'); $('#w-new-name').value = ''; STATE.sel = w.id; LOADERS.wallets();
+}).catch(fail);
+let impMode = 'phrase';
+$$('#w-imp-seg button').forEach(b => b.onclick = () => {
+  impMode = b.dataset.k; $$('#w-imp-seg button').forEach(x => x.classList.toggle('on', x === b));
+  $('#w-imp-phrase').classList.toggle('hide', impMode !== 'phrase'); $('#w-imp-keys').classList.toggle('hide', impMode === 'phrase');
+});
+$('#w-imp-go').onclick = () => {
+  const a = {name: $('#w-imp-name').value || 'imported'};
+  if (impMode === 'phrase') a.mnemonic = $('#w-imp-phrase').value; else { a.evm_key = $('#w-imp-evm').value; a.solana_key = $('#w-imp-sol').value; }
+  api('import_wallet', a, 1).then(w => {
+    toast('Wallet imported'); ['#w-imp-phrase', '#w-imp-evm', '#w-imp-sol', '#w-imp-name'].forEach(s => $(s).value = '');
+    $('#w-imp').classList.add('hide'); STATE.sel = w.id; LOADERS.wallets();
+  }).catch(fail);
+};
+
+// ── PAY ──
+let quote = null;
+LOADERS.pay = async () => {
+  if (!$('#d-list').children.length) discover('');
+  if (!WHO.owner) return;
+  try {
+    const [p, ws] = await Promise.all([api('policy'), api('wallets')]);
+    STATE.policy = p; STATE.wallets = ws;
+    $('#lim-call').value = p.max_per_call_usd; $('#lim-day').value = p.max_per_day_usd; $('#lim-main').checked = p.allow_mainnet;
+    $('#lim-allow').value = (p.allowed_hosts || []).join('\n'); $('#lim-block').value = (p.blocked_hosts || []).join('\n');
+    $('#lim-spent').textContent = 'spent today ' + usd(p.spent_today) + ' of ' + usd(p.max_per_day_usd);
+    const def = ws.find(w => w.default);
+    $('#p-wallet-note').innerHTML = def ? 'pays from <b>' + esc(def.name) + '</b>' : '<a href="#" data-go="wallets">create a wallet first</a>';
+  } catch (e) { fail(e); }
+};
+$('#p-method').onchange = () => $('#p-body').classList.toggle('hide', $('#p-method').value === 'GET');
+function payArgs() {
+  const a = {url: $('#p-url').value.trim(), method: $('#p-method').value};
+  if (a.method !== 'GET' && $('#p-body').value.trim()) a.body = $('#p-body').value.trim();
+  return a;
+}
+$('#p-probe').onclick = async () => {
+  const a = payArgs(); if (!a.url) return toast('Paste a link first', true);
+  $('#p-quote').innerHTML = '<span class="spin"></span> <span class="small muted">calling without paying…</span>'; $('#p-result-card').classList.add('hide');
+  try {
+    const r = await api('probe', a, 1); quote = {args: a, r};
+    if (!r.paywalled) { $('#p-quote').innerHTML = `<div class="pill ok">Free — no payment needed (HTTP ${r.status})</div>`; showResult(r.response, null); return; }
+    const pol = STATE.policy || {};
+    $('#p-quote').innerHTML = `<div class="col">
+      ${r.resource?.description ? `<div class="small muted">${esc(r.resource.description).slice(0, 280)}</div>` : ''}
+      ${r.offers.map(o => {
+        const over = o.usd != null && !o.testnet && o.usd > pol.max_per_call_usd;
+        return `<div class="offer ${o.payable ? '' : 'no'}"><div class="p">${o.usd != null ? usd(o.usd, 2) : esc(o.amount_raw)}</div>
+        <div style="flex:1"><div><b>${esc(o.asset_name)}</b> on ${esc(o.chain_label)} ${o.testnet ? '<span class="pill">test</span>' : ''}</div>
+        <div class="tiny faint">to ${esc(short(o.pay_to))}${o.why_not ? ' · ' + esc(o.why_not) : ''}${over ? ' · over your per-call limit' : ''}</div></div>
+        ${o.payable ? `<button class="btn pri" data-pay="${o.index}" ${over ? 'disabled' : ''}>Pay &amp; call</button>` : ''}</div>`;
+      }).join('')}
+      <div class="tiny faint">Paying signs a one-time USDC authorization for exactly this amount. No gas needed.</div></div>`;
+    $$('[data-pay]').forEach(b => b.onclick = () => armed(b, 'Confirm ' + (b.closest('.offer').querySelector('.p').textContent), () => doPay(+b.dataset.pay, b)));
+  } catch (e) { $('#p-quote').innerHTML = ''; fail(e); }
+};
+async function doPay(index, btn) {
+  btn.disabled = true; btn.innerHTML = '<span class="spin"></span> paying';
+  try {
+    const r = await api('pay', {...quote.args, index}, 1);
+    if (r.paid) toast('Paid ' + usd(r.offer.usd) + ' — got the response');
+    else toast(r.error ? 'Not paid: ' + r.error : 'Server answered ' + r.status, true);
+    showResult(r.response, r);
+    LOADERS.pay();
+  } catch (e) { fail(e); }
+  btn.disabled = false; btn.textContent = 'Pay & call';
+}
+function showResult(resp, payr) {
+  $('#p-result-card').classList.remove('hide');
+  const tx = payr?.receipt?.transaction || payr?.receipt?.txHash;
+  const chain = payr?.offer?.chain;
+  const scan = {base: 'https://basescan.org/tx/', 'base-sepolia': 'https://sepolia.basescan.org/tx/', ethereum: 'https://etherscan.io/tx/', arbitrum: 'https://arbiscan.io/tx/', polygon: 'https://polygonscan.com/tx/'}[chain];
+  $('#p-result-meta').innerHTML = `<span class="pill ${resp.status < 300 ? 'ok' : 'bad'}">HTTP ${resp.status}</span> ${payr ? (payr.paid ? '<span class="pill ok">paid ' + usd(payr.offer.usd) + '</span>' : '<span class="pill warn">not paid</span>') : ''}`;
+  const body = resp.json !== undefined ? JSON.stringify(resp.json, null, 2) : resp.text ?? (resp.binary ? `[${resp.bytes} bytes of ${resp.content_type}]` : '');
+  $('#p-result').innerHTML = `${tx ? `<div class="small" style="margin-bottom:8px">Settled on-chain: <a href="${scan ? scan + esc(tx) : '#'}" target="_blank" rel="noopener" class="mono">${esc(short(tx, 10))}</a></div>` : ''}
+    ${payr?.error ? `<div class="small" style="color:var(--warn);margin-bottom:8px">${esc(payr.error)}</div>` : ''}
+    <pre>${esc(body)}</pre><div class="tiny faint" style="margin-top:6px">${esc(resp.content_type)} · ${resp.bytes} bytes</div>`;
+}
+$('#lim-save').onclick = () => api('set_policy', {
+  max_per_call_usd: $('#lim-call').value, max_per_day_usd: $('#lim-day').value, allow_mainnet: $('#lim-main').checked,
+  allowed_hosts: $('#lim-allow').value, blocked_hosts: $('#lim-block').value}, 1).then(() => { toast('Limits saved'); LOADERS.pay(); }).catch(fail);
+const EVMNETS = ['base', 'base-sepolia', 'ethereum', 'arbitrum', 'polygon'];
+const payableHere = s => (s.networks || []).some(n => EVMNETS.includes(String(n).toLowerCase()));
+const nets = a => { a = a || []; return a.slice(0, 3).join(', ') + (a.length > 3 ? ' +' + (a.length - 3) : ''); };
+async function discover(q) {
+  $('#d-list').innerHTML = '<span class="spin"></span>';
+  try {
+    const d = await api('services', {q, limit: 24});
+    if (!d.ok) { $('#d-list').innerHTML = `<div class="empty" style="grid-column:1/-1">${esc(d.error)}</div>`; return; }
+    $('#d-count').textContent = (d.total || 0).toLocaleString() + ' paid APIs indexed';
+    d.items.sort((a, b) => payableHere(b) - payableHere(a));
+    $('#d-list').innerHTML = d.items.length ? d.items.map((s, i) => `<div class="card svc" data-i="${i}">
+      <div class="row" style="flex-wrap:nowrap">${s.icon ? `<img src="${esc(s.icon)}" alt="" loading="lazy" onerror="this.style.visibility='hidden'">` : ''}<div style="min-width:0;flex:1"><b style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(s.name || s.host)}</b><span class="tiny faint">${esc(s.host)}</span></div><span class="pill ok">${usd(s.price_usd, 2)}</span></div>
+      <div class="d">${esc(s.description || '')}</div>
+      <div class="tiny faint">${esc(s.method || 'GET')} · ${esc(nets(s.networks))}${s.calls_30d ? ' · ' + s.calls_30d.toLocaleString() + ' calls/30d' : ''}${payableHere(s) ? '' : ' · <span style="color:var(--warn)">not payable from here</span>'}</div></div>`).join('')
+      : '<div class="empty" style="grid-column:1/-1">Nothing found.</div>';
+    $$('#d-list .svc').forEach(c => c.onclick = () => {
+      const s = d.items[+c.dataset.i];
+      if (!WHO.owner) return toast('Only the owner can call paid APIs from this node', true);
+      $('#p-url').value = s.url; $('#p-method').value = (s.method || 'GET').toUpperCase() === 'POST' ? 'POST' : 'GET'; $('#p-method').onchange();
+      $('#p-quote').innerHTML = ''; window.scrollTo({top: 0, behavior: 'smooth'}); $('#p-probe').click();
+    });
+  } catch (e) { $('#d-list').innerHTML = ''; fail(e); }
+}
+$('#d-go').onclick = () => discover($('#d-q').value);
+$('#d-q').onkeydown = e => { if (e.key === 'Enter') discover($('#d-q').value); };
+$('#p-url').onkeydown = e => { if (e.key === 'Enter') $('#p-probe').click(); };
+$('#d-chips').innerHTML = ['weather', 'search', 'crypto', 'news', 'image', 'ai'].map(c => `<button class="btn sm ghost" data-chip="${c}">${c}</button>`).join('');
+$$('[data-chip]').forEach(b => b.onclick = () => { $('#d-q').value = b.dataset.chip; discover(b.dataset.chip); });
+
+// ── GET PAID ──
+let pollT = null;
+LOADERS.receive = async () => {
+  if (!WHO.owner) return;
+  try {
+    const [cs, ws, inv] = await Promise.all([api('chains'), api('wallets'), api('invoices')]);
+    STATE.chains = cs; STATE.wallets = ws;
+    if (!$('#r-chain').options.length) $('#r-chain').innerHTML = Object.entries(cs).map(([k, c]) => `<option value="${k}">${esc(c.label)}</option>`).join('');
+    const cur = $('#r-wallet').value;
+    $('#r-wallet').innerHTML = ws.map(w => `<option value="${w.id}" ${w.id === cur || (!cur && w.default) ? 'selected' : ''}>${esc(w.name)}</option>`).join('');
+    $('#r-addrs').innerHTML = ws.length ? ws.map(w => `<div style="margin-bottom:10px"><div class="small" style="margin-bottom:4px"><b>${esc(w.name)}</b></div><div class="row" style="gap:6px">${addrChip(w.evm, 'Base / ETH / ARB / POL')}${addrChip(w.solana, 'Solana')}</div></div>`).join('')
+      + '<div class="tiny faint">The EVM address is the same on every EVM network. Send USDC on the network you pick.</div>'
+      : '<div class="empty">No wallets yet. <a href="#" data-go="wallets">Create one</a></div>';
+    renderInvoices(inv);
+  } catch (e) { fail(e); }
+};
+function statusPill(s) { return s === 'paid' ? '<span class="pill ok">paid</span>' : s === 'open' ? '<span class="pill warn">waiting</span>' : '<span class="pill">' + esc(s) + '</span>'; }
+function renderInvoices(inv) {
+  $('#r-list').innerHTML = inv.length ? `<div class="tablewrap"><table><thead><tr><th>Amount</th><th>Network</th><th>Note</th><th>Status</th><th></th></tr></thead><tbody>${inv.map(i => `<tr style="cursor:pointer" data-inv="${i.id}">
+    <td><b>${num(i.amount, 2)}</b> USDC</td><td>${esc((STATE.chains[i.chain] || {}).label || i.chain)}</td><td class="small muted">${esc(i.memo || '')}</td><td>${statusPill(i.status)}</td><td class="tiny faint">${ago(i.created)}</td></tr>`).join('')}</tbody></table></div>`
+    : '<div class="empty">No payment requests yet.</div>';
+  $$('[data-inv]').forEach(r => r.onclick = () => showInvoice(inv.find(i => i.id === r.dataset.inv)));
+}
+async function showInvoice(i) {
+  clearInterval(pollT);
+  const C = $('#r-current');
+  const label = (STATE.chains[i.chain] || {}).label || i.chain;
+  C.innerHTML = `<div class="card"><div class="row sp"><h2>Request · ${num(i.amount, 2)} USDC</h2><span id="ri-st">${statusPill(i.status)}</span></div>
+    <div class="row" style="align-items:flex-start;gap:18px">
+      <div class="qr" id="ri-qr"><span class="spin"></span></div>
+      <div class="col" style="flex:1;min-width:220px">
+        <div class="small muted">Send exactly <b style="color:var(--text)">${num(i.amount, 6)} USDC</b> on <b style="color:var(--text)">${esc(label)}</b> to:</div>
+        ${addrChip(i.address)}
+        ${i.memo ? `<div class="small">“${esc(i.memo)}”</div>` : ''}
+        <div class="row" style="gap:6px"><button class="btn sm" data-copy="${esc(i.uri)}">${ICON.copy} Copy pay link</button><a class="btn sm ghost" href="${esc(i.explorer)}" target="_blank" rel="noopener">${ICON.ext} Explorer</a></div>
+        <div class="tiny faint" id="ri-recv">${i.received ? 'received so far: ' + num(i.received, 6) + ' USDC' : ''}</div>
+        <div class="row" style="gap:6px">${i.status === 'open' ? '<button class="btn sm" id="ri-check">Check now</button><button class="btn sm danger" id="ri-cancel">Cancel</button>' : ''}</div>
+      </div></div>
+    ${i.overlaps?.length ? '<div class="tiny" style="color:var(--warn);margin-top:10px">Another open request uses the same wallet and network; a single payment can mark both as paid.</div>' : ''}</div>`;
+  fetch(ROOT + '/qr/' + i.id + '.svg', {headers: TOKEN ? {Authorization: 'Bearer ' + TOKEN} : {}}).then(r => r.ok ? r.text() : '').then(s => { if ($('#ri-qr')) $('#ri-qr').innerHTML = s; });
+  const check = async quiet => {
+    try {
+      const n = await api('check_invoice', {id: i.id}, 1);
+      if (!$('#ri-st')) return clearInterval(pollT);
+      $('#ri-st').innerHTML = statusPill(n.status);
+      if (n.received) $('#ri-recv').textContent = 'received so far: ' + num(n.received, 6) + ' USDC';
+      if (n.status !== 'open') { clearInterval(pollT); if (n.status === 'paid') toast('Payment received'); showInvoice(n); LOADERS.receive(); }
+      else if (!quiet) toast('Not paid yet');
+    } catch (e) { if (!quiet) fail(e); }
+  };
+  if (i.status === 'open') {
+    $('#ri-check').onclick = () => check(false);
+    $('#ri-cancel').onclick = e => armed(e.target, 'Click again to cancel', () => api('cancel_invoice', {id: i.id}, 1).then(n => { showInvoice(n); LOADERS.receive(); }).catch(fail));
+    pollT = setInterval(() => { if (document.visibilityState === 'visible' && $('#t-receive').classList.contains('on')) check(true); }, 15000);
+  }
+}
+$('#r-go').onclick = () => api('create_invoice', {amount: $('#r-amt').value, chain: $('#r-chain').value, wallet: $('#r-wallet').value, memo: $('#r-memo').value}, 1)
+  .then(i => { toast('Request created'); $('#r-memo').value = ''; showInvoice(i); LOADERS.receive(); }).catch(fail);
+
+// ── ACTIVITY ──
+let aKind = '';
+LOADERS.activity = async () => {
+  if (!WHO.owner) return;
+  try { const rows = await api('ledger', {kind: aKind, limit: 300}); $('#a-list').innerHTML = rows.length ? ledgerTable(rows) : '<div class="empty">Nothing yet.</div>'; } catch (e) { fail(e); }
+};
+$$('#a-seg button').forEach(b => b.onclick = () => { aKind = b.dataset.k; $$('#a-seg button').forEach(x => x.classList.toggle('on', x === b)); LOADERS.activity(); });
+function ledgerTable(rows, compact) {
+  return `<div class="tablewrap"><table><thead><tr><th>When</th><th>What</th><th>Site</th>${compact ? '' : '<th>Wallet</th><th>Network</th>'}<th class="n">Amount</th><th>Result</th></tr></thead><tbody>${rows.map(r => {
+    const what = r.kind === 'pay' ? '<span class="pill blue">payment</span>' : '<span class="pill">price check</span>';
+    const res = r.kind === 'pay' ? (r.ok ? '<span class="pill ok">paid</span>' : `<span class="pill bad" title="${esc(r.error || '')}">failed ${r.status || ''}</span>`)
+      : (r.paywalled ? '<span class="pill warn">402</span>' : `<span class="pill">${r.status}</span>`);
+    return `<tr><td class="small faint" style="white-space:nowrap">${ago(r.ts)}</td><td>${what}</td><td class="small" title="${esc(r.url)}">${esc(host(r.url))}</td>
+      ${compact ? '' : `<td class="small">${esc(r.wallet || '')}</td><td class="small">${esc(r.chain || '')}${r.testnet ? ' <span class="pill">test</span>' : ''}</td>`}
+      <td class="n">${r.usd != null ? usd(r.usd, 2) : ''}</td><td>${res}</td></tr>`;
+  }).join('')}</tbody></table></div>`;
+}
+
+// ── TOOLKIT ──
+let TK = null, tGroup = '';
+function ksub(k) { $$('#k-seg button').forEach(b => b.classList.toggle('on', b.dataset.k === k)); $$('.ksub').forEach(s => s.classList.toggle('hide', s.id !== 'k-' + k)); }
+$$('#k-seg button').forEach(b => b.onclick = () => ksub(b.dataset.k));
+LOADERS.toolkit = async () => {
+  renderConnect();
+  if (TK) return;
+  try { TK = await api('toolkit'); } catch (e) { return fail(e); }
+  const groups = Object.keys(TK.summary.groups);
+  $('#k-tg').innerHTML = ['', ...groups].map(g => `<button class="btn sm ${g === tGroup ? 'pri' : 'ghost'}" data-g="${esc(g)}">${g || 'All'} ${g ? '<span class="faint">' + TK.summary.groups[g] + '</span>' : ''}</button>`).join('');
+  $$('[data-g]').forEach(b => b.onclick = () => { tGroup = b.dataset.g; $$('[data-g]').forEach(x => x.className = 'btn sm ' + (x === b ? 'pri' : 'ghost')); renderTools(); });
+  $('#k-tq').oninput = renderTools; renderTools();
+  $('#k-plist').innerHTML = TK.packages.map(p => `<div class="card"><div class="row sp"><b class="mono">${esc(p.name)}</b>${p.version ? '<span class="pill">' + esc(p.version) + '</span>' : ''}</div>
+    <div class="small muted" style="margin:6px 0">${esc(p.description || '')}</div><div class="row" style="gap:6px">${p.readme ? `<button class="btn sm ghost" data-readme="${esc(p.dir)}">Read</button>` : ''}<a class="btn sm ghost" target="_blank" rel="noopener" href="https://github.com/nirholas/agenti/tree/${TK.summary.commit}/packages/${esc(p.dir)}">${ICON.ext} Source</a></div></div>`).join('');
+  $$('[data-readme]').forEach(b => b.onclick = () => { ksub('docs'); loadDoc(b.dataset.readme); });
+  $('#k-elist').innerHTML = TK.examples.map(e => `<button class="btn ghost" style="justify-content:space-between;text-align:left;white-space:normal" data-ex="${esc(e.file)}"><span><b style="text-transform:capitalize">${esc(e.title)}</b><br><span class="tiny faint">${esc(e.summary)}</span></span><span class="tiny faint">${e.lines} lines</span></button>`).join('');
+  $$('[data-ex]').forEach(b => b.onclick = () => api('example', {file: b.dataset.ex}).then(x => $('#k-esrc').innerHTML = `<div class="card"><div class="row sp" style="margin-bottom:8px"><b class="mono">${esc(x.file)}</b><button class="btn sm" data-copy="${esc(x.source)}">${ICON.copy} Copy</button></div><pre style="max-height:640px">${esc(x.source)}</pre></div>`).catch(fail));
+  $('#k-dsel').innerHTML = [['', 'Overview'], ...TK.packages.filter(p => p.readme).map(p => [p.dir, p.name])].map(([k, n]) => `<button class="btn sm ghost" data-doc="${esc(k)}">${esc(n)}</button>`).join('');
+  $$('[data-doc]').forEach(b => b.onclick = () => loadDoc(b.dataset.doc));
+  loadDoc('');
+};
+function renderTools() {
+  const q = $('#k-tq').value.toLowerCase();
+  const list = TK.tools.filter(t => (!tGroup || t.group === tGroup) && (!q || (t.name + t.description).toLowerCase().includes(q)));
+  $('#k-tlist').innerHTML = `<p class="small muted">${TK.tools.length} tools in <span class="mono">@agenti/mcp</span>. This node also serves its own smaller MCP (wallets, balances, pay inside limits, invoices) — see Connect.</p>
+    <div class="grid g2" style="gap:8px">${list.map(t => `<div class="tool"><div class="row sp"><b>${esc(t.name)}</b><span>${t.spends ? '<span class="pill warn">moves money</span>' : ''} <span class="pill">${esc(t.group)}</span></span></div><div class="small muted" style="margin-top:4px">${esc(t.description)}</div></div>`).join('')}</div>`;
+}
+function renderConnect() {
+  const origin = location.origin;
+  const mcpUrl = origin + ROOT + '/mcp';
+  const local = `http://127.0.0.1:${location.port || 50129}/mcp`;
+  const cfg = JSON.stringify({mcpServers: {agenti: {type: 'http', url: local}}}, null, 2);
+  const up = JSON.stringify({mcpServers: {agenti: {command: 'npx', args: ['-y', '@agenti/mcp'], env: {AGENTI_EVM_PRIVATE_KEY: '0x…', AGENTI_SOLANA_PRIVATE_KEY: '…'}}}}, null, 2);
+  $('#k-connect').innerHTML = `<div class="grid g2" style="align-items:start">
+    <div class="card"><h2>Connect to this node <span class="pill ok">recommended</span></h2>
+      <p class="small muted">Your agent uses the wallets on this page and pays only inside your spending limits. Keys never leave this machine.</p>
+      <div class="small" style="margin-bottom:6px">Claude Code:</div>
+      <pre>claude mcp add --transport http agenti ${esc(local)}</pre>
+      <div class="row sp" style="margin:12px 0 6px"><span class="small">Any MCP client (JSON):</span><button class="btn sm" data-copy="${esc(cfg)}">${ICON.copy} Copy</button></div>
+      <pre>${esc(cfg)}</pre>
+      <p class="tiny faint" style="margin-top:8px">From another machine use ${esc(mcpUrl)} with the owner's sign-in token as a Bearer header; without it only the read-only tools answer.</p>
+      <div class="small" style="margin:12px 0 6px">Tools: <span class="mono">agenti_overview · agenti_balances · agenti_lookup · agenti_services · agenti_probe · agenti_pay · agenti_policy · agenti_create_invoice · agenti_check_invoice · agenti_ledger · agenti_sign_message · agenti_wallets · agenti_create_wallet</span></div>
+    </div>
+    <div class="card"><h2>Run the full upstream server</h2>
+      <p class="small muted">The <span class="mono">@agenti/mcp</span> package has ${TK ? TK.summary.mcp_tools : 'about 60'} tools (swaps, pump.fun, Jupiter, Bitrefill, market data). It reads keys from env and has no spending limits of its own, so give it a separate wallet with a small balance.</p>
+      <div class="row sp" style="margin-bottom:6px"><span class="small">Claude Desktop / Cursor:</span><button class="btn sm" data-copy="${esc(up)}">${ICON.copy} Copy</button></div>
+      <pre>${esc(up)}</pre>
+      <div class="small" style="margin:12px 0 6px">Or from source on this box:</div>
+      <pre>m agenti/install && m agenti/build && m agenti/mcp</pre>
+      <div class="small" style="margin:12px 0 6px">SDK in your own code:</div>
+      <pre>import { agenti } from '@agenti/sdk'
+import { generateWallet } from '@agenti/core'
+const client = agenti({ wallet: generateWallet() })
+const res = await client.pay('https://api.example.com/premium', { maxAmount: '10000' })</pre>
+    </div></div>`;
+}
+function md(src) {
+  const blocks = []; src = src.replace(/```[\w-]*\n([\s\S]*?)```/g, (_, c) => { blocks.push(c); return '\u0000' + (blocks.length - 1) + '\u0000'; });
+  let h = esc(src)
+    .replace(/^### (.*)$/gm, '<h3>$1</h3>').replace(/^## (.*)$/gm, '<h2>$1</h2>').replace(/^# (.*)$/gm, '<h1>$1</h1>')
+    .replace(/^\s*[-*] (.*)$/gm, '<li>$1</li>').replace(/(<li>[\s\S]*?<\/li>)(?!\s*<li>)/g, '<ul>$1</ul>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+    .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
+    .replace(/^&lt;[\s\S]*?&gt;$/gm, '')
+    .replace(/\n{2,}/g, '<br><br>');
+  return h.replace(/\u0000(\d+)\u0000/g, (_, i) => '<pre><code>' + esc(blocks[+i]) + '</code></pre>');
+}
+function loadDoc(pkg) {
+  $$('[data-doc]').forEach(b => b.className = 'btn sm ' + (b.dataset.doc === pkg ? 'pri' : 'ghost'));
+  $('#k-doc').innerHTML = '<span class="spin"></span>';
+  api('readme', {package: pkg}).then(d => $('#k-doc').innerHTML = md(d.markdown)).catch(e => { $('#k-doc').innerHTML = ''; fail(e); });
+}
+
+// ── boot ──
+async function boot() {
+  try { WHO = await api('whoami'); } catch (_) { WHO = {owner: false}; }
+  gateOwner();
+  const tab = (location.hash || '#home').slice(1);
+  go(LOADERS[tab] ? tab : 'home');
+}
+boot();
+})();
+</script>
+</body>
+</html>

@@ -1,6 +1,7 @@
 "use client";
 
-// Upload + manage user-written strats (mod.py / mod.rs) AND share them.
+// Upload + manage user-written strats (strat.py / strat.rs / strat.ts) AND
+// share them.
 // Rendered as the STRAT → MARKET subtab (CopyIndex).
 //
 // The Polymarket engine ships a Python `Strat` base class in
@@ -19,8 +20,14 @@
 // traders a place to publish, discover, and fork strategies.
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import ConfirmDeleteStrat from "./ConfirmDeleteStrat";
 
-type StratKind = "py" | "rs";
+type StratKind = "py" | "rs" | "ts";
+
+// Fired (on window) whenever a user strat is created outside this panel —
+// e.g. the MY STRATS card grid's upload tile — so the list here re-reads.
+export const USER_STRATS_CHANGED_EVENT = "pm:user-strats-changed";
 
 interface UserStratEntry {
   id: string;
@@ -111,16 +118,19 @@ export default function UserStratsPanel({ eoa }: { eoa?: string }) {
   // Import-by-CID box.
   const [importCid, setImportCid] = useState("");
   const [importing, setImporting] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState<UserStratEntry | null>(null);
+  const [forkTarget, setForkTarget] = useState<UserStratEntry | null>(null);
+  const [forkIdInput, setForkIdInput] = useState("");
   const fileRef = useRef<HTMLInputElement | null>(null);
 
   const refresh = useCallback(async () => {
     try {
       const mineUrl = owner
-        ? `/api/polymarket/user-strats?owner=${encodeURIComponent(owner)}`
-        : "/api/polymarket/user-strats";
+        ? `/polymarket/api/user-strats?owner=${encodeURIComponent(owner)}`
+        : "/polymarket/api/user-strats";
       const pubUrl = owner
-        ? `/api/polymarket/user-strats/public?owner=${encodeURIComponent(owner)}`
-        : "/api/polymarket/user-strats/public";
+        ? `/polymarket/api/user-strats/public?owner=${encodeURIComponent(owner)}`
+        : "/polymarket/api/user-strats/public";
       const [rm, rp] = await Promise.all([
         fetch(mineUrl, { cache: "no-store" }),
         fetch(pubUrl, { cache: "no-store" }),
@@ -143,6 +153,9 @@ export default function UserStratsPanel({ eoa }: { eoa?: string }) {
 
   useEffect(() => {
     refresh();
+    const onChanged = () => void refresh();
+    window.addEventListener(USER_STRATS_CHANGED_EVENT, onChanged);
+    return () => window.removeEventListener(USER_STRATS_CHANGED_EVENT, onChanged);
   }, [refresh]);
 
   const handleFile = useCallback(async (file: File) => {
@@ -150,10 +163,11 @@ export default function UserStratsPanel({ eoa }: { eoa?: string }) {
     const text = await file.text();
     setContent(text);
     if (!id) {
-      const base = file.name.replace(/\.(py|rs)$/, "").replace(/[^a-zA-Z0-9_-]/g, "_");
+      const base = file.name.replace(/\.(py|rs|ts)$/, "").replace(/[^a-zA-Z0-9_-]/g, "_");
       setId(base.slice(0, 64));
     }
     if (file.name.endsWith(".rs")) setKind("rs");
+    else if (file.name.endsWith(".ts")) setKind("ts");
     else if (file.name.endsWith(".py")) setKind("py");
   }, [id]);
 
@@ -170,7 +184,7 @@ export default function UserStratsPanel({ eoa }: { eoa?: string }) {
     }
     setBusy(true);
     try {
-      const r = await fetch("/api/polymarket/user-strats", {
+      const r = await fetch("/polymarket/api/user-strats", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -199,12 +213,18 @@ export default function UserStratsPanel({ eoa }: { eoa?: string }) {
     }
   }, [id, kind, content, owner, title, description, makePublic, refresh]);
 
-  const handleDelete = useCallback(async (s: UserStratEntry) => {
-    if (!confirm(`Delete strat "${s.id}"? This removes the file from disk.`)) return;
+  const handleDelete = useCallback((s: UserStratEntry) => {
+    setDeleteConfirm(s);
+  }, []);
+
+  const doDelete = useCallback(async () => {
+    if (!deleteConfirm) return;
+    const s = deleteConfirm;
+    setDeleteConfirm(null);
     setError(null);
     try {
       const r = await fetch(
-        `/api/polymarket/user-strats/${encodeURIComponent(s.id)}/${s.kind}?owner=${encodeURIComponent(owner)}`,
+        `/polymarket/api/user-strats/${encodeURIComponent(s.id)}/${s.kind}?owner=${encodeURIComponent(owner)}`,
         { method: "DELETE" },
       );
       if (!r.ok) throw new Error(await readError(r));
@@ -212,14 +232,14 @@ export default function UserStratsPanel({ eoa }: { eoa?: string }) {
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
-  }, [refresh, owner]);
+  }, [deleteConfirm, refresh, owner]);
 
   const handleTogglePublic = useCallback(async (s: UserStratEntry) => {
     setError(null);
     setStatus(null);
     try {
       const r = await fetch(
-        `/api/polymarket/user-strats/${encodeURIComponent(s.id)}/publish`,
+        `/polymarket/api/user-strats/${encodeURIComponent(s.id)}/publish`,
         {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -237,7 +257,7 @@ export default function UserStratsPanel({ eoa }: { eoa?: string }) {
   const fetchSource = useCallback(async (s: UserStratEntry): Promise<string | null> => {
     try {
       const r = await fetch(
-        `/api/polymarket/user-strats/${encodeURIComponent(s.id)}/${s.kind}`,
+        `/polymarket/api/user-strats/${encodeURIComponent(s.id)}/${s.kind}`,
       );
       if (!r.ok) return null;
       const j = (await r.json()) as { content?: string };
@@ -267,7 +287,7 @@ export default function UserStratsPanel({ eoa }: { eoa?: string }) {
     setCopied(false);
     try {
       const r = await fetch(
-        `/api/polymarket/user-strats/${encodeURIComponent(s.id)}/share`,
+        `/polymarket/api/user-strats/${encodeURIComponent(s.id)}/share`,
         {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -304,7 +324,7 @@ export default function UserStratsPanel({ eoa }: { eoa?: string }) {
     setStatus(null);
     setImporting(true);
     try {
-      const r = await fetch("/api/polymarket/user-strats/import", {
+      const r = await fetch("/polymarket/api/user-strats/import", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ cid, owner }),
@@ -321,15 +341,21 @@ export default function UserStratsPanel({ eoa }: { eoa?: string }) {
     }
   }, [importCid, owner, refresh]);
 
-  const handleFork = useCallback(async (s: UserStratEntry) => {
+  const handleFork = useCallback((s: UserStratEntry) => {
     if (!owner) {
       setError("Connect a wallet to fork strats.");
       return;
     }
     const suggested = `${s.id}-fork`.slice(0, 64).replace(/[^a-zA-Z0-9_-]/g, "-");
-    const newId = prompt(`Fork "${s.title}" — pick an ID for your copy:`, suggested);
-    if (!newId) return;
-    const cleaned = newId.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 64);
+    setForkTarget(s);
+    setForkIdInput(suggested);
+  }, [owner]);
+
+  const doFork = useCallback(async () => {
+    if (!forkTarget) return;
+    const s = forkTarget;
+    const cleaned = forkIdInput.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 64);
+    setForkTarget(null);
     if (!cleaned) {
       setError("Fork ID must be a-z, 0-9, -, _.");
       return;
@@ -338,7 +364,7 @@ export default function UserStratsPanel({ eoa }: { eoa?: string }) {
     setStatus(null);
     try {
       const r = await fetch(
-        `/api/polymarket/user-strats/${encodeURIComponent(s.id)}/fork`,
+        `/polymarket/api/user-strats/${encodeURIComponent(s.id)}/fork`,
         {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -351,7 +377,7 @@ export default function UserStratsPanel({ eoa }: { eoa?: string }) {
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
-  }, [owner, refresh]);
+  }, [forkTarget, forkIdInput, owner, refresh]);
 
   return (
     <div className="pixel-panel border-2 border-pixel-border p-3 space-y-3">
@@ -495,8 +521,9 @@ export default function UserStratsPanel({ eoa }: { eoa?: string }) {
             className="bg-pixel-bg border border-pixel-border rounded px-2 py-1 font-mono text-xs outline-none"
             disabled={busy}
           >
-            <option value="py">mod.py</option>
-            <option value="rs">mod.rs</option>
+            <option value="py">strat.py</option>
+            <option value="rs">strat.rs</option>
+            <option value="ts">strat.ts</option>
           </select>
         </div>
         <input
@@ -521,7 +548,7 @@ export default function UserStratsPanel({ eoa }: { eoa?: string }) {
           <input
             ref={fileRef}
             type="file"
-            accept=".py,.rs"
+            accept=".py,.rs,.ts"
             onChange={(e) => {
               const f = e.target.files?.[0];
               if (f) void handleFile(f);
@@ -717,7 +744,7 @@ export default function UserStratsPanel({ eoa }: { eoa?: string }) {
               key={t.name}
               onClick={async () => {
                 try {
-                  const r = await fetch(`/api/polymarket/user-strats/template/${t.name}`);
+                  const r = await fetch(`/polymarket/api/user-strats/template/${t.name}`);
                   if (!r.ok) return;
                   const j = (await r.json()) as { content?: string };
                   if (!j.content) return;
@@ -738,10 +765,14 @@ export default function UserStratsPanel({ eoa }: { eoa?: string }) {
         <summary className="cursor-pointer">How does this work?</summary>
         <div className="mt-1 space-y-1.5">
           <p>
-            Strats are Python files. Subclass{" "}
+            A code strat is one source file — <code className="font-mono">strat.py</code>,{" "}
+            <code className="font-mono">strat.rs</code> or{" "}
+            <code className="font-mono">strat.ts</code>. In Python, subclass{" "}
             <code className="font-mono">Strat</code> from{" "}
-            <code className="font-mono">src/strats/base.py</code> and
-            implement two methods:
+            <code className="font-mono">src/strats/base.py</code> (the copy-trading
+            reference is <code className="font-mono">copytrader.py</code> — the
+            default template); Rust and TypeScript files mirror the same
+            two-method surface:
           </p>
           <ul className="list-disc pl-5 space-y-1">
             <li>
@@ -753,7 +784,7 @@ export default function UserStratsPanel({ eoa }: { eoa?: string }) {
             <li>
               <code className="font-mono">backtest(history) → BacktestResult</code>{" "}
               — replay your signal logic over a historical trade list and
-              return the PnL curve + fees + ROI. Powers the TEST tab.
+              return the PnL curve + fees + ROI. Powers the BACKTEST tab.
             </li>
           </ul>
           <p>
@@ -781,6 +812,74 @@ export default function UserStratsPanel({ eoa }: { eoa?: string }) {
           </p>
         </div>
       </details>
+
+      <ConfirmDeleteStrat
+        name={deleteConfirm?.id ?? null}
+        onConfirm={doDelete}
+        onCancel={() => setDeleteConfirm(null)}
+      />
+
+      {forkTarget && createPortal(
+        <div
+          className="fixed inset-0 z-[70] grid place-items-center p-4"
+          onClick={() => setForkTarget(null)}
+        >
+          <div className="absolute inset-0" style={{ background: "rgb(var(--pixel-black-rgb)/0.6)" }} />
+          <div
+            role="dialog"
+            aria-modal="true"
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setForkTarget(null);
+              if (e.key === "Enter") void doFork();
+            }}
+            tabIndex={-1}
+            ref={(el) => el?.focus()}
+            className="relative w-full max-w-[360px] rounded-[var(--radius)] backdrop-blur-md p-4 outline-none"
+            style={{
+              background: "linear-gradient(180deg, rgb(var(--pixel-black-rgb)/0.98), rgb(var(--pixel-bg-rgb)/0.96))",
+              border: "1px solid var(--border)",
+              boxShadow: "0 24px 64px rgba(0,0,0,0.6)",
+              animation: "drawer-in-left 0.14s ease-out",
+            }}
+          >
+            <div className="text-[11px] font-mono font-bold tracking-[0.16em] text-blue-400/90">
+              FORK STRAT
+            </div>
+            <div className="mt-2 text-[12.5px] font-mono text-pixel-white leading-relaxed">
+              Fork <span className="text-green-400 font-semibold">&ldquo;{forkTarget.title}&rdquo;</span>
+            </div>
+            <div className="mt-1 text-[10.5px] font-mono text-pixel-gray">
+              Pick an ID for your private copy (a-z, 0-9, -, _).
+            </div>
+            <input
+              type="text"
+              value={forkIdInput}
+              onChange={(e) => setForkIdInput(e.target.value.replace(/[^a-zA-Z0-9_-]/g, ""))}
+              maxLength={64}
+              placeholder="new-strat-id"
+              className="mt-3 w-full bg-pixel-bg border border-pixel-border rounded px-2 py-1.5 font-mono text-xs outline-none"
+              autoFocus
+            />
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                onClick={() => setForkTarget(null)}
+                className="rounded-[var(--radius-sm)] border border-pixel-border px-3 py-1.5 text-[11px] font-mono font-semibold tracking-[0.06em] text-pixel-gray hover:text-pixel-white hover:border-pixel-white/40 transition-colors"
+              >
+                CANCEL
+              </button>
+              <button
+                onClick={() => void doFork()}
+                disabled={!forkIdInput.replace(/[^a-zA-Z0-9_-]/g, "")}
+                className="rounded-[var(--radius-sm)] border border-blue-400/50 bg-blue-400/10 px-3 py-1.5 text-[11px] font-mono font-semibold tracking-[0.06em] text-blue-400 hover:bg-blue-400/20 hover:border-blue-400 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                FORK
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )}
     </div>
   );
 }

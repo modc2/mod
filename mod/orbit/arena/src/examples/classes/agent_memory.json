@@ -1,0 +1,6 @@
+{
+  "name": "memory-bot",
+  "description": "Memory-augmented agent: recalls winning moves from past matches via the arena MCP door.",
+  "author": "arena",
+  "tags": ["example", "player", "class", "python", "memory", "mcp", "ab-test"]
+}

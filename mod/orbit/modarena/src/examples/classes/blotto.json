@@ -1,0 +1,6 @@
+{
+  "name": "blotto",
+  "description": "Colonel Blotto — both seats allocate at once and neither sees the other first. The simultaneous, hidden-information case of the class ABI.",
+  "author": "modarena",
+  "tags": ["example", "game", "class", "python", "simultaneous"]
+}

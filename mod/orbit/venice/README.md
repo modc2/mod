@@ -78,6 +78,19 @@ Icons are pixel SVGs (`app/src/components/Pix.tsx`) drawn on a 7×7 grid rather
 than emoji or an icon font: a host with no emoji font renders 📎 as tofu, and
 pixel fonts carry no symbol range.
 
+### Layout
+
+Signed in, the screen is two columns. The left rail is the *conversation*:
+new-conversation, the stored thread list, and the orchestrator model at its
+foot. Everything about the *account* lives in the top-right corner
+(`app/src/components/Account.tsx`) — a pixel identicon
+(`app/src/components/Ident.tsx`, a 5×5 sprite mirrored from a hash of the
+address, stable across every display mode) plus the short address, opening a
+menu with the full address, the BYOK key, the pay-per-turn toggle where the
+deployment offers one, and sign-out / forget-identity. A lit pixel on the chip
+means this identity can actually send a turn — a key on file, or the paid path
+standing by.
+
 ```bash
 python3 scripts/shots.py            # screenshot every mode → /tmp/venice-shots
 python3 scripts/shots.py arcade     # …or just one

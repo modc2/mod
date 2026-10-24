@@ -1,0 +1,21 @@
+[package]
+name = "__NAME__-api"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "__NAME__-api"
+path = "src/main.rs"
+
+[dependencies]
+axum = "0.7"
+tokio = { version = "1", features = ["full"] }
+tower-http = { version = "0.5", features = ["cors"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+parking_lot = "0.12"
+
+[profile.release]
+opt-level = 3
+lto = "thin"

@@ -1,0 +1,23 @@
+{
+  "id": "commit_reveal",
+  "title": "Commit-reveal (the first rung of ZK)",
+  "blurb": "Everyone submits a sealed number, nobody can read it, nobody can copy it (the seal is bound to the sender), then everyone opens theirs and the contract checks each seal. The commitment is the simplest zero-knowledge idea: prove you decided without showing what.",
+  "level": "zk",
+  "init": {"method": "new", "args": {}},
+  "cairo_twin": "commit_reveal",
+  "steps": [
+    "Build, Test, Ship.",
+    "Pick a number and a salt (any word). VIEW seal_of {\"who\":\"<you>\",\"value\":7,\"salt\":\"pepper\"} to get your seal (in real life compute it on your side).",
+    "CHANGE commit {\"seal\":\"<that hex>\"} from your account; a friend does the same.",
+    "Owner: CHANGE open_reveals. Then everyone CHANGE reveal {\"value\":7,\"salt\":\"pepper\"}.",
+    "VIEW result: how many committed, how many opened, the sum and the average. Try revealing a different number: the seal will not match."
+  ],
+  "walkthrough": [
+    {"find": "env::sha256_array", "say": "A hash: any input -> 32 fixed bytes, impossible to run backwards. NEAR runs it as a host function, so it costs almost no gas. This is the whole secret behind the commitment."},
+    {"find": "fn seal_of", "say": "The seal mixes four things: this contract, the sender, the value, and a random salt. Without the salt, a seal of a small number could be brute-forced (try 0..100). With the sender inside, a copied seal is useless to the copier."},
+    {"find": "fn commit", "say": "Phase 1. The contract stores only the hash. Nobody, not even the owner, can read the number. Only one commit per account; changing your mind would reveal information."},
+    {"find": "fn reveal", "say": "Phase 2. You send the real value and salt; the contract recomputes the seal and compares. Match = your earlier promise is proven. Mismatch = rejected. That is a proof of knowledge, done with a hash."},
+    {"find": "Phase::Reveal", "say": "Phases stop the obvious cheat: committing after seeing others reveal. Real systems use block heights for windows instead of an owner switch."},
+    {"find": "cairo", "say": "On the cairo mod the same contract exists in Cairo, using Poseidon instead of sha256 because Poseidon is cheap inside a ZK proof. That is the next rung: prove the seal opens correctly WITHOUT ever revealing the value."}
+  ]
+}

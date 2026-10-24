@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>@ref — pose search</title>
+<style>
+  :root {
+    --bg: #0e1013; --panel: #16191e; --line: #262b33; --ink: #e8eaed;
+    --dim: #8a93a0; --hot: #ffb454; --ok: #7ad48a;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body { background: var(--bg); color: var(--ink); font: 14px/1.5 ui-monospace, Menlo, Consolas, monospace; }
+  header { display: flex; align-items: baseline; gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 16px; letter-spacing: 1px; }
+  header .stats { color: var(--dim); font-size: 12px; }
+  header .tabs { margin-left: auto; display: flex; gap: 6px; }
+  .tab { background: none; border: 1px solid var(--line); color: var(--dim); padding: 4px 12px; cursor: pointer; font: inherit; font-size: 12px; }
+  .tab.on { color: var(--ink); border-color: var(--hot); }
+  main { display: grid; grid-template-columns: 320px 1fr; min-height: calc(100vh - 54px); }
+  aside { border-right: 1px solid var(--line); padding: 18px; }
+  section { padding: 18px; }
+
+  /* ── the gimbal ── */
+  #stage { width: 260px; height: 260px; margin: 0 auto; perspective: 700px; cursor: grab; user-select: none; touch-action: none; }
+  #stage:active { cursor: grabbing; }
+  #head { width: 100%; height: 100%; position: relative; transform-style: preserve-3d; }
+  .f { position: absolute; inset: 55px; border: 1px solid var(--line); background: rgba(35,40,48,.92); }
+  .f.front { transform: translateZ(75px); background: rgba(60,66,78,.95); }
+  .f.back  { transform: rotateY(180deg) translateZ(75px); }
+  .f.left  { transform: rotateY(-90deg) translateZ(75px); }
+  .f.right { transform: rotateY(90deg) translateZ(75px); }
+  .f.top   { transform: rotateX(90deg) translateZ(75px); }
+  .f.bot   { transform: rotateX(-90deg) translateZ(75px); }
+  .f.front::before { /* the face: eyes + nose so you can read the pose */
+    content: ""; position: absolute; left: 32px; right: 32px; top: 42px; height: 14px;
+    background:
+      radial-gradient(circle at 22% 50%, var(--ink) 6px, transparent 7px),
+      radial-gradient(circle at 78% 50%, var(--ink) 6px, transparent 7px);
+  }
+  .f.front::after {
+    content: ""; position: absolute; left: 50%; top: 74px; width: 10px; height: 22px;
+    margin-left: -5px; background: var(--hot);
+  }
+  #readout { text-align: center; margin: 14px 0 4px; color: var(--hot); min-height: 22px; }
+  #angles { text-align: center; color: var(--dim); font-size: 12px; }
+  .ctl { margin-top: 16px; }
+  .ctl label { display: flex; justify-content: space-between; color: var(--dim); font-size: 12px; }
+  .ctl input[type=range] { width: 100%; accent-color: var(--hot); }
+  .row { display: flex; gap: 8px; margin-top: 14px; }
+  input[type=text] { flex: 1; background: var(--panel); border: 1px solid var(--line); color: var(--ink); padding: 6px 8px; font: inherit; font-size: 12px; }
+  button.act { background: var(--hot); border: 0; color: #10130a; padding: 6px 14px; font: inherit; font-size: 12px; cursor: pointer; }
+  button.act:disabled { opacity: .4; cursor: default; }
+  .hint { color: var(--dim); font-size: 11px; margin-top: 12px; }
+
+  /* ── the wall ── */
+  #wall { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; }
+  .card { background: var(--panel); border: 1px solid var(--line); cursor: pointer; }
+  .card.sel { border-color: var(--ok); }
+  .card img { width: 100%; height: 170px; object-fit: cover; display: block; background: #000; }
+  .card .meta { padding: 6px 8px; font-size: 11px; color: var(--dim); display: flex; justify-content: space-between; gap: 6px; }
+  .card .meta .d { color: var(--hot); }
+  #empty { color: var(--dim); padding: 40px 0; text-align: center; }
+  @media (max-width: 760px) { main { grid-template-columns: 1fr; } aside { border-right: 0; border-bottom: 1px solid var(--line); } }
+</style>
+</head>
+<body>
+<header>
+  <h1>@ref</h1>
+  <span class="stats" id="stats">…</span>
+  <nav class="tabs">
+    <button class="tab on" data-mode="search">SEARCH</button>
+    <button class="tab" data-mode="untagged">UNTAGGED</button>
+  </nav>
+</header>
+<main>
+  <aside>
+    <div id="stage"><div id="head">
+      <div class="f front"></div><div class="f back"></div>
+      <div class="f left"></div><div class="f right"></div>
+      <div class="f top"></div><div class="f bot"></div>
+    </div></div>
+    <div id="readout">front</div>
+    <div id="angles">yaw 0 · pitch 0 · roll 0</div>
+    <div class="ctl"><label>roll <span id="rollv">0</span></label>
+      <input type="range" id="roll" min="-180" max="180" value="0"></div>
+    <div class="ctl"><label>tolerance <span id="tolv">45</span></label>
+      <input type="range" id="tol" min="5" max="120" value="45"></div>
+    <div class="row"><input type="text" id="tags" placeholder="tags (optional)"></div>
+    <div class="row">
+      <input type="text" id="scanpath" placeholder="/path/to/refs">
+      <button class="act" id="scan">SCAN</button>
+    </div>
+    <div class="row"><button class="act" id="pin" disabled>PIN POSE ON SELECTED</button></div>
+    <div class="hint">Drag the head to aim the gimbal (yaw / pitch), slider for roll.
+    SEARCH shows references within tolerance of that view, nearest first.
+    UNTAGGED: click an image, aim the gimbal at its pose, pin it.</div>
+  </aside>
+  <section>
+    <div id="wall"></div>
+    <div id="empty" hidden>nothing here</div>
+  </section>
+</main>
+<script>
+const $ = s => document.querySelector(s);
+const api = fn => `api/${fn}`;           // relative → works bare and behind the gateway
+let yaw = 0, pitch = 0, mode = 'search', selected = null, timer = null;
+
+const wrap = a => { a = ((a % 360) + 360) % 360; return a > 180 ? a - 360 : a; };
+const angles = () => ({ yaw: Math.round(wrap(yaw)), pitch: Math.round(pitch), roll: +$('#roll').value });
+
+function paint() {
+  const a = angles();
+  // pitch first, then yaw, matching the store's facing() convention
+  $('#head').style.transform =
+    `rotateX(${a.pitch}deg) rotateY(${-a.yaw}deg) rotateZ(${a.roll}deg)`;
+  $('#angles').textContent = `yaw ${a.yaw} · pitch ${a.pitch} · roll ${a.roll}`;
+  $('#rollv').textContent = a.roll;
+  fetch(api('describe') + `?yaw=${a.yaw}&pitch=${a.pitch}&roll=${a.roll}`)
+    .then(r => r.json()).then(d => $('#readout').textContent = d.view);
+  if (mode === 'search') { clearTimeout(timer); timer = setTimeout(search, 220); }
+}
+
+function card(r, showDist) {
+  const el = document.createElement('div');
+  el.className = 'card' + (selected === r.id ? ' sel' : '');
+  el.innerHTML = `<img loading="lazy" src="${api('file')}?id=${r.id}" alt="">
+    <div class="meta"><span>${r.pose || r.name}</span>
+    ${showDist ? `<span class="d">${r.distance}&deg;</span>` : ''}</div>`;
+  el.onclick = () => {
+    if (mode === 'untagged') { selected = selected === r.id ? null : r.id; render(lastRefs); }
+    else if (r.yaw !== null) { yaw = r.yaw; pitch = r.pitch; $('#roll').value = Math.round(r.roll); paint(); }
+  };
+  return el;
+}
+
+let lastRefs = [];
+function render(refs) {
+  lastRefs = refs;
+  const wall = $('#wall'); wall.innerHTML = '';
+  refs.forEach(r => wall.appendChild(card(r, mode === 'search')));
+  $('#empty').hidden = refs.length > 0;
+  $('#pin').disabled = !(mode === 'untagged' && selected);
+}
+
+function search() {
+  const a = angles(), tags = $('#tags').value.trim();
+  const q = `?yaw=${a.yaw}&pitch=${a.pitch}&roll=${a.roll}&tolerance=${$('#tol').value}` +
+            (tags ? `&tags=${encodeURIComponent(tags)}` : '');
+  fetch(api('query') + q).then(r => r.json()).then(d => render(d.refs || []));
+}
+
+function untagged() {
+  fetch(api('untagged')).then(r => r.json()).then(d => render(d.refs || []));
+}
+
+function stats() {
+  fetch(api('stats')).then(r => r.json()).then(d =>
+    $('#stats').textContent = `${d.tagged}/${d.total} posed · ${d.untagged} untagged`);
+}
+
+// drag = aim the gimbal
+let drag = null;
+$('#stage').addEventListener('pointerdown', e => {
+  drag = { x: e.clientX, y: e.clientY }; $('#stage').setPointerCapture(e.pointerId);
+});
+$('#stage').addEventListener('pointermove', e => {
+  if (!drag) return;
+  yaw = wrap(yaw + (e.clientX - drag.x) * 0.6);
+  pitch = Math.max(-90, Math.min(90, pitch + (e.clientY - drag.y) * 0.6));
+  drag = { x: e.clientX, y: e.clientY }; paint();
+});
+$('#stage').addEventListener('pointerup', () => drag = null);
+$('#roll').oninput = paint;
+$('#tol').oninput = () => { $('#tolv').textContent = $('#tol').value; if (mode === 'search') paint(); };
+$('#tags').onchange = () => mode === 'search' && search();
+
+document.querySelectorAll('.tab').forEach(b => b.onclick = () => {
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('on', t === b));
+  mode = b.dataset.mode; selected = null;
+  mode === 'search' ? search() : untagged();
+});
+
+$('#scan').onclick = () => {
+  const p = $('#scanpath').value.trim(); if (!p) return;
+  $('#scan').textContent = '…';
+  fetch(api('scan') + `?path=${encodeURIComponent(p)}` +
+        ($('#tags').value.trim() ? `&tags=${encodeURIComponent($('#tags').value.trim())}` : ''))
+    .then(r => r.json()).then(d => {
+      $('#scan').textContent = 'SCAN';
+      alert(d.error || `indexed ${d.indexed} (${d.untagged} need a pose)`);
+      stats(); mode === 'search' ? search() : untagged();
+    });
+};
+
+$('#pin').onclick = () => {
+  if (!selected) return;
+  const a = angles();
+  fetch(api('set') + `?id=${selected}&yaw=${a.yaw}&pitch=${a.pitch}&roll=${a.roll}`)
+    .then(r => r.json()).then(() => { selected = null; stats(); untagged(); });
+};
+
+stats(); paint(); search();
+</script>
+</body>
+</html>

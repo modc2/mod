@@ -1,7 +1,7 @@
 """bash - run shell commands"""
 import subprocess
 import os
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 
 class Tool:
     description = "Run shell commands and return output"

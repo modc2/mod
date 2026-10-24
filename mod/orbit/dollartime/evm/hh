@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Run hardhat with a Node >= 22 (hardhat 2.29 refuses older). The system
+# node is 18; look for a newer one on the box, else fall back and hope.
+set -e
+cd "$(dirname "$0")"
+pick() {
+  for n in "$DOLLARTIME_NODE" "$(command -v node)" \
+           /usr/local/lib/python3.12/dist-packages/playwright/driver/node \
+           /root/.local/share/cursor-agent/versions/*/node \
+           /root/.vscode-server/cli/servers/*/server/node \
+           /nix/store/*-nodejs-2[2-9]*/bin/node; do
+    [ -x "$n" ] || continue
+    v=$("$n" -v 2>/dev/null | sed 's/^v//' | cut -d. -f1)
+    [ "${v:-0}" -ge 22 ] && { echo "$n"; return; }
+  done
+  command -v node
+}
+NODE=$(pick)
+mkdir -p .bin && ln -sfn "$NODE" .bin/node
+export PATH="$PWD/.bin:$PATH"
+[ -e node_modules ] || ln -sfn ../../staketime/node_modules node_modules
+exec node node_modules/hardhat/internal/cli/bootstrap.js "$@"

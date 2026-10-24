@@ -1,0 +1,93 @@
+{
+    "name": "@ref",
+    "version": "0.1.0",
+    "description": "Your reference images, searched by pose instead of by folder. Every indexed image carries the orientation of its subject (yaw/pitch/roll, like a gimbal holding a mannequin); finding a reference is pointing the gimbal at the view you are drawing \u2014 '3/4 left, slightly from above' \u2014 not remembering which folder it landed in. Poses come from an optional local estimator (mediapipe, if installed) or from you, via the console's drag-gimbal; untagged images queue up until oriented. Local-first end to end: images never move from where they live on disk, the whole index is one SQLite file in ./data, and no request leaves the machine.",
+    "icon": "\u25ce",
+    "color": "#ffb454",
+    "anchor": "mod.py",
+    "network": "testnet",
+    "port": 51040,
+    "app_port": 51040,
+    "gateway_port": 51040,
+    "base_path": "/@ref",
+    "route": true,
+    "urls": {
+        "app": "http://localhost:51040/@ref/",
+        "api": "http://localhost:51040"
+    },
+    "endpoints": {
+        "/query": {
+            "method": "GET",
+            "docs": "The gimbal query: ?yaw=&pitch=&roll=&tolerance=&tags= \u2014 refs within tolerance degrees of that view, nearest first"
+        },
+        "/describe": {
+            "method": "GET",
+            "docs": "What a gimbal position is called: ?yaw=&pitch=&roll= \u2014 e.g. '3/4 left, from above'"
+        },
+        "/scan": {
+            "method": "GET",
+            "docs": "Index every image under a folder in place: ?path=&tags= \u2014 auto-poses if a local estimator is installed"
+        },
+        "/set": {
+            "method": "GET",
+            "docs": "Pin a pose on an indexed image: ?id=&yaw=&pitch=&roll=&tags="
+        },
+        "/untagged": {
+            "method": "GET",
+            "docs": "Indexed images still waiting for a pose"
+        },
+        "/list": {
+            "method": "GET",
+            "docs": "Everything indexed, newest first: ?tags=&subject=&limit="
+        },
+        "/file": {
+            "method": "GET",
+            "docs": "The image bytes for one indexed ref: ?id= (only indexed paths are ever served)"
+        },
+        "/stats": {
+            "method": "GET",
+            "docs": "Index totals, tag counts, where the database lives"
+        },
+        "/health": {
+            "method": "GET",
+            "docs": "Liveness plus which auto-estimators this box has"
+        },
+        "/": {
+            "method": "GET",
+            "docs": "The console: a draggable gimbal head, a wall of matches, an untagged queue"
+        }
+    },
+    "fns": [
+        "forward",
+        "info",
+        "health",
+        "readme",
+        "scan",
+        "add",
+        "set",
+        "remove",
+        "query",
+        "similar",
+        "describe",
+        "untagged",
+        "list",
+        "stats",
+        "serve",
+        "test",
+        "kill"
+    ],
+    "api_fns": [
+        "info",
+        "health",
+        "readme",
+        "stats",
+        "query",
+        "describe",
+        "untagged",
+        "list",
+        "scan",
+        "set",
+        "remove"
+    ],
+    "schema": "QmRvifX55c11chi8uvpGYzGkoANDVyjGP6vLridvegMxpF"
+}

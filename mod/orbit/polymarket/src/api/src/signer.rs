@@ -51,14 +51,13 @@ impl SignerStore {
     pub fn new() -> Self {
         // POLYMARKET_DATA_DIR — set this to a volume-mounted path in
         // production so the signer store survives `docker compose down/up`.
-        // Defaults to the OS temp dir for unit tests + local dev where the
-        // process doesn't outlive the host. The dir itself never disappears
-        // mid-run, so we don't have to re-mkdir on every write.
-        let base = std::env::var("POLYMARKET_DATA_DIR")
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|_| std::env::temp_dir());
-        let disk_dir = base.join("polymarket-signer-store");
+        // The dir itself never disappears mid-run, so we don't have to
+        // re-mkdir on every write.
+        let disk_dir = default_store_dir("polymarket-signer-store");
         std::fs::create_dir_all(&disk_dir).ok();
+        // 0700: this dir holds the AES-encrypted wallet keys AND the master
+        // key that decrypts them.
+        restrict_dir_perms(&disk_dir);
         let master_key = Self::load_or_init_master(&disk_dir);
         Self {
             disk_dir,
@@ -92,6 +91,8 @@ impl SignerStore {
         let master_path = disk_dir.join(".master");
         if let Ok(s) = std::fs::read_to_string(&master_path) {
             if let Some(key) = parse_master_hex(s.trim()) {
+                // A build before `write_private` may have left this readable.
+                restrict_perms(&master_path);
                 tracing::info!("signer master key loaded from {:?}", master_path);
                 return key;
             }
@@ -106,9 +107,8 @@ impl SignerStore {
         let mut key = [0u8; 32];
         OsRng.fill_bytes(&mut key);
         let hex_str = hex::encode(key);
-        match std::fs::write(&master_path, &hex_str) {
+        match write_private(&master_path, hex_str.as_bytes()) {
             Ok(()) => {
-                restrict_perms(&master_path);
                 tracing::info!(
                     "signer master key generated and persisted to {:?} (chmod 0600). \
                      Set POLYMARKET_SIGNER_MASTER_KEY=... if you'd rather pin it.",
@@ -161,6 +161,7 @@ impl SignerStore {
         }
         let path = self.path_for(&key_lc);
         if path.exists() {
+            restrict_perms(&path); // as above: tighten what an older build wrote
             let raw = std::fs::read_to_string(&path).context("read stored signer")?;
             let stored: StoredKey = serde_json::from_str(&raw).context("parse stored signer")?;
             let nonce_bytes = base64_decode(&stored.nonce)?;
@@ -191,8 +192,8 @@ impl SignerStore {
             nonce: base64_encode(&nonce_bytes),
             ciphertext: base64_encode(&ct),
         };
-        std::fs::write(&path, serde_json::to_string(&stored)?).context("write stored signer")?;
-        restrict_perms(&path);
+        write_private(&path, serde_json::to_string(&stored)?.as_bytes())
+            .context("write stored signer")?;
         self.cache.insert(key_lc, Mutex::new(sk));
         Ok(())
     }
@@ -380,6 +381,75 @@ fn restrict_perms(path: &Path) {
         let mut perms = meta.permissions();
         perms.set_mode(0o600);
         let _ = std::fs::set_permissions(path, perms);
+    }
+}
+
+#[cfg(unix)]
+fn restrict_dir_perms(path: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    if let Ok(meta) = std::fs::metadata(path) {
+        let mut perms = meta.permissions();
+        perms.set_mode(0o700);
+        let _ = std::fs::set_permissions(path, perms);
+    }
+}
+
+#[cfg(not(unix))]
+fn restrict_dir_perms(_path: &Path) {}
+
+/// Write a secret so it is NEVER briefly world-readable. `fs::write` +
+/// `chmod` created the file at `0666 & !umask` first, so on a default umask
+/// the encrypted key (and the master key) sat group/other-readable for the
+/// window between the two syscalls. Create it 0600 up front instead, and
+/// truncate so a rewrite can't leave a longer previous body behind.
+#[cfg(unix)]
+fn write_private(path: &Path, contents: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    let mut f = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(path)?;
+    f.write_all(contents)?;
+    f.flush()
+}
+
+#[cfg(not(unix))]
+fn write_private(path: &Path, contents: &[u8]) -> std::io::Result<()> {
+    std::fs::write(path, contents)
+}
+
+/// Where persistent state lives when `POLYMARKET_DATA_DIR` is unset.
+///
+/// `std::env::temp_dir()` was the fallback, which put WALLET KEYS in `/tmp` —
+/// a reboot or a tmp sweep loses them, and with them access to whatever the
+/// deposit wallet they derive is holding. The mod-protocol home for a module's
+/// private state is `~/.mod/<module>/`, which is also what `src/api/start.sh`
+/// and docker-compose pin, so an invocation that forgets the env var now lands
+/// in the same place a normal launch does.
+///
+/// A keystore that ALREADY exists under the old `/tmp` path keeps being used
+/// (and says so): silently switching would regenerate the signer, change the
+/// derived deposit wallet, and strand any funds sitting at the old one.
+fn default_store_dir(leaf: &str) -> PathBuf {
+    if let Ok(dir) = std::env::var("POLYMARKET_DATA_DIR") {
+        return PathBuf::from(dir).join(leaf);
+    }
+    let legacy = std::env::temp_dir().join(leaf);
+    if legacy.join(".master").exists() {
+        tracing::warn!(
+            "using the legacy signer store at {:?} because it already holds keys — set \
+             POLYMARKET_DATA_DIR (start.sh defaults it to ~/.mod/polymarket) and move the \
+             directory there so a reboot or a tmp sweep can't wipe your wallet keys",
+            legacy,
+        );
+        return legacy;
+    }
+    match std::env::var("HOME") {
+        Ok(home) if !home.is_empty() => PathBuf::from(home).join(".mod").join("polymarket").join(leaf),
+        _ => legacy,
     }
 }
 

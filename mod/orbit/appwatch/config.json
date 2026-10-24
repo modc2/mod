@@ -1,0 +1,34 @@
+{
+  "name": "appwatch",
+  "title": "Appwatch \u00b7 build agent",
+  "version": "0.1.0",
+  "description": "Watchdog that keeps the build console's app port up and restarts it when it goes dark; live uptime, misses and recoveries. App for build's APPWATCH.",
+  "icon": "\u2665",
+  "color": "#5ee08a",
+  "anchor": "mod.py",
+  "port": 51486,
+  "app_port": 51486,
+  "gateway_port": 51486,
+  "base_path": "/appwatch",
+  "route": true,
+  "deps": [
+    "build"
+  ],
+  "urls": {
+    "app": "http://localhost:51486/appwatch/"
+  },
+  "agent": {
+    "of": "build",
+    "status": "/appwatch/status",
+    "console": "build \u25b8 ACCOUNT \u25b8 AGENT \u25b8 AGENTS"
+  },
+  "fns": [
+    "forward",
+    "info",
+    "status",
+    "serve",
+    "kill"
+  ],
+  "schema": "QmXC4YJEfv5AxDKbvuDkWyKL9RTGquamXPtaPHE24oyq4G",
+  "always_on": true
+}

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { chain, type RegisterResult } from "@/lib/chain";
 import { chainWho } from "./StakePanel";
+import { Icon } from "./Icon";
 
 // On-chain registration for a module, gated on BlocTime. One "Register" click:
 // if the key holds BlocTime it registers free; otherwise the API reports
@@ -57,7 +58,7 @@ export default function RegisterPanel({
     return (
       <div className="panel chain-card reg-panel">
         <div className="chain-card-head">
-          <h3>registered on-chain ✓</h3>
+          <h3><Icon name="check" /> Registered on-chain</h3>
         </div>
         <p className="reg-note">
           <code>{name}</code> is now in the Registry, signed by{" "}
@@ -73,10 +74,10 @@ export default function RegisterPanel({
   return (
     <div className="panel chain-card reg-panel">
       <div className="chain-card-head">
-        <h3>{registered ? "update registration" : "register on-chain"}</h3>
+        <h3>{registered ? "Update registration" : "Register on-chain"}</h3>
         {registered && (
           <span className="onchain" title="Already in the on-chain Registry">
-            ⛓ registered
+            <Icon name="chain" /> registered
           </span>
         )}
       </div>
@@ -126,7 +127,7 @@ export default function RegisterPanel({
           </div>
           <div className="reg-actions">
             <button className="btn btn-primary" disabled={busy} onClick={() => submit(true)}>
-              {busy ? "minting…" : `⛓ Mint $${quote.price_usd.toFixed(2)} & register`}
+              {busy ? "minting…" : `Mint $${quote.price_usd.toFixed(2)} & register`}
             </button>
             <button className="btn btn-ghost" disabled={busy} onClick={() => setQuote(null)}>
               cancel
@@ -144,8 +145,8 @@ export default function RegisterPanel({
             {busy
               ? "registering…"
               : registered
-                ? "⛓ Update on-chain"
-                : "⛓ Register on-chain"}
+                ? "Update on-chain"
+                : "Register on-chain"}
           </button>
         </div>
       )}

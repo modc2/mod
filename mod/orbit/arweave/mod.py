@@ -6,7 +6,7 @@ Usage (Python):
     ar = m.mod('arweave')()
     ar.put({'hello': 'arweave'})            # → {txid, size, backend}
     ar.get('abc123...')                      # → parsed content
-    ar.serve()                                # bring up FastAPI + web app at :50151
+    ar.serve()                                # bring up FastAPI + web app at :50153
     ar.status()                               # backend connectivity
 
 Usage (CLI):
@@ -15,6 +15,10 @@ Usage (CLI):
     m arweave/get txid=abc123...
     m arweave/status
     m arweave/price num_bytes=1024
+    m arweave/mcp                             # MCP endpoint + tool roster
+
+MCP (any MCP client, Streamable HTTP, no auth):
+    claude mcp add --transport http arweave http://localhost:50153/mcp
 """
 
 from __future__ import annotations
@@ -27,7 +31,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 DIR = Path(__file__).resolve().parent
-DEFAULT_PORT = 50151
+DEFAULT_PORT = 50153
 
 
 class Mod:
@@ -56,7 +60,7 @@ class Mod:
         if self._client is None:
             import sys
             sys.path.insert(0, str(self.module_dir))
-            from arweave import ArweaveClient
+            from arlocal import ArweaveClient
             self._client = ArweaveClient()
         return self._client
 
@@ -168,6 +172,42 @@ class Mod:
         s["urls"] = self.config.get("urls", {})
         s["running"] = self._is_running()
         return s
+
+    def wallet(self, create: bool = False) -> Dict[str, Any]:
+        """Show the upload wallet (address, path); `create=1` generates one if missing."""
+        import sys
+        sys.path.insert(0, str(self.module_dir))
+        from arlocal import bundle
+        from arlocal.client import WALLET_PATH
+        path = Path(os.environ.get("ARWEAVE_WALLET") or WALLET_PATH).expanduser()
+        if not path.is_file():
+            if not create:
+                return {"configured": False, "path": str(path),
+                        "hint": "m arweave/wallet create=1 to generate (free bundler uploads <100KiB)"}
+            bundle.generate_jwk(path)
+        return {"configured": True, "path": str(path), "address": bundle.address(path),
+                "uploads": "bundler (turbo/irys) free <100KiB; fund with AR for larger files"}
+
+    def mcp(self) -> Dict[str, Any]:
+        """MCP endpoint info: URLs, the one-line client registration, and the live tool roster."""
+        cfg = self.config.get("mcp") or {}
+        url = f"http://localhost:{self.port}/mcp"
+        out: Dict[str, Any] = {
+            "url": url,
+            "public": cfg.get("public"),
+            "transport": "http",
+            "protocol": cfg.get("protocol", "mcp/2025-06-18"),
+            "claude": f"claude mcp add --transport http arweave {url}",
+            "running": self._is_running(),
+        }
+        try:
+            import requests
+            r = requests.post(url, json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"}, timeout=5)
+            out["tools"] = [t["name"] for t in r.json()["result"]["tools"]]
+        except Exception as e:
+            out["tools"] = cfg.get("tools", [])
+            out["tools_source"] = f"config (server not reachable: {type(e).__name__})"
+        return out
 
     def _is_running(self) -> bool:
         try:

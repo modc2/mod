@@ -1,0 +1,34 @@
+{
+  "name": "autosnap",
+  "title": "Autosnap \u00b7 build agent",
+  "version": "0.1.0",
+  "description": "Snapshots every changed module into the versions ledger a few per tick; see what was snapped, what failed, and snapshot one now. App for build's AUTOSNAP.",
+  "icon": "\u232c",
+  "color": "#dfeee6",
+  "anchor": "mod.py",
+  "port": 51485,
+  "app_port": 51485,
+  "gateway_port": 51485,
+  "base_path": "/autosnap",
+  "route": true,
+  "deps": [
+    "build"
+  ],
+  "urls": {
+    "app": "http://localhost:51485/autosnap/"
+  },
+  "agent": {
+    "of": "build",
+    "status": "/autosnap/status",
+    "console": "build \u25b8 ACCOUNT \u25b8 AGENT \u25b8 AGENTS"
+  },
+  "fns": [
+    "forward",
+    "info",
+    "status",
+    "serve",
+    "kill"
+  ],
+  "schema": "QmXC4YJEfv5AxDKbvuDkWyKL9RTGquamXPtaPHE24oyq4G",
+  "always_on": true
+}

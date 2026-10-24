@@ -1,0 +1,1982 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>advise — suggest a fix, the owner decides</title>
+<style>
+  @property --p { syntax: '<number>'; inherits: false; initial-value: 0; }
+  @property --rc { syntax: '<color>'; inherits: false; initial-value: #565c74; }
+  :root {
+    --bg: #0a0c12; --s1: #10131c; --s2: #151926; --s3: #1b2030;
+    --line: rgba(255,255,255,.07); --line2: rgba(255,255,255,.13);
+    --ink: #e9ebf3; --ink2: #c2c7d8; --dim: #868ca3; --faint: #565c74;
+    --accent: #7c9cff; --accent2: #b38cff; --ok: #4ade9a; --warn: #f5c35b; --no: #ff6b7d;
+    --grad: linear-gradient(120deg, #7c9cff, #b38cff);
+    --mono: ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, Consolas, monospace;
+    --sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --r: 14px;
+  }
+  * { box-sizing: border-box; }
+  html, body { min-height: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 14px/1.5 var(--sans); -webkit-font-smoothing: antialiased;
+    background-image:
+      radial-gradient(900px 500px at 15% -10%, rgba(124,156,255,.13), transparent 70%),
+      radial-gradient(700px 400px at 95% 0%, rgba(179,140,255,.08), transparent 70%);
+    background-attachment: fixed;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  ::selection { background: rgba(124,156,255,.35); }
+  svg.i { width: 16px; height: 16px; flex: none; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .hidden { display: none !important; }
+
+  /* ── header ─────────────────────────────────────────────── */
+  header {
+    position: sticky; top: 0; z-index: 30; height: 60px;
+    display: flex; align-items: center; gap: 18px; padding: 0 24px;
+    background: rgba(10,12,18,.78); backdrop-filter: blur(14px);
+    border-bottom: 1px solid var(--line);
+  }
+  .brand { display: flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; }
+  .logo {
+    width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center;
+    background: var(--grad); color: #0b0d16; box-shadow: 0 4px 18px rgba(124,156,255,.35);
+  }
+  .logo svg.i { width: 16px; height: 16px; stroke-width: 2.4; }
+  .brand b { font: 700 17px/1 var(--sans); letter-spacing: -.01em; }
+  .nav { display: flex; gap: 2px; margin-left: 12px; }
+  .nav button {
+    background: none; border: 0; color: var(--dim); padding: 8px 12px; border-radius: 9px;
+    font: 500 14px/1 var(--sans); cursor: pointer; display: flex; align-items: center; gap: 7px;
+  }
+  .nav button:hover { color: var(--ink); background: var(--s2); }
+  .nav button.on { color: var(--ink); background: var(--s3); }
+  .nav .n {
+    min-width: 20px; padding: 2px 6px; border-radius: 99px; font: 600 11px/1.2 var(--sans);
+    background: var(--s3); color: var(--dim); text-align: center;
+  }
+  .nav button.on .n { background: rgba(124,156,255,.2); color: var(--accent); }
+  .nav .n.hot { background: rgba(245,195,91,.18); color: var(--warn); }
+  .grow { flex: 1; }
+
+  /* ── buttons + inputs ───────────────────────────────────── */
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+    border: 1px solid var(--line2); background: var(--s2); color: var(--ink);
+    border-radius: 10px; padding: 8px 14px; font: 500 13px/1.2 var(--sans); cursor: pointer;
+    transition: background .15s, border-color .15s, transform .1s, box-shadow .15s;
+    white-space: nowrap;
+  }
+  .btn:hover { background: var(--s3); border-color: rgba(255,255,255,.2); }
+  .btn:active { transform: scale(.98); }
+  .btn.primary { background: var(--grad); color: #0b0d16; border-color: transparent; font-weight: 600; box-shadow: 0 6px 20px rgba(124,156,255,.25); }
+  .btn.primary:hover { filter: brightness(1.08); box-shadow: 0 8px 26px rgba(124,156,255,.4); }
+  .btn.ghost { background: transparent; border-color: transparent; color: var(--dim); }
+  .btn.ghost:hover { color: var(--ink); background: var(--s2); }
+  .btn.yes { background: rgba(74,222,154,.12); border-color: rgba(74,222,154,.4); color: var(--ok); }
+  .btn.yes:hover { background: var(--ok); color: #05130c; }
+  .btn.no { background: rgba(255,107,125,.08); border-color: rgba(255,107,125,.35); color: var(--no); }
+  .btn.no:hover { background: var(--no); color: #1a0306; }
+  .btn.big { padding: 12px 20px; font-size: 14px; border-radius: 12px; }
+  .btn.wide { width: 100%; }
+  .wallet .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); }
+  .wallet.on .dot { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+  .wallet.on { font-family: var(--mono); font-size: 12px; }
+
+  input, textarea {
+    width: 100%; background: var(--s1); color: var(--ink); border: 1px solid var(--line2);
+    border-radius: 10px; padding: 10px 12px; font: 14px/1.45 var(--sans);
+    transition: border-color .15s, box-shadow .15s, background .15s;
+  }
+  input::placeholder, textarea::placeholder { color: var(--faint); }
+  input:focus, textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(124,156,255,.16); background: var(--bg); }
+  textarea { min-height: 64px; resize: vertical; }
+  textarea.code-in { font: 12px/1.5 var(--mono); min-height: 110px; }
+  .field { margin-top: 14px; }
+  .field > label { display: flex; align-items: baseline; gap: 8px; font: 600 12px/1 var(--sans); color: var(--ink2); margin-bottom: 7px; }
+  .field > label small { font-weight: 400; color: var(--faint); }
+
+  .searchbox { position: relative; display: flex; align-items: center; }
+  .searchbox svg.i { position: absolute; left: 14px; color: var(--dim); pointer-events: none; }
+  .searchbox input { padding-left: 40px; }
+
+  /* ── landing ────────────────────────────────────────────── */
+  main { max-width: 1180px; margin: 0 auto; padding: 0 24px 80px; }
+  main.wide { max-width: 1600px; }
+  .hero { text-align: center; padding: 64px 0 34px; }
+  .eyebrow {
+    display: inline-flex; align-items: center; gap: 8px; padding: 5px 12px; border-radius: 99px;
+    border: 1px solid var(--line2); background: var(--s1); color: var(--ink2); font-size: 12px;
+  }
+  .eyebrow i { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+  .hero h1 { font: 700 46px/1.08 var(--sans); letter-spacing: -.03em; margin: 18px auto 14px; max-width: 900px; }
+  .hero h1 em { font-style: normal; background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .hero p.lead { color: var(--dim); font-size: 16px; max-width: 580px; margin: 0 auto; }
+  .bigsearch { max-width: 620px; margin: 30px auto 0; display: flex; gap: 8px; padding: 6px; border-radius: 16px; background: var(--s1); border: 1px solid var(--line2); box-shadow: 0 20px 60px rgba(0,0,0,.35); }
+  .bigsearch:focus-within { border-color: rgba(124,156,255,.6); box-shadow: 0 0 0 4px rgba(124,156,255,.12), 0 20px 60px rgba(0,0,0,.35); }
+  .bigsearch .searchbox { flex: 1; }
+  .bigsearch input { border: 0; background: transparent; font-size: 16px; padding-top: 12px; padding-bottom: 12px; }
+  .bigsearch input:focus { box-shadow: none; background: transparent; }
+  .stats { display: flex; justify-content: center; gap: 34px; margin-top: 26px; color: var(--dim); font-size: 13px; flex-wrap: wrap; }
+  .stats div { display: flex; align-items: baseline; gap: 7px; }
+  .stats b { font: 700 20px/1 var(--sans); color: var(--ink); font-variant-numeric: tabular-nums; }
+  .stats .p b { color: var(--warn); } .stats .a b { color: var(--ok); }
+
+  .how { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 26px 0 40px; }
+  .how div { padding: 16px; border-radius: var(--r); background: var(--s1); border: 1px solid var(--line); }
+  .how .k { width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center; font: 700 12px/1 var(--sans); background: rgba(124,156,255,.14); color: var(--accent); margin-bottom: 10px; }
+  .how b { display: block; font-size: 14px; margin-bottom: 3px; }
+  .how span { color: var(--dim); font-size: 13px; }
+
+  .sechead { display: flex; align-items: center; gap: 12px; margin: 0 0 14px; flex-wrap: wrap; }
+  .sechead h2 { margin: 0; font: 650 18px/1.2 var(--sans); letter-spacing: -.01em; }
+  .sechead .sub { color: var(--dim); font-size: 13px; }
+  #recent-feed { margin: 26px 0; }
+  .rf-row { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: var(--r); cursor: pointer; transition: background .12s; }
+  .rf-row:hover { background: var(--s1); }
+  .rf-mod { width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; font: 700 11px/1 var(--sans); color: #fff; flex-shrink: 0; text-transform: uppercase; }
+  .rf-title { flex: 1; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .rf-sev { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .rf-ts { font-size: 11.5px; color: var(--dim); white-space: nowrap; flex-shrink: 0; }
+  .seg { display: inline-flex; padding: 3px; gap: 2px; border-radius: 10px; background: var(--s1); border: 1px solid var(--line); }
+  .seg button { border: 0; background: none; color: var(--dim); padding: 6px 12px; border-radius: 7px; font: 500 12px/1 var(--sans); cursor: pointer; text-transform: capitalize; }
+  .seg button:hover { color: var(--ink); }
+  .seg button.on { background: var(--s3); color: var(--ink); }
+
+  .gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; }
+  .mod {
+    display: flex; gap: 12px; align-items: flex-start; text-align: left; width: 100%;
+    padding: 14px; border-radius: var(--r); background: var(--s1); border: 1px solid var(--line);
+    color: var(--ink); font: inherit; cursor: pointer; transition: border-color .15s, background .15s, transform .15s;
+  }
+  .mod:hover { border-color: rgba(124,156,255,.45); background: var(--s2); transform: translateY(-1px); }
+  .av { width: 36px; height: 36px; border-radius: 10px; flex: none; display: grid; place-items: center; font: 700 15px/1 var(--sans); color: #0b0d16; text-transform: uppercase; }
+  .mod .t { min-width: 0; flex: 1; }
+  .mod b { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; margin-bottom: 3px; }
+  .mod b small { font: 500 10px/1 var(--sans); color: var(--faint); border: 1px solid var(--line2); padding: 2px 6px; border-radius: 99px; text-transform: uppercase; letter-spacing: .04em; }
+  .mod span { color: var(--dim); font-size: 12.5px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .mod .ai-btn { align-self: flex-end; flex: none; font: 500 11px/1 var(--sans); color: var(--dim); opacity: 0; transition: opacity .15s; border: 1px solid var(--line2); border-radius: 99px; padding: 3px 8px; cursor: pointer; white-space: nowrap; }
+  .mod:hover .ai-btn { opacity: 1; }
+  .more { display: flex; justify-content: center; margin-top: 16px; }
+  .empty { border: 1px dashed var(--line2); border-radius: var(--r); padding: 30px 20px; color: var(--dim); text-align: center; grid-column: 1 / -1; }
+  .empty b { color: var(--ink); }
+  .empty.err { color: var(--no); border-color: rgba(255,107,125,.4); }
+
+  /* ── workspace ──────────────────────────────────────────── */
+  .wshead { display: flex; gap: 16px; align-items: flex-start; padding: 22px 0 16px; flex-wrap: wrap; }
+  .wshead .av { width: 46px; height: 46px; font-size: 19px; border-radius: 13px; }
+  .wshead .t { flex: 1; min-width: 280px; }
+  .wshead h1 { margin: 0; font: 700 24px/1.15 var(--sans); letter-spacing: -.02em; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .wshead .desc { color: var(--dim); font-size: 13.5px; margin: 5px 0 0; max-width: 820px; }
+  .wshead .desc button { background: none; border: 0; color: var(--accent); cursor: pointer; font: inherit; padding: 0; }
+  .crumbs { display: flex; align-items: center; gap: 6px; color: var(--dim); font-size: 13px; padding-top: 18px; }
+  .crumbs button { background: none; border: 0; color: var(--dim); cursor: pointer; font: inherit; display: inline-flex; align-items: center; gap: 5px; padding: 4px 6px; border-radius: 6px; }
+  .crumbs button:hover { color: var(--ink); background: var(--s2); }
+  .facts { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 12px; align-items: center; }
+  .fact { padding: 4px 10px; border-radius: 99px; background: var(--s1); border: 1px solid var(--line); font-size: 12px; color: var(--dim); }
+  .fact b { color: var(--ink); font-weight: 600; }
+  .fact.warn { color: var(--warn); border-color: rgba(245,195,91,.35); background: rgba(245,195,91,.06); }
+  .langbar { display: flex; height: 6px; width: 140px; border-radius: 99px; overflow: hidden; background: var(--s2); }
+  .owner { text-align: right; font-size: 12px; color: var(--dim); }
+  .owner code { display: inline-flex; align-items: center; gap: 6px; margin-top: 4px; padding: 6px 10px; border-radius: 9px; background: rgba(74,222,154,.08); border: 1px solid rgba(74,222,154,.3); color: var(--ok); font: 500 12px/1 var(--mono); }
+
+  .ws { display: grid; grid-template-columns: 230px minmax(0, 1fr) 390px; gap: 14px; align-items: start; }
+  .ws > * { min-width: 0; }
+  .box { background: var(--s1); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
+  .boxhead { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line); font: 600 12px/1.2 var(--sans); color: var(--ink2); min-height: 44px; }
+  .boxhead .sub { color: var(--faint); font-weight: 400; }
+
+  .files { max-height: calc(100vh - 250px); min-height: 300px; overflow: auto; padding: 6px; }
+  .files .find { padding: 4px 4px 8px; }
+  .files .find input { padding: 7px 10px 7px 32px; font-size: 12.5px; border-radius: 8px; }
+  .files .find svg.i { left: 11px; width: 14px; height: 14px; }
+  .f {
+    display: flex; gap: 8px; align-items: center; width: 100%; padding: 6px 8px; border-radius: 7px;
+    background: none; border: 0; color: var(--ink2); font: 12.5px/1.3 var(--sans); text-align: left; cursor: pointer;
+  }
+  .f:hover { background: var(--s2); color: var(--ink); }
+  .f.sel { background: rgba(124,156,255,.14); color: var(--ink); }
+  .f.off { opacity: .4; cursor: default; }
+  .f .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .f .nm i { font-style: normal; color: var(--faint); }
+  .f small { color: var(--faint); font-size: 11px; font-variant-numeric: tabular-nums; }
+  .f svg.i { width: 14px; height: 14px; color: var(--faint); }
+  .f.sel svg.i { color: var(--accent); }
+
+  .code { max-height: calc(100vh - 250px); min-height: 300px; overflow: auto; background: #0b0d14; font: 12.5px/1.65 var(--mono); }
+  .code .boxhead { position: sticky; top: 0; z-index: 2; background: var(--s1); font-family: var(--sans); }
+  .code .boxhead .path { color: var(--ink); font-family: var(--mono); font-weight: 500; }
+  .ln { display: flex; }
+  .ln:hover { background: rgba(255,255,255,.025); }
+  .ln.pin { background: rgba(124,156,255,.12); box-shadow: inset 3px 0 0 var(--accent); }
+  .ln .no { flex: 0 0 56px; text-align: right; padding-right: 14px; color: #3e4459; cursor: pointer; user-select: none; position: relative; }
+  .ln:hover .no { color: var(--dim); }
+  .ln .no:hover { color: var(--accent); }
+  .ln:hover .no::before { content: '+'; position: absolute; left: 8px; color: var(--accent); font-weight: 700; }
+  .ln.pin .no { color: var(--accent); font-weight: 700; }
+  .ln.pin .no::before { content: ''; position: absolute; left: 10px; top: 50%; width: 6px; height: 6px; margin-top: -3px; border-radius: 50%; background: var(--accent); }
+  .ln code { white-space: pre; padding-right: 20px; color: #cfd4e4; }
+  .ln code .cm { color: #5f6782; font-style: italic; }
+  .code .placeholder { padding: 60px 20px; text-align: center; color: var(--faint); font-family: var(--sans); }
+
+  .below { margin-top: 14px; }
+  .tabs2 { display: flex; gap: 2px; padding: 6px 6px 0; border-bottom: 1px solid var(--line); }
+  .tabs2 button { background: none; border: 0; border-bottom: 2px solid transparent; color: var(--dim); padding: 8px 12px 10px; font: 500 13px/1 var(--sans); cursor: pointer; display: flex; gap: 6px; align-items: center; }
+  .tabs2 button:hover { color: var(--ink); }
+  .tabs2 button.on { color: var(--ink); border-bottom-color: var(--accent); }
+  .tabs2 .n { font-size: 11px; color: var(--faint); }
+  .tabbody { max-height: 300px; overflow: auto; padding: 6px; }
+  .hit { display: flex; gap: 10px; width: 100%; text-align: left; background: none; border: 0; padding: 7px 8px; border-radius: 7px; font: 12.5px/1.4 var(--sans); color: var(--ink2); cursor: pointer; align-items: baseline; }
+  .hit:hover { background: var(--s2); color: var(--ink); }
+  .hit em { font: normal 11.5px/1.4 var(--mono); color: var(--accent); white-space: nowrap; flex: none; }
+  .hit span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: 12px; }
+  .hit.static { cursor: default; }
+  .tabbody pre { margin: 0; padding: 10px; white-space: pre-wrap; font: 12px/1.6 var(--mono); color: var(--ink2); }
+  .note { color: var(--dim); font-size: 13px; padding: 12px; }
+
+  /* composer */
+  .composer { position: sticky; top: 74px; max-height: calc(100vh - 88px); display: flex; flex-direction: column; }
+  .composer .boxhead { font-size: 14px; color: var(--ink); }
+  .composer .body { padding: 2px 16px 16px; overflow: auto; }
+  .composer .foot { padding: 14px 16px; border-top: 1px solid var(--line); background: var(--s1); }
+  .pills { display: flex; gap: 6px; flex-wrap: wrap; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 6px; padding: 6px 11px; border-radius: 99px;
+    border: 1px solid var(--line2); background: transparent; color: var(--dim); font: 500 12.5px/1 var(--sans);
+    cursor: pointer; text-transform: capitalize; transition: all .15s;
+  }
+  .pill i { width: 7px; height: 7px; border-radius: 50%; background: var(--c); opacity: .7; }
+  .pill:hover { color: var(--ink); border-color: rgba(255,255,255,.22); }
+  .pill.on { color: var(--ink); border-color: var(--c); background: color-mix(in srgb, var(--c) 14%, transparent); }
+  .pill.on i { opacity: 1; box-shadow: 0 0 8px var(--c); }
+  .sev { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; padding: 3px; border-radius: 11px; background: var(--bg); border: 1px solid var(--line); }
+  .sev button { border: 0; background: none; color: var(--dim); padding: 7px 0; border-radius: 8px; font: 500 12.5px/1 var(--sans); cursor: pointer; text-transform: capitalize; }
+  .sev button:hover { color: var(--ink); }
+  .sev button.on { background: color-mix(in srgb, var(--c) 18%, var(--s2)); color: var(--c); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 45%, transparent); }
+
+  .anchors { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+  .anchor { display: flex; gap: 8px; align-items: center; padding: 5px 6px 5px 10px; border-radius: 9px; background: rgba(124,156,255,.07); border: 1px solid rgba(124,156,255,.25); animation: pop .3s cubic-bezier(.2,1.3,.4,1); }
+  .anchor .loc { font: 500 12px/1 var(--mono); color: var(--accent); white-space: nowrap; cursor: pointer; }
+  .anchor input { padding: 4px 6px; font-size: 12.5px; background: transparent; border-color: transparent; }
+  .anchor input:focus { border-color: var(--line2); box-shadow: none; }
+  .anchor .x { background: none; border: 0; color: var(--faint); cursor: pointer; padding: 2px 6px; border-radius: 6px; display: grid; place-items: center; }
+  .anchor .x:hover { color: var(--no); background: rgba(255,107,125,.1); }
+  .pinhint { display: flex; gap: 8px; align-items: center; padding: 10px 12px; border-radius: 10px; border: 1px dashed var(--line2); color: var(--faint); font-size: 12.5px; }
+  .addrow { display: flex; gap: 6px; margin-top: 6px; }
+  .addrow input { padding: 7px 10px; font-size: 12.5px; font-family: var(--mono); }
+  details.more-f summary { cursor: pointer; color: var(--dim); font-size: 12.5px; margin-top: 14px; list-style: none; display: flex; gap: 6px; align-items: center; }
+  details.more-f summary::-webkit-details-marker { display: none; }
+  details.more-f summary svg.i { width: 14px; height: 14px; transition: transform .15s; }
+  details.more-f[open] summary svg.i { transform: rotate(90deg); }
+  details.more-f summary:hover { color: var(--ink); }
+  @keyframes preview-pulse { 0%,100% { opacity:1; } 50% { opacity:.45; } }
+  .preview-pulse { animation: preview-pulse 1.6s ease-in-out infinite; }
+
+  .signal { display: flex; gap: 14px; align-items: center; margin-bottom: 12px; }
+  .ring { --p: 0; --rc: var(--faint); width: 54px; height: 54px; flex: none; border-radius: 50%; display: grid; place-items: center; background: conic-gradient(var(--rc) calc(var(--p) * 1%), var(--s3) 0); transition: --p .4s; }
+  .ring::before { content: ''; grid-area: 1 / 1; width: 44px; height: 44px; border-radius: 50%; background: var(--s1); }
+  .ring b { grid-area: 1 / 1; z-index: 1; font: 700 16px/1 var(--sans); font-variant-numeric: tabular-nums; }
+  .signal .g { font: 600 13px/1.2 var(--sans); }
+  .signal .nx { color: var(--dim); font-size: 12px; margin-top: 3px; }
+  .checks { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 10px; margin: 0 0 14px; padding: 0; list-style: none; font-size: 11.5px; color: var(--faint); }
+  .checks li { display: flex; gap: 6px; align-items: center; }
+  .checks li::before { content: ''; width: 6px; height: 6px; border-radius: 50%; border: 1.5px solid var(--faint); flex: none; }
+  .checks li.done { color: var(--ink2); }
+  .checks li.done::before { background: var(--ok); border-color: var(--ok); }
+  .fmsg { margin: 9px 0 0; color: var(--dim); font-size: 12px; text-align: center; }
+  .fmsg code { font-family: var(--mono); color: var(--ok); }
+  .ok { color: var(--ok); } .err { color: var(--no); }
+
+  /* ── queue + inbox cards ────────────────────────────────── */
+  .pagehead { padding: 34px 0 18px; display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+  .pagehead h1 { margin: 0; font: 700 28px/1.1 var(--sans); letter-spacing: -.02em; }
+  .pagehead p { margin: 6px 0 0; color: var(--dim); }
+  .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
+  .toolbar .searchbox { flex: 0 1 260px; }
+  .toolbar .searchbox input { padding-top: 8px; padding-bottom: 8px; font-size: 13px; }
+  .cards { display: grid; gap: 10px; }
+  .card {
+    position: relative; padding: 16px 18px 14px 20px; border-radius: var(--r); background: var(--s1);
+    border: 1px solid var(--line); transition: border-color .15s, background .15s;
+    animation: rise .35s cubic-bezier(.2,.9,.3,1) both;
+  }
+  .card:hover { border-color: var(--line2); background: var(--s2); }
+  .card.focused { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(124,156,255,.2); outline: none; }
+  kbd { display: inline-block; background: var(--s3); border: 1px solid var(--line2); border-radius: 5px; padding: 1px 6px; font: 11px/1.6 var(--mono); color: var(--ink2); }
+  .card::before { content: ''; position: absolute; left: 0; top: 14px; bottom: 14px; width: 3px; border-radius: 0 3px 3px 0; background: var(--sev, var(--accent)); }
+  .card .top { display: flex; gap: 12px; align-items: flex-start; }
+  .card h3 { margin: 0; font: 600 15.5px/1.35 var(--sans); flex: 1; }
+  .card .sum { color: var(--ink2); font-size: 13.5px; margin: 6px 0 10px; }
+  .tags { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .tag { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 99px; font: 500 11.5px/1.2 var(--sans); color: var(--dim); background: var(--s2); border: 1px solid var(--line); }
+  .tag.cap { text-transform: capitalize; }
+  .tag i { width: 6px; height: 6px; border-radius: 50%; background: var(--c, var(--dim)); }
+  .tag.mn { text-transform: none; font-family: var(--mono); color: var(--ink2); }
+  .status { flex: none; padding: 4px 10px; border-radius: 99px; font: 600 11px/1.2 var(--sans); text-transform: uppercase; letter-spacing: .05em; }
+  .status.pending { color: var(--warn); background: rgba(245,195,91,.1); }
+  .status.approved { color: var(--ok); background: rgba(74,222,154,.1); }
+  .status.rejected { color: var(--no); background: rgba(255,107,125,.1); }
+  .status.withdrawn { color: var(--dim); background: var(--s3); }
+  .byline { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; color: var(--faint); font-size: 12px; }
+  .byline .who { color: var(--dim); }
+  .byline a { font-family: var(--mono); font-size: 11.5px; color: var(--faint); }
+  .byline a:hover { color: var(--accent); }
+  .acts { display: flex; gap: 8px; align-items: center; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+  .skeleton { height: 92px; border-radius: var(--r); background: linear-gradient(90deg, var(--s1), var(--s2), var(--s1)); background-size: 200% 100%; animation: shimmer 1.3s linear infinite; }
+  .skeleton.sm { height: 300px; }
+  @keyframes shimmer { to { background-position: -200% 0; } }
+  @keyframes rise { from { opacity: 0; transform: translateY(6px); } }
+  @keyframes pop { from { transform: scale(.92); opacity: 0; } }
+
+  /* ── card detail expansion ──────────────────────────────── */
+  .detail-toggle { display: inline-flex; align-items: center; background: none; border: 0; color: var(--faint); cursor: pointer; padding: 2px 4px; border-radius: 5px; }
+  .detail-toggle:hover { color: var(--dim); background: var(--s3); }
+  .detail-toggle svg.i { width: 13px; height: 13px; transition: transform .2s; }
+  .detail-toggle.open svg.i { transform: rotate(90deg); }
+  .detail-body { padding: 12px 0 2px; border-top: 1px solid var(--line); margin-top: 10px; display: flex; flex-direction: column; gap: 10px; }
+  .detail-field { display: flex; flex-direction: column; gap: 4px; }
+  .detail-field > label { font: 600 11px/1 var(--sans); color: var(--faint); text-transform: uppercase; letter-spacing: .05em; }
+  .detail-field > p { margin: 0; font-size: 13px; color: var(--ink2); white-space: pre-wrap; }
+  .detail-anchors { display: flex; flex-direction: column; gap: 4px; }
+  .detail-anchor { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 7px; background: rgba(124,156,255,.07); border: 1px solid rgba(124,156,255,.22); font: 500 12px/1 var(--mono); color: var(--accent); cursor: pointer; width: fit-content; text-align: left; }
+  .detail-anchor:hover { background: rgba(124,156,255,.15); }
+  .detail-anchor-row { display: flex; flex-direction: column; gap: 4px; }
+  .peek-block { background: #080a11; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; font: 12px/1.6 var(--mono); }
+  .peek-block .ln { display: flex; }
+  .peek-block .ln .no { flex: 0 0 46px; text-align: right; padding-right: 10px; color: #3e4459; user-select: none; }
+  .peek-block .ln.pin { background: rgba(124,156,255,.12); box-shadow: inset 3px 0 0 var(--accent); }
+  .peek-block .ln.pin .no { color: var(--accent); font-weight: 700; }
+  .peek-block .ln code { white-space: pre; padding-right: 16px; color: #cfd4e4; }
+  .peek-goto { display: inline-block; margin-top: 4px; font-size: 11px; color: var(--dim); text-decoration: none; cursor: pointer; }
+  .peek-goto:hover { color: var(--accent); }
+  .detail-decision { padding: 8px 12px; border-radius: 8px; border-left: 3px solid; display: flex; flex-direction: column; gap: 3px; }
+  .detail-decision > label { font: 600 11px/1 var(--sans); text-transform: uppercase; letter-spacing: .05em; }
+  .detail-decision > p { margin: 0; font-size: 13px; white-space: pre-wrap; }
+  .detail-decision > small { font-size: 11px; opacity: .7; }
+  .detail-decision.approved { border-left-color: var(--ok); background: rgba(74,222,154,.07); color: var(--ok); }
+  .detail-decision.rejected { border-left-color: var(--no); background: rgba(255,107,125,.07); color: var(--no); }
+  .diff-block { margin: 0; padding: 10px 12px; border-radius: 9px; background: #080a11; border: 1px solid var(--line); font: 12px/1.6 var(--mono); color: var(--ink2); white-space: pre; overflow-x: auto; max-height: 240px; overflow-y: auto; }
+  .d-add { color: #4ade80; }
+  .d-rm  { color: #f87171; }
+  .d-hunk { color: var(--accent); }
+  .d-hdr { color: var(--faint); }
+  .cmt-row { display: flex; flex-direction: column; gap: 2px; padding: 7px 10px; border-radius: 8px; background: var(--s2); border: 1px solid var(--line); }
+  .cmt-meta { font: 500 11px/1.2 var(--sans); color: var(--faint); }
+  .cmt-body { margin: 0; font-size: 13px; color: var(--ink2); white-space: pre-wrap; }
+  .cmt-none { margin: 0; font-size: 13px; color: var(--faint); font-style: italic; }
+  .cmt-add { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+
+  /* ── modal + toast + burst ─────────────────────────────── */
+  .scrim { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; background: rgba(5,6,10,.65); backdrop-filter: blur(6px); animation: fade .15s; }
+  @keyframes fade { from { opacity: 0; } }
+  .modal { width: min(460px, 92vw); padding: 22px; border-radius: 18px; background: var(--s1); border: 1px solid var(--line2); box-shadow: 0 30px 80px rgba(0,0,0,.6); animation: pop .25s cubic-bezier(.2,1.3,.4,1); }
+  .modal h3 { margin: 0 0 6px; font: 650 18px/1.25 var(--sans); }
+  .modal p { margin: 0; color: var(--dim); font-size: 13.5px; }
+  .modal .acts { border: 0; padding: 0; margin-top: 18px; justify-content: flex-end; }
+  .toasts { position: fixed; bottom: 20px; right: 20px; display: flex; flex-direction: column; gap: 8px; z-index: 60; }
+  .toast { display: flex; gap: 10px; align-items: center; padding: 11px 16px; border-radius: 12px; background: var(--s2); border: 1px solid var(--line2); font-size: 13px; box-shadow: 0 12px 34px rgba(0,0,0,.5); animation: slide .25s cubic-bezier(.2,1.2,.4,1); max-width: 380px; }
+  .toast::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex: none; }
+  .toast.ok::before { background: var(--ok); } .toast.err::before { background: var(--no); }
+  @keyframes slide { from { transform: translateY(10px); opacity: 0; } }
+  .spark { position: fixed; width: 7px; height: 7px; border-radius: 2px; pointer-events: none; z-index: 70; animation: fly .9s cubic-bezier(.1,.7,.3,1) forwards; }
+  @keyframes fly { to { transform: translate(var(--dx), var(--dy)) rotate(540deg); opacity: 0; } }
+
+  @media (max-width: 1280px) {
+    .ws { grid-template-columns: 210px minmax(0, 1fr); }
+    .composer { grid-column: 1 / -1; position: static; max-height: none; }
+  }
+  @media (max-width: 860px) {
+    header { padding: 0 14px; gap: 10px; }
+    .brand b { display: none; }
+    .wallet { padding: 7px 10px; }
+    .wallet:not(.on) #who-t::after { content: 'Connect'; }
+    .wallet:not(.on) #who-t { font-size: 0; }
+    .wallet:not(.on) #who-t::after { font-size: 13px; }
+    .nav { margin-left: 0; }
+    .nav button { padding: 8px 7px; font-size: 13px; gap: 5px; }
+    header { overflow: hidden; }
+    main { padding: 0 14px 60px; }
+    .hero { padding-top: 40px; }
+    .hero h1 { font-size: 32px; }
+    .how { grid-template-columns: 1fr 1fr; }
+    .ws { grid-template-columns: minmax(0, 1fr); }
+    .files { max-height: 220px; min-height: 0; }
+    .owner { text-align: left; }
+  }
+  @media (prefers-reduced-motion: reduce) { *, *::before { animation: none !important; transition: none !important; } }
+  code .hljs { background: transparent; }
+</style>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="i-pen" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Z"/><path d="M14 3v6h6"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4Z"/></symbol>
+  <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 22s7-6.5 7-12a7 7 0 0 0-14 0c0 5.5 7 12 7 12Z"/><circle cx="12" cy="10" r="2.5"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/></symbol>
+</svg>
+
+<header>
+  <div class="brand" onclick="home()">
+    <div class="logo"><svg class="i"><use href="#i-pen"/></svg></div>
+    <b>advise</b>
+  </div>
+  <nav class="nav">
+    <button id="tab-scan" class="on" onclick="show('scan')">Suggest</button>
+    <button id="tab-queue" onclick="show('queue')">Queue <span class="n" id="n-queue">0</span></button>
+    <button id="tab-inbox" onclick="show('inbox')">Inbox <span class="n" id="n-inbox">–</span></button>
+    <button id="tab-outbox" onclick="show('outbox')">Outbox <span class="n" id="n-outbox">–</span></button>
+  </nav>
+  <div class="grow"></div>
+  <button id="who" class="btn wallet" onclick="connect()"><span class="dot"></span><span id="who-t">Connect wallet</span></button>
+</header>
+
+<main id="main">
+  <!-- LANDING ------------------------------------------------------ -->
+  <section id="view-scan">
+    <div id="landing">
+      <div class="hero">
+        <span class="eyebrow"><i></i>Peer review for modules</span>
+        <h1>Read anyone's code.<br><em>Suggest the fix.</em> The owner decides.</h1>
+        <p class="lead">Pick a module, point at the lines that matter, and explain what should change. Nothing runs until the owner approves it.</p>
+        <div class="bigsearch">
+          <div class="searchbox"><svg class="i"><use href="#i-search"/></svg>
+            <input id="module" placeholder="Search modules, e.g. hub, docs, x402" autocomplete="off"
+              oninput="filterMods()" onkeydown="if(event.key==='Enter')enterSearch()"></div>
+          <button class="btn primary" onclick="enterSearch()">Open</button>
+        </div>
+        <div class="stats">
+          <div class="p"><b id="s-pending">0</b> waiting on owners</div>
+          <div class="a"><b id="s-approved">0</b> approved</div>
+          <div><b id="s-rejected">0</b> rejected</div>
+          <div><b id="s-mods">0</b> modules open to read</div>
+        </div>
+      </div>
+
+      <div id="recent-feed"></div>
+      <div id="leaderboard"></div>
+
+      <div class="how">
+        <div><div class="k">1</div><b>Read</b><span>Browse the module's files. Secrets are always hidden.</span></div>
+        <div><div class="k">2</div><b>Point</b><span>Click line numbers to mark exactly where the problem is.</span></div>
+        <div><div class="k">3</div><b>Suggest</b><span>Say what should change and why. No account needed.</span></div>
+        <div><div class="k">4</div><b>Owner decides</b><span>Approved ideas go to the owner's own agent to build.</span></div>
+      </div>
+
+      <div class="sechead">
+        <h2>Modules</h2><span class="sub" id="mod-count"></span>
+        <div class="grow"></div>
+        <div class="seg" id="tree-seg"></div>
+      </div>
+      <div class="gallery" id="gallery"></div>
+      <div class="more hidden" id="more"><button class="btn" onclick="LIMIT+=60;filterMods()">Show more</button></div>
+    </div>
+
+    <!-- WORKSPACE -------------------------------------------------- -->
+    <div id="work" class="hidden">
+      <div class="crumbs"><button onclick="home()"><svg class="i"><use href="#i-back"/></svg>All modules</button></div>
+      <div id="wshead"></div>
+      <div class="ws">
+        <div class="box">
+          <div class="files" id="files"></div>
+        </div>
+        <div>
+          <div class="box code" id="code"><div class="placeholder">Pick a file on the left</div></div>
+          <div class="box below">
+            <div class="tabs2" id="lower-tabs"></div>
+            <div class="tabbody" id="lower"></div>
+          </div>
+        </div>
+
+        <div class="box composer" id="form-panel">
+          <div class="boxhead"><svg class="i"><use href="#i-pen"/></svg>Your suggestion<span class="grow"></span>
+            <span class="sub">for <span id="owner-of" class="ok">the owner</span></span></div>
+          <div class="body">
+            <div class="field">
+              <label for="title">What should change?</label>
+              <input id="title" maxlength="200" placeholder="e.g. Cache the module list between requests" oninput="score()">
+              <div id="dup-warn" class="hidden"></div>
+            </div>
+            <div class="field">
+              <label>Type</label>
+              <div class="pills" id="kind"></div>
+            </div>
+            <div class="field">
+              <label>How important</label>
+              <div class="sev" id="severity"></div>
+            </div>
+            <div class="field">
+              <label for="summary">Short summary <small>what the owner reads first</small></label>
+              <textarea id="summary" rows="2" placeholder="One or two sentences." oninput="score()"></textarea>
+            </div>
+            <div class="field">
+              <label for="rationale">Why <small>what you saw in the code</small></label>
+              <textarea id="rationale" rows="3" placeholder="The listing is rebuilt on every call, which walks 340 folders…" oninput="score()"></textarea>
+            </div>
+            <div class="field">
+              <label for="change">The change <small>concrete enough for an agent</small></label>
+              <textarea id="change" rows="3" placeholder="Memoise modules() for 30s, keyed on…" oninput="score()"></textarea>
+            </div>
+            <div class="field">
+              <label>Where <small>click line numbers in the code</small></label>
+              <div class="anchors" id="anchors"></div>
+              <div class="addrow">
+                <input id="anchor-in" placeholder="or type path/file.py:88" onkeydown="if(event.key==='Enter'){addAnchorText();event.preventDefault()}">
+                <button class="btn" onclick="addAnchorText()">Add</button>
+              </div>
+            </div>
+            <details class="more-f"><summary><svg class="i"><use href="#i-chev"/></svg>Attach a patch (optional)</summary>
+              <textarea id="patch" class="code-in" style="margin-top:8px" placeholder="unified diff — shown to the owner, never applied" oninput="score()"></textarea>
+            </details>
+            <details class="more-f" id="owner-preview-panel">
+              <summary><svg class="i"><use href="#i-chev"/></svg><span id="preview-label">Preview how the owner sees this</span></summary>
+              <pre id="owner-preview" class="diff-block" style="margin-top:8px;min-height:60px"></pre>
+            </details>
+          </div>
+          <div class="foot">
+            <div class="signal">
+              <div class="ring" id="ring"><b id="score">0</b></div>
+              <div><div class="g" id="grade">Just getting started</div><div class="nx" id="next"></div></div>
+            </div>
+            <ul class="checks" id="checks"></ul>
+            <button id="file-btn" class="btn primary big wide" onclick="fileRec()"><svg class="i"><use href="#i-send"/></svg>Send suggestion</button>
+            <div id="review-acts" class="hidden" style="display:flex;gap:8px;align-items:center">
+              <button class="btn yes" onclick="decideFromReview(this,'approve')">Approve</button>
+              <button class="btn no" onclick="decideFromReview(this,'reject')">Reject</button>
+              <span class="note" style="padding:0" id="review-msg"></span>
+            </div>
+            <p class="fmsg" id="file-msg">Goes to the owner as pending. Nothing runs until they approve.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- QUEUE --------------------------------------------------------- -->
+  <section id="view-queue" class="hidden">
+    <div class="pagehead"><div><h1>Queue</h1><p>Every suggestion filed on this host, and what happened to it.</p></div></div>
+    <div class="toolbar">
+      <div class="seg" id="q-status"></div>
+      <div id="q-sev" class="pills"></div>
+      <div class="searchbox"><svg class="i"><use href="#i-search"/></svg>
+        <input id="q-module" placeholder="Filter by module" onkeydown="if(event.key==='Enter')loadQueue()"></div>
+      <div class="grow"></div>
+      <button class="btn ghost" onclick="loadQueue()"><svg class="i"><use href="#i-refresh"/></svg>Refresh</button>
+    </div>
+    <div id="queue" class="cards"></div>
+  </section>
+
+  <!-- INBOX --------------------------------------------------------- -->
+  <section id="view-inbox" class="hidden">
+    <div class="pagehead"><div><h1>Inbox</h1><p id="inbox-note">Suggestions waiting on modules you own.</p></div>
+      <div class="grow"></div>
+      <button id="confirm-triage-btn" class="btn hidden" onclick="confirmAllVotes()">Confirm all AI votes →</button>
+      <button id="triage-btn" class="btn ghost hidden" onclick="autoTriage()">AI triage →</button>
+      <button class="btn ghost" onclick="loadInbox()"><svg class="i"><use href="#i-refresh"/></svg>Refresh</button></div>
+    <div id="inbox-keys" class="hidden" style="display:flex;gap:10px;align-items:center;padding:8px 0 12px;color:var(--dim);font-size:12px;flex-wrap:wrap"><kbd>j/k</kbd> navigate <kbd>e</kbd> expand <kbd>a</kbd> approve <kbd>r</kbd> reject <kbd>esc</kbd> blur</div>
+    <div id="inbox" class="cards"></div>
+  </section>
+
+  <!-- OUTBOX -------------------------------------------------------- -->
+  <section id="view-outbox" class="hidden">
+    <div class="pagehead"><div><h1>Outbox</h1><p id="outbox-note">Suggestions you have filed, and what happened to them.</p></div>
+      <div class="grow"></div>
+      <button class="btn ghost" onclick="loadOutbox()"><svg class="i"><use href="#i-refresh"/></svg>Refresh</button></div>
+    <div id="outbox" class="cards"></div>
+  </section>
+</main>
+
+<div class="toasts" id="toasts"></div>
+
+<script>
+const API = '/advise/api'; // canonical; serve.py also answers the legacy /api/advise alias
+let TOKEN = sessionStorage.getItem('advise.token') || '';
+let ADDRESS = sessionStorage.getItem('advise.address') || '';
+let MODS = [];
+let BRIEF = null;
+let ANCHORS = [];
+let CUR_FILE = null;
+let EDITING_ID = null;
+let KIND = 'feature', SEV = 'medium', QSTATUS = 'pending';
+let TREE = '', LIMIT = 60, LOWER = 'todo', FILEQ = '';
+let AUTO_SCAN_PENDING = false;
+let QRECS = [], QSEV = '';
+const EXPANDED = {};
+let INBOX_FOCUS = -1;
+let _inboxKeyHandler = null;
+let REVIEWING = null;
+let TRIAGE = {};
+
+const KINDS = { feature: '#7c9cff', bug: '#ff6b7d', security: '#ff7ad9', performance: '#f5c35b',
+  ux: '#4fd8f0', docs: '#a8b4ff', test: '#4ade9a', cleanup: '#9aa0b8' };
+const SEVS = { low: '#4ade9a', medium: '#f5c35b', high: '#ff9a5a', critical: '#ff6b7d' };
+const LANG = ['#7c9cff', '#b38cff', '#4fd8f0', '#f5c35b', '#4ade9a', '#ff9a5a', '#ff7ad9', '#9aa0b8'];
+const AV = ['#7c9cff', '#b38cff', '#4fd8f0', '#f5c35b', '#4ade9a', '#ff9a5a', '#ff7ad9', '#a8b4ff'];
+const EXT_LANG = {py:'python',rs:'rust',ts:'typescript',tsx:'typescript',js:'javascript',jsx:'javascript',go:'go',sh:'bash',bash:'bash',html:'xml',htm:'xml',json:'json',css:'css',toml:'toml',yaml:'yaml',yml:'yaml',md:'markdown',c:'c',cpp:'cpp',h:'c',java:'java',rb:'ruby',php:'php',swift:'swift',kt:'kotlin',sql:'sql'};
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g,
+    c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function renderDiff(text) {
+  return String(text == null ? '' : text).split('\n').map(line => {
+    const e = esc(line);
+    if (line.startsWith('+++') || line.startsWith('---')) return `<span class="d-hdr">${e}</span>`;
+    if (line.startsWith('+')) return `<span class="d-add">${e}</span>`;
+    if (line.startsWith('-')) return `<span class="d-rm">${e}</span>`;
+    if (line.startsWith('@@')) return `<span class="d-hunk">${e}</span>`;
+    return `<span>${e}</span>`;
+  }).join('\n');
+}
+const $ = id => document.getElementById(id);
+const kb = n => n > 1024 * 1024 ? (n / 1048576).toFixed(1) + ' MB' : n > 1024 ? (n / 1024).toFixed(1) + ' KB' : n + ' B';
+const icon = n => `<svg class="i"><use href="#i-${n}"/></svg>`;
+const avColor = s => { let h = 0; for (const c of String(s)) h = (h * 31 + c.charCodeAt(0)) >>> 0; return AV[h % AV.length]; };
+const avatar = name => `<div class="av" style="background:${avColor(name)}">${esc(String(name).replace(/^[^a-z0-9]+/i, '').charAt(0) || '?')}</div>`;
+
+async function call(fn, args = {}, method = 'GET') {
+  const opts = { method, headers: {} };
+  if (TOKEN) opts.headers['x-mod-token'] = TOKEN;
+  let url = `${API}/${fn}`;
+  if (method === 'GET') {
+    const q = new URLSearchParams(Object.entries(args).filter(([, v]) => v !== '' && v != null));
+    if ([...q].length) url += '?' + q;
+  } else {
+    opts.headers['Content-Type'] = 'application/json';
+    opts.body = JSON.stringify(args);
+  }
+  const r = await fetch(url, opts);
+  const out = await r.json().catch(() => ({ error: 'bad response' }));
+  if (!r.ok || out.error) throw new Error(out.error || `HTTP ${r.status}`);
+  return out;
+}
+
+// ── chrome: toasts, modal ask(), confetti, count-up ─────────────
+function toast(text, kind = '') {
+  const t = document.createElement('div');
+  t.className = 'toast ' + kind; t.textContent = text;
+  $('toasts').appendChild(t);
+  setTimeout(() => { t.style.transition = 'opacity .4s'; t.style.opacity = 0; }, 3600);
+  setTimeout(() => t.remove(), 4100);
+}
+
+function ask({ title, body = '', input = false, placeholder = '', ok = 'OK', cancel = 'Cancel', tone = 'primary' }) {
+  return new Promise(resolve => {
+    const s = document.createElement('div');
+    s.className = 'scrim';
+    s.innerHTML = `<div class="modal"><h3>${esc(title)}</h3>
+      ${body ? `<p>${esc(body)}</p>` : ''}
+      ${input ? `<textarea id="ask-in" style="margin-top:14px" placeholder="${esc(placeholder)}"></textarea>` : ''}
+      <div class="acts">
+        ${cancel ? `<button class="btn ghost" data-a="0">${esc(cancel)}</button>` : ''}
+        <button class="btn ${tone}" data-a="1">${esc(ok)}</button></div></div>`;
+    const done = v => { s.remove(); document.removeEventListener('keydown', key); resolve(v); };
+    const val = () => input ? $('ask-in').value : true;
+    const key = e => { if (e.key === 'Escape') done(null); };
+    s.addEventListener('click', e => {
+      if (e.target === s) return done(null);
+      const a = e.target.closest('[data-a]') && e.target.closest('[data-a]').dataset.a;
+      if (a === '1') done(val()); else if (a === '0') done(null);
+    });
+    document.addEventListener('keydown', key);
+    document.body.appendChild(s);
+    const f = s.querySelector('#ask-in') || s.querySelector('[data-a="1"]');
+    f && f.focus();
+  });
+}
+
+function burst(el, n = 30) {
+  if (!el || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const r = el.getBoundingClientRect();
+  const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+  for (let i = 0; i < n; i++) {
+    const p = document.createElement('div');
+    p.className = 'spark';
+    const a = Math.random() * Math.PI * 2, d = 70 + Math.random() * 150;
+    p.style.left = cx + 'px'; p.style.top = cy + 'px';
+    p.style.background = AV[i % AV.length];
+    p.style.setProperty('--dx', Math.cos(a) * d + 'px');
+    p.style.setProperty('--dy', Math.sin(a) * d - 50 + 'px');
+    document.body.appendChild(p);
+    setTimeout(() => p.remove(), 950);
+  }
+}
+
+function countTo(el, to) {
+  const from = Number(el.textContent) || 0;
+  if (from === to) return;
+  const t0 = performance.now();
+  const step = t => {
+    const k = Math.min(1, (t - t0) / 600);
+    el.textContent = Math.round(from + (to - from) * (1 - Math.pow(1 - k, 3)));
+    if (k < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+
+function show(view) {
+  if (view !== 'scan' && REVIEWING) { REVIEWING = null; paintReviewStrip(); }
+  for (const v of ['scan', 'queue', 'inbox', 'outbox']) {
+    $('view-' + v).classList.toggle('hidden', v !== view);
+    $('tab-' + v).classList.toggle('on', v === view);
+  }
+  $('main').classList.toggle('wide', view === 'scan' && !!BRIEF);
+  if (view !== 'inbox') cleanupInboxNav();
+  if (view === 'queue') loadQueue();
+  if (view === 'inbox') loadInbox();
+  if (view === 'outbox') loadOutbox();
+  window.scrollTo(0, 0);
+}
+
+function home() {
+  BRIEF = null; CUR_FILE = null;
+  REVIEWING = null; paintReviewStrip();
+  localStorage.removeItem('advise.draft');
+  $('work').classList.add('hidden');
+  $('landing').classList.remove('hidden');
+  history.replaceState(null, '', location.pathname);
+  show('scan');
+  filterMods();
+}
+
+// ── identity: one personal_sign, no gas, no challenge ────────────
+async function connect() {
+  if (ADDRESS) {
+    const out = await ask({ title: 'Disconnect ' + short(ADDRESS) + '?', body: 'You can still read and send suggestions without a wallet.', ok: 'Disconnect', tone: 'no' });
+    if (!out) return;
+    TOKEN = ''; ADDRESS = '';
+    sessionStorage.removeItem('advise.token'); sessionStorage.removeItem('advise.address');
+    paintWho(); peekInbox(); peekOutbox(); return;
+  }
+  if (!window.ethereum) {
+    await ask({ title: 'No browser wallet found', body: 'Reading and sending suggestions work without one. Approving needs the wallet that owns the module.', cancel: '', ok: 'Got it' });
+    return;
+  }
+  try {
+    const [addr] = await window.ethereum.request({ method: 'eth_requestAccounts' });
+    // data is a STRING, not an object: build's core-token reader rebuilds the
+    // signed message with data as a string, so one signature works on both.
+    const data = 'advise';
+    const time = (Date.now() / 1000).toString();
+    const signature = await window.ethereum.request({
+      method: 'personal_sign', params: [JSON.stringify({ data, time }), addr] });
+    TOKEN = btoa(JSON.stringify({ data, time, key: addr.toLowerCase(), signature }))
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    ADDRESS = addr.toLowerCase();
+    sessionStorage.setItem('advise.token', TOKEN);
+    sessionStorage.setItem('advise.address', ADDRESS);
+    paintWho();
+    toast('Signed in as ' + short(ADDRESS), 'ok');
+    peekInbox(); peekOutbox();
+  } catch (e) { toast('Sign-in cancelled: ' + e.message, 'err'); }
+}
+
+const short = a => a ? a.slice(0, 6) + '…' + a.slice(-4) : '';
+
+function paintWho() {
+  $('who-t').textContent = ADDRESS ? short(ADDRESS) : 'Connect wallet';
+  $('who').classList.toggle('on', !!ADDRESS);
+}
+
+// ── stats ────────────────────────────────────────────────────────
+async function loadStats() {
+  try {
+    const out = await call('recs', { limit: 500 });
+    const c = { pending: 0, approved: 0, rejected: 0 };
+    for (const r of out.recommendations) if (r.status in c) c[r.status]++;
+    countTo($('s-pending'), c.pending);
+    countTo($('s-approved'), c.approved);
+    countTo($('s-rejected'), c.rejected);
+    $('n-queue').textContent = c.pending;
+    renderRecentFeed(out.recommendations.slice(0, 5));
+    renderLeaderboard(out.recommendations);
+  } catch (e) { /* stats are decoration */ }
+}
+
+function renderRecentFeed(recs) {
+  const el = $('recent-feed');
+  if (!el) return;
+  if (!recs || !recs.length) {
+    el.innerHTML = '<div class="empty">Nothing filed yet — read a module and be the first.</div>';
+    return;
+  }
+  const rows = recs.map(r => {
+    const bg = avColor(r.module);
+    const initial = esc(String(r.module).replace(/^[^a-z0-9]+/i, '').charAt(0) || '?').toUpperCase();
+    const kindColor = KINDS[r.kind] || 'var(--dim)';
+    const sevColor = SEVS[r.severity] || 'var(--dim)';
+    return `<div class="rf-row" onclick="location.search='?rec='+encodeURIComponent('${esc(r.id)}')">
+      <div class="rf-mod" style="background:${bg}">${initial}</div>
+      <span class="rf-title">${esc(r.title)}</span>
+      <span class="tag cap" style="--c:${kindColor}"><i></i>${esc(r.kind)}</span>
+      <i class="rf-sev" style="background:${sevColor}"></i>
+      <span class="rf-ts">${ago(r.created_at)}</span>
+    </div>`;
+  }).join('');
+  el.innerHTML = `<div class="sechead"><h2>Recent suggestions</h2><span class="sub">across all modules</span><div class="grow"></div><a href="#" onclick="show('queue');return false">View all →</a></div>${rows}`;
+}
+
+function renderLeaderboard(recs) {
+  const el = $('leaderboard');
+  if (!el) return;
+  const approved = (recs || []).filter(r => r.author_signed === true && r.status === 'approved');
+  if (!approved.length) { el.innerHTML = ''; return; }
+  const byAuthor = {};
+  for (const r of approved) {
+    if (!byAuthor[r.author]) byAuthor[r.author] = { count: 0, modules: new Set() };
+    byAuthor[r.author].count++;
+    if (r.module) byAuthor[r.author].modules.add(r.module);
+  }
+  const top = Object.entries(byAuthor)
+    .sort((a, b) => b[1].count - a[1].count)
+    .slice(0, 5);
+  const rows = top.map(([author, d]) => {
+    const bg = avColor(author);
+    const initial = esc(String(author).replace(/^[^a-z0-9]+/i, '').charAt(0) || '?').toUpperCase();
+    const mods = d.modules.size;
+    return `<div class="rf-row">
+      <div class="rf-mod" style="background:${bg}">${initial}</div>
+      <span class="rf-title">${esc(short(author))}</span>
+      <span class="rf-ts">${d.count} approved · ${mods} module${mods !== 1 ? 's' : ''}</span>
+    </div>`;
+  }).join('');
+  el.innerHTML = `<div class="sechead"><h2>Top contributors</h2><span class="sub">by approved suggestions</span><div class="grow"></div><a href="#" onclick="show('queue');QSTATUS='approved';paintQStatus();loadQueue();return false">View approved →</a></div>${rows}`;
+}
+
+async function peekInbox() {
+  const n = $('n-inbox');
+  n.classList.remove('hot');
+  if (!TOKEN) { n.textContent = '–'; return; }
+  try {
+    const c = (await call('inbox', { status: 'pending' })).count;
+    n.textContent = c; n.classList.toggle('hot', c > 0);
+  } catch (e) { n.textContent = '–'; }
+}
+
+async function peekOutbox() {
+  const n = $('n-outbox');
+  n.classList.remove('hot');
+  if (!TOKEN) { n.textContent = '–'; return; }
+  try {
+    const out = await call('outbox');
+    const pending = (out.recommendations || []).filter(r => r.status === 'pending').length;
+    n.textContent = pending;
+    n.classList.toggle('hot', pending > 0);
+  } catch (e) { n.textContent = '–'; }
+}
+
+// ── landing: module gallery ──────────────────────────────────────
+async function loadModules() {
+  $('gallery').innerHTML = Array(6).fill('<div class="skeleton"></div>').join('');
+  try {
+    MODS = (await call('modules', { limit: 500 })).modules;
+  } catch (e) { MODS = []; }
+  countTo($('s-mods'), MODS.length);
+  paintTrees();
+  filterMods();
+}
+
+function paintTrees() {
+  const trees = [...new Set(MODS.map(m => m.tree).filter(Boolean))];
+  $('tree-seg').classList.toggle('hidden', trees.length < 2);
+  $('tree-seg').innerHTML = ['', ...trees].map(t =>
+    `<button class="${t === TREE ? 'on' : ''}" onclick="TREE='${esc(t)}';LIMIT=60;paintTrees();filterMods()">${esc(t || 'all')}</button>`).join('');
+}
+
+function matches() {
+  const q = $('module').value.trim().toLowerCase();
+  return MODS.filter(m => (!TREE || m.tree === TREE)
+    && (!q || (m.module + ' ' + (m.title || '') + ' ' + (m.description || '')).toLowerCase().includes(q)))
+    .sort((a, b) => {
+      if (!q) return 0;
+      const ra = a.module.toLowerCase().startsWith(q) ? 0 : a.module.toLowerCase().includes(q) ? 1 : 2;
+      const rb = b.module.toLowerCase().startsWith(q) ? 0 : b.module.toLowerCase().includes(q) ? 1 : 2;
+      return ra - rb;
+    });
+}
+
+function filterMods() {
+  const g = $('gallery');
+  if (!MODS.length) {
+    g.innerHTML = `<div class="empty">No module on this host is listed publicly yet.<br>
+      Owners open one up from <b>build's hub</b> — or type a name you already know and press <b>Open</b>.</div>`;
+    $('mod-count').textContent = '';
+    $('more').classList.add('hidden');
+    return;
+  }
+  const hit = matches();
+  hit.sort((a, b) => (b.open_recs || 0) - (a.open_recs || 0));
+  $('mod-count').textContent = hit.length === MODS.length ? `${MODS.length} open to read` : `${hit.length} of ${MODS.length}`;
+  g.innerHTML = hit.slice(0, LIMIT).map(m => {
+    const d = m.description && m.description !== m.module && m.description !== m.title ? m.description : '';
+    const badge = m.open_recs > 0 ? `<span class="tag" style="--c:var(--warn);color:var(--warn)"><i></i>${m.open_recs} pending</span>` : '';
+    return `<button class="mod" data-m="${esc(m.module)}" onclick="pick(this.dataset.m)">${avatar(m.module)}
+      <div class="t"><b>${esc(m.module)}${m.tree === 'core' ? '<small>core</small>' : ''}</b>
+      <span>${esc(d || 'No description yet')}</span>${badge}</div>
+      <span class="ai-btn" onclick="event.stopPropagation();pickAndScan(this.closest('[data-m]').dataset.m)">AI →</span></button>`;
+  }).join('')
+    || `<div class="empty">Nothing matches. Press <b>Open</b> to try “${esc($('module').value.trim())}” anyway.</div>`;
+  $('more').classList.toggle('hidden', hit.length <= LIMIT);
+}
+
+function enterSearch() {
+  const q = $('module').value.trim();
+  if (!q) return;
+  const exact = MODS.find(m => m.module === q);
+  const hit = exact ? [exact] : matches();
+  pick(hit.length === 1 ? hit[0].module : q);
+}
+
+function pick(name) { loadBrief(name); }
+function pickAndScan(name) { AUTO_SCAN_PENDING = true; pick(name); }
+
+// ── workspace ────────────────────────────────────────────────────
+async function loadBrief(module, focus = '') {
+  module = (module || (BRIEF && BRIEF.module) || '').trim();
+  if (!module) return;
+  $('landing').classList.add('hidden');
+  $('work').classList.remove('hidden');
+  $('main').classList.add('wide');
+  if (!BRIEF || BRIEF.module !== module) {
+    $('wshead').innerHTML = '<div class="skeleton" style="margin:22px 0 16px;height:80px"></div>';
+    $('files').innerHTML = '<div class="skeleton sm"></div>';
+    $('code').innerHTML = '<div class="placeholder">Loading…</div>';
+    window.scrollTo(0, 0);
+  }
+  try {
+    const b = await call('brief', { module, focus });
+    if (!BRIEF || BRIEF.module !== b.module) { CUR_FILE = null; FILEQ = ''; }
+    BRIEF = b;
+    if (ANCHORS.length && ANCHORS[0].module !== b.module) ANCHORS = [];
+    $('owner-of').textContent = b.owner ? short(b.owner) : 'the owner';
+    renderBrief(b);
+    if (focus) LOWER = 'grep';
+    else if (LOWER === 'grep') LOWER = 'todo';
+    renderLower();
+    history.replaceState(null, '', '?module=' + encodeURIComponent(b.module));
+    if (!CUR_FILE) {
+      const first = (b.tree.files || []).find(f => /(^|\/)(mod\.py|main\.rs|index\.(ts|js|html)|app\.py|server\.py)$/.test(f.path) && f.readable)
+        || (b.stats.biggest || []).find(f => !/\.md$/.test(f.path));
+      if (first) openFile(first.path);
+    } else paintFiles();
+    renderAnchors(); score(); restoreDraft();
+    if (AUTO_SCAN_PENDING) { AUTO_SCAN_PENDING = false; autoScan(); }
+  } catch (e) {
+    $('wshead').innerHTML = '';
+    $('files').innerHTML = '';
+    $('code').innerHTML = `<div class="placeholder err">${esc(e.message)}</div>`;
+  }
+}
+
+function renderBrief(b) {
+  const langs = Object.entries(b.stats.languages || {}).sort((a, c) => c[1] - a[1]);
+  const tot = langs.reduce((s, [, n]) => s + n, 0) || 1;
+  const cfg = b.config || {};
+  const open = b.open_recommendations || [];
+  const desc = cfg.description || '';
+  const long = desc.length > 240;
+  $('wshead').innerHTML = `<div class="wshead">
+      ${avatar(b.module)}
+      <div class="t">
+        <h1>${esc(cfg.title || b.module)}</h1>
+        ${desc ? `<p class="desc" id="desc">${esc(long ? desc.slice(0, 240) + '…' : desc)}
+          ${long ? ` <button onclick="this.parentNode.textContent=BRIEF.config.description">more</button>` : ''}</p>` : ''}
+        <div class="facts">
+          <span class="fact"><b>${b.stats.files}</b> files</span>
+          <span class="fact"><b>${kb(b.stats.bytes || 0)}</b></span>
+          ${cfg.version ? `<span class="fact">v<b>${esc(cfg.version)}</b></span>` : ''}
+          ${open.length ? `<span class="fact warn"><b>${open.length}</b> already suggested</span>` : ''}
+          ${langs.length ? `<span class="fact" style="display:inline-flex;gap:8px;align-items:center" title="${esc(langs.map(([l, n]) => l + ' ' + n).join(', '))}">
+            <span class="langbar">${langs.map(([l, n], i) => `<div style="width:${n / tot * 100}%;background:${LANG[i % LANG.length]}"></div>`).join('')}</span>
+            ${esc(langs.slice(0, 3).map(([l]) => l).join(' · '))}</span>` : ''}
+        </div>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center;align-self:flex-start;margin-top:4px">
+        <input id="autoscan-focus" placeholder="Focus on (optional)" style="font-size:12px;padding:4px 8px;border:1px solid var(--border,#444);border-radius:6px;background:var(--bg2,#1a1a1a);color:inherit;width:160px">
+        <button id="autoscan-btn" class="btn" style="white-space:nowrap" onclick="autoScan()">AI-fill form &#x2192;</button>
+      </div>
+      <div class="owner">Approved by<br><code>${icon('shield')}${esc(b.owner ? short(b.owner) : 'deployment owner')}</code></div>
+    </div>`;
+  paintFiles();
+}
+
+function paintFiles() {
+  const b = BRIEF;
+  const q = FILEQ.toLowerCase();
+  const files = (b.tree.files || []).filter(f => !q || f.path.toLowerCase().includes(q));
+  const cur = CUR_FILE && CUR_FILE.path;
+  const fileSugCounts = {};
+  for (const r of (b.open_recommendations || [])) {
+    for (const p of (r.anchor_paths || [])) {
+      fileSugCounts[p] = (fileSugCounts[p] || 0) + 1;
+    }
+  }
+  const list = files.map(f => {
+    const i = f.path.lastIndexOf('/');
+    const nm = i >= 0 ? `<i>${esc(f.path.slice(0, i + 1))}</i>${esc(f.path.slice(i + 1))}` : esc(f.path);
+    const n = fileSugCounts[f.path];
+    const badge = n ? `<span title="${n} suggestion${n === 1 ? '' : 's'} point here" style="font-size:10px;padding:1px 5px;border-radius:99px;background:rgba(245,195,91,.15);color:var(--warn);border:1px solid rgba(245,195,91,.3)">${n}</span>` : '';
+    return `<button class="f ${f.readable ? '' : 'off'} ${f.path === cur ? 'sel' : ''}" data-p="${esc(f.path)}" title="${esc(f.path)}"
+      ${f.readable ? `onclick="openFile(this.dataset.p)"` : 'disabled'}>${icon('file')}<span class="nm">${nm}</span>${badge}<small>${kb(f.bytes)}</small></button>`;
+  }).join('') || '<div class="note">No files match.</div>';
+  const had = document.activeElement && document.activeElement.id === 'file-q';
+  $('files').innerHTML = `<div class="find searchbox">${icon('search')}<input id="file-q" placeholder="Find a file" value="${esc(FILEQ)}"
+      oninput="FILEQ=this.value;paintFiles()"></div>${list}`;
+  if (had) { const el = $('file-q'); el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+}
+
+function prefillTodo(path, line, text) {
+  if (!ANCHORS.find(a => a.path === path && a.line === line)) {
+    ANCHORS.push({ module: BRIEF && BRIEF.module, path, line, note: (text || '').trim().slice(0, 60) });
+  }
+  const u = (text || '').toUpperCase();
+  KIND = (u.includes('FIXME') || u.includes('HACK')) ? 'bug' : 'cleanup';
+  paintChips();
+  openFile(path, line);
+  renderAnchors(); score();
+  const panel = document.getElementById('form-panel');
+  if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  setTimeout(() => { const t = document.getElementById('title'); if (t) t.focus(); }, 300);
+}
+
+function pinHit(path, line, text) {
+  if (!ANCHORS.find(a => a.path === path && a.line === line)) {
+    ANCHORS.push({ module: BRIEF && BRIEF.module, path, line, note: (text || '').trim().slice(0, 60) });
+  }
+  openFile(path, line);
+  renderAnchors(); score();
+  const panel = document.getElementById('form-panel');
+  if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function renderLower() {
+  const b = BRIEF;
+  const todos = b.stats.todos || [];
+  const open = b.open_recommendations || [];
+  const grep = b.focus ? b.focus.hits || [] : [];
+  const tabs = [
+    ['todo', 'To-dos', todos.length],
+    ['filed', 'Already suggested', open.length],
+    ['grep', 'Search code', b.focus ? grep.length : ''],
+    ...(b.readme && b.readme.text ? [['readme', 'README', '']] : []),
+  ];
+  $('lower-tabs').innerHTML = tabs.map(([k, t, n]) =>
+    `<button class="${k === LOWER ? 'on' : ''}" onclick="LOWER='${k}';renderLower()">${t}${n !== '' ? ` <span class="n">${n}</span>` : ''}</button>`).join('');
+  const hits = list => list.slice(0, 120).map(h =>
+    `<div class="hit" data-p="${esc(h.path)}" data-l="${h.line}" data-t="${esc(h.text)}" onclick="openFile(this.dataset.p,+this.dataset.l)"><em>${esc(h.path)}:${h.line}</em><span>${esc(h.text)}</span><button class="btn ghost" style="font-size:11px;padding:3px 8px;flex:none" onclick="event.stopPropagation();pinHit(this.parentNode.dataset.p,+this.parentNode.dataset.l,this.parentNode.dataset.t)">Pin →</button></div>`).join('');
+  let body = '';
+  if (LOWER === 'todo') body = todos.slice(0, 120).map(h =>
+    `<div class="hit" data-p="${esc(h.path)}" data-l="${h.line}" data-t="${esc(h.text)}" onclick="openFile(this.dataset.p,+this.dataset.l)"><em>${esc(h.path)}:${h.line}</em><span>${esc(h.text)}</span><button class="btn ghost" style="font-size:11px;padding:3px 8px;flex:none" onclick="event.stopPropagation();prefillTodo(this.parentNode.dataset.p,+this.parentNode.dataset.l,this.parentNode.dataset.t)">Suggest fix →</button></div>`
+  ).join('') || '<div class="note">No TODO or FIXME notes in this module.</div>';
+  if (LOWER === 'filed') body = open.map(r =>
+    `<div class="hit" onclick="showRecModal('${esc(r.id)}')" title="${esc(r.title)}"><span class="status ${esc(r.status)}">${esc(r.status)}</span>${r.kind ? `<span class="tag cap" style="--c:${KINDS[r.kind] || 'var(--dim)'}"><i></i>${esc(r.kind)}</span>` : ''}<span style="font-family:var(--sans);flex:1">${esc(r.title)}</span>${r.author ? `<span style="font-family:var(--mono);font-size:11px;color:var(--dim);flex:none">${esc(r.author.length > 20 ? short(r.author) : r.author)}</span>` : ''}</div>`).join('')
+    || '<div class="note">Nothing suggested yet — you would be first.</div>';
+  if (LOWER === 'grep') body = `<div style="padding:6px"><div class="searchbox">${icon('search')}
+      <input id="focus" placeholder="Search this module's code and press Enter" value="${esc(b.focus ? b.focus.query : '')}"
+        onkeydown="if(event.key==='Enter')loadBrief(BRIEF.module, this.value.trim())"></div></div>`
+    + (b.focus ? (hits(grep) || '<div class="note">No matches.</div>') : '');
+  if (LOWER === 'readme') body = `<pre>${esc(b.readme.text)}</pre>`;
+  $('lower').innerHTML = body;
+  if (LOWER === 'grep' && !b.focus) $('focus').focus();
+}
+
+async function openFile(path, line) {
+  if (!BRIEF) return;
+  const code = $('code');
+  document.querySelectorAll('#files .f').forEach(f => f.classList.toggle('sel', f.dataset.p === path));
+  if (!CUR_FILE || CUR_FILE.path !== path) {
+    code.innerHTML = `<div class="boxhead"><span class="path">${esc(path)}</span></div><div class="placeholder">Loading…</div>`;
+    try {
+      CUR_FILE = await call('file', { module: BRIEF.module, path });
+    } catch (e) { code.innerHTML = `<div class="placeholder err">${esc(e.message)}</div>`; return; }
+  }
+  paintCode();
+  if (line) {
+    const row = code.querySelector(`[data-n="${line}"]`);
+    if (row) {
+      code.scrollTop = row.offsetTop - code.clientHeight / 2;
+      row.animate([{ background: 'rgba(124,156,255,.35)' }, { background: 'transparent' }], 1600);
+    }
+  }
+}
+
+function paintCode() {
+  const f = CUR_FILE, code = $('code');
+  const pinned = new Set(ANCHORS.filter(a => a.path === f.path).map(a => a.line));
+  const lines = f.content.split('\n');
+  const ext = (f.path.split('.').pop() || '').toLowerCase();
+  const lang = EXT_LANG[ext] || '';
+  code.innerHTML = `<div class="boxhead"><span class="path">${esc(f.path)}</span>
+      <span class="sub">${f.total_lines} lines${f.truncated ? ' · truncated' : ''}</span><span class="grow"></span>
+      <span class="sub">click a line number to point at it</span></div>`
+    + lines.map((t, i) => {
+      const n = f.start + i;
+      return `<div class="ln ${pinned.has(n) ? 'pin' : ''}" data-n="${n}"><span class="no" onclick="togglePin(${n})">${n}</span><code>${lang ? hljs.highlight(t, {language: lang}).value : esc(t)}</code></div>`;
+    }).join('');
+}
+
+function togglePin(n) {
+  const path = CUR_FILE.path;
+  const i = ANCHORS.findIndex(a => a.path === path && a.line === n);
+  if (i >= 0) ANCHORS.splice(i, 1);
+  else {
+    const text = (CUR_FILE.content.split('\n')[n - CUR_FILE.start] || '').trim().slice(0, 60);
+    ANCHORS.push({ module: BRIEF.module, path, line: n, note: text });
+  }
+  paintCode(); renderAnchors(); score();
+}
+
+function addAnchorText() {
+  const v = $('anchor-in').value.trim();
+  const m = v.match(/^([^\s:]+)(?::(\d+))?\s*(.*)$/);
+  if (!m) return;
+  ANCHORS.push({ module: BRIEF && BRIEF.module, path: m[1], line: m[2] ? Number(m[2]) : undefined, note: m[3] || '' });
+  $('anchor-in').value = '';
+  renderAnchors(); score();
+}
+
+function renderAnchors() {
+  $('anchors').innerHTML = ANCHORS.map((a, i) =>
+    `<div class="anchor"><span class="loc" data-p="${esc(a.path)}" data-l="${a.line || ''}" onclick="openFile(this.dataset.p, +this.dataset.l || undefined)">${esc(a.path.split('/').pop())}${a.line ? ':' + a.line : ''}</span>
+      <input value="${esc(a.note || '')}" placeholder="what is here" oninput="ANCHORS[${i}].note=this.value">
+      <button class="x" onclick="unpin(${i})" title="remove">${icon('x')}</button></div>`).join('')
+    || `<div class="pinhint">${icon('pin')}No lines yet — click a line number in the code.</div>`;
+  const asbtn = document.getElementById('autoscan-btn');
+  if (asbtn && !asbtn.disabled) asbtn.textContent = ANCHORS.length ? 'AI-fill form (from pins) →' : 'AI-fill form →';
+}
+
+function unpin(i) {
+  ANCHORS.splice(i, 1);
+  renderAnchors(); if (CUR_FILE) paintCode(); score();
+}
+
+// ── form: chips + signal strength ────────────────────────────────
+function paintChips() {
+  $('kind').innerHTML = Object.entries(KINDS).map(([k, c]) =>
+    `<button class="pill ${k === KIND ? 'on' : ''}" style="--c:${c}" onclick="KIND='${k}';paintChips()"><i></i>${k}</button>`).join('');
+  $('severity').innerHTML = Object.entries(SEVS).map(([k, c]) =>
+    `<button class="${k === SEV ? 'on' : ''}" style="--c:${c}" onclick="SEV='${k}';paintChips()">${k}</button>`).join('');
+  renderOwnerPreview();
+}
+
+function renderOwnerPreview() {
+  const el = $('owner-preview');
+  if (!el) return;
+  const v = id => $(id).value.trim();
+  const who = ADDRESS ? ADDRESS : 'anon:unknown (no account)';
+  const lines = [
+    'Recommended by ' + who + ' — advise (pending)',
+    KIND + ' · severity ' + SEV,
+    ''
+  ];
+  const summary = v('summary');
+  if (summary) { lines.push(summary, ''); }
+  const rationale = v('rationale');
+  if (rationale) { lines.push('WHY', rationale, ''); }
+  const change = v('change');
+  if (change) { lines.push('PROPOSED CHANGE', change, ''); }
+  if (ANCHORS.length) {
+    lines.push('WHERE');
+    for (const a of ANCHORS) {
+      const where = a.path + (a.line ? ':' + a.line : '');
+      lines.push('  - ' + where + (a.note ? ' — ' + a.note : ''));
+    }
+    lines.push('');
+  }
+  const patch = v('patch');
+  if (patch) { lines.push('PATCH (proposed, not applied)', '```diff', patch, '```', ''); }
+  el.textContent = lines.join('\n').trimEnd();
+  const panel = $('owner-preview-panel');
+  const lbl = $('preview-label');
+  const hasContent = !!(v('summary') || v('rationale') || v('change') || ANCHORS.length || patch);
+  if (hasContent && !panel.open) {
+    lbl.classList.add('preview-pulse');
+    lbl.textContent = 'Preview ready →';
+  } else {
+    lbl.classList.remove('preview-pulse');
+    lbl.textContent = 'Preview how the owner sees this';
+  }
+}
+
+function saveDraft() {
+  if (!BRIEF) return;
+  const v = id => $(id) ? $(id).value : '';
+  const hasContent = v('title') || v('summary') || v('rationale') || v('change') || v('patch') || ANCHORS.length;
+  if (!hasContent) { localStorage.removeItem('advise.draft'); return; }
+  localStorage.setItem('advise.draft', JSON.stringify({
+    module: BRIEF.module,
+    title: v('title'), summary: v('summary'), rationale: v('rationale'),
+    change: v('change'), patch: v('patch'),
+    kind: KIND, sev: SEV, anchors: ANCHORS,
+    ts: Date.now(),
+  }));
+}
+
+function restoreDraft() {
+  if (!BRIEF) return;
+  let d;
+  try { d = JSON.parse(localStorage.getItem('advise.draft') || 'null'); } catch (_) { return; }
+  if (!d || d.module !== BRIEF.module) return;
+  if (Date.now() - d.ts > 7 * 24 * 60 * 60 * 1000) { localStorage.removeItem('advise.draft'); return; }
+  for (const id of ['title', 'summary', 'rationale', 'change', 'patch']) {
+    const el = $(id); if (el && d[id] != null) el.value = d[id];
+  }
+  if (d.kind) KIND = d.kind;
+  if (d.sev) SEV = d.sev;
+  if (Array.isArray(d.anchors)) ANCHORS = d.anchors;
+  paintChips(); renderAnchors(); paintCode(); score();
+  toast('Draft restored', 'ok');
+}
+
+function score() {
+  const v = id => $(id).value.trim();
+  const checks = [
+    ['module picked', !!BRIEF, 10, 'pick a module'],
+    ['clear title', v('title').length >= 12, 15, 'write a title that says what changes'],
+    ['summary', v('summary').length >= 30, 15, 'add a one-line summary'],
+    ['evidence', v('rationale').length >= 40, 20, 'explain why, from the code'],
+    ['actionable change', v('change').length >= 40, 20, 'describe the change concretely'],
+    ['points at lines', ANCHORS.some(a => a.line), 15, 'click a line number to point at it'],
+    ['patch (bonus)', v('patch').length > 10, 5, 'attach a patch for bonus points'],
+  ];
+  const s = checks.reduce((t, [, ok, w]) => t + (ok ? w : 0), 0);
+  countTo($('score'), s);
+  const col = s >= 70 ? 'var(--ok)' : s >= 45 ? 'var(--warn)' : s > 0 ? 'var(--accent)' : 'var(--faint)';
+  $('ring').style.setProperty('--p', s);
+  $('ring').style.setProperty('--rc', col);
+  $('grade').textContent = s >= 90 ? 'Excellent — hard to say no to' : s >= 70 ? 'Strong suggestion' : s >= 45 ? 'Getting there' : s > 0 ? 'Needs more detail' : 'Just getting started';
+  $('grade').style.color = s >= 45 ? col : '';
+  const todo = checks.find(([, ok]) => !ok);
+  $('next').textContent = todo ? 'Next: ' + todo[3] : 'Ready to send.';
+  $('checks').innerHTML = checks.map(([t, ok]) => `<li class="${ok ? 'done' : ''}">${t}</li>`).join('');
+  renderOwnerPreview();
+  saveDraft();
+  checkDuplicates();
+  return s;
+}
+
+function checkDuplicates() {
+  const warn = $('dup-warn');
+  if (!warn) return;
+  const tokens = t => t.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(w => w.length >= 4);
+  const cur = new Set(tokens($('title').value));
+  if (!cur.size) { warn.className = 'hidden'; return; }
+  const recs = (BRIEF && BRIEF.open_recommendations) || [];
+  for (const r of recs) {
+    const rt = new Set(tokens(r.title || ''));
+    let shared = 0;
+    for (const w of cur) if (rt.has(w)) shared++;
+    const union = new Set([...cur, ...rt]).size;
+    const jaccard = union ? shared / union : 0;
+    if (shared >= 3 || jaccard >= 0.45) {
+      warn.className = '';
+      warn.style.cssText = 'color:var(--warn);font-size:12px;margin-top:5px;display:flex;gap:6px;align-items:center';
+      warn.innerHTML = `Looks similar to an existing suggestion: ‘${esc(r.title)}’ — <a href="?rec=${encodeURIComponent(r.id)}" style="color:var(--warn)">${esc(r.id)}</a>`;
+      return;
+    }
+  }
+  warn.className = 'hidden';
+}
+
+async function fileRec() {
+  const msg = $('file-msg');
+  const body = {
+    module: BRIEF && BRIEF.module,
+    title: $('title').value.trim(),
+    kind: KIND, severity: SEV,
+    summary: $('summary').value.trim(),
+    rationale: $('rationale').value.trim(),
+    change: $('change').value.trim(),
+    patch: $('patch').value,
+    anchors: ANCHORS.map(({ path, line, note }) => ({ path, line, note: note || undefined })),
+  };
+  if (!body.title) { toast('Give your suggestion a title first', 'err'); $('title').focus(); return; }
+  if (!EDITING_ID && !body.module) { toast('Give your suggestion a title first', 'err'); $('title').focus(); return; }
+  if (!EDITING_ID && score() < 45) {
+    const go = await ask({ title: 'Send it as is?', body: 'Suggestions without evidence or pointed-at lines are the ones owners usually reject. You can add more detail first.', ok: 'Send anyway', cancel: 'Keep writing' });
+    if (!go) return;
+  }
+  if (EDITING_ID) {
+    msg.textContent = 'Updating…';
+    try {
+      const eid = EDITING_ID;
+      const out = await call('update', { id: eid, title: body.title, kind: body.kind, severity: body.severity,
+        summary: body.summary, rationale: body.rationale, change: body.change, patch: body.patch, anchors: body.anchors }, 'POST');
+      EDITING_ID = null;
+      const fbtn = $('file-btn');
+      if (fbtn) fbtn.innerHTML = '<svg class="i"><use href="#i-send"/></svg>Send suggestion';
+      toast(`Updated ${eid}`, 'ok');
+      msg.innerHTML = `<span class="ok">Updated</span> <code>${esc(eid)}</code>`;
+      for (const fid of ['title', 'summary', 'rationale', 'change', 'patch']) $(fid).value = '';
+      ANCHORS = []; renderAnchors(); if (CUR_FILE) paintCode(); score();
+      loadStats(); loadOutbox();
+    } catch (e) { msg.innerHTML = `<span class="err">${esc(e.message)}</span>`; toast(e.message, 'err'); }
+    return;
+  }
+  msg.textContent = 'Sending…';
+  try {
+    const out = await call('recommend', body, 'POST');
+    burst(document.querySelector('#form-panel .btn.primary'));
+    toast(`Sent — waiting on ${out.awaiting ? short(out.awaiting) : 'the owner'}`, 'ok');
+    msg.innerHTML = `<span class="ok">Sent</span> as <code>${esc(out.filed)}</code> — waiting on ${esc(out.awaiting ? short(out.awaiting) : 'the owner')}`;
+    for (const id of ['title', 'summary', 'rationale', 'change', 'patch']) $(id).value = '';
+    ANCHORS = []; renderAnchors(); if (CUR_FILE) paintCode(); score();
+    localStorage.removeItem('advise.draft');
+    loadStats(); peekOutbox();
+  } catch (e) { msg.innerHTML = `<span class="err">${esc(e.message)}</span>`; toast(e.message, 'err'); }
+}
+
+async function autoScan() {
+  if (!BRIEF) return;
+  const btn = document.getElementById('autoscan-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Scanning…'; }
+  try {
+    const focusVal = document.getElementById('autoscan-focus')?.value.trim();
+    const anchorPayload = ANCHORS.length ? ANCHORS.map(a => ({ path: a.path, line: a.line })) : undefined;
+    const out = await call('autoscan', { module: BRIEF.module, preview: true, ...(focusVal ? { focus: focusVal } : {}), ...(anchorPayload ? { anchors: anchorPayload } : {}) }, 'POST');
+    if (out.error) { toast(out.error, 'err'); return; }
+    burst(btn);
+    $('title').value = out.title || '';
+    $('summary').value = out.summary || '';
+    $('rationale').value = out.rationale || '';
+    $('change').value = out.change || '';
+    if (Array.isArray(out.anchors) && out.anchors.length) {
+      ANCHORS = out.anchors.map(a => ({ module: BRIEF.module, path: a.path, line: a.line, note: a.note || '' }));
+    }
+    if (out.kind) KIND = out.kind;
+    if (out.severity) SEV = out.severity;
+    paintChips(); renderAnchors(); paintCode(); score();
+    if (ANCHORS.length && ANCHORS[0].path) openFile(ANCHORS[0].path, ANCHORS[0].line || undefined);
+    const pp = document.getElementById('owner-preview-panel'); if (pp && !pp.open) pp.open = true;
+    const panel = document.getElementById('form-panel');
+    if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    toast('AI suggestion loaded — review and edit before sending', 'ok');
+  } catch (e) {
+    toast(e.message, 'err');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = ANCHORS.length ? 'AI-fill form (from pins) →' : 'AI-fill form →'; }
+  }
+}
+
+async function autoTriage() {
+  const btn = $('triage-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Triaging…'; }
+  try {
+    const out = await call('autotriage', {}, 'POST');
+    if (out.error) { toast(out.error, 'err'); return; }
+    TRIAGE = out.votes || {};
+    paintTriageBadges();
+    toast(`AI triaged ${out.count} suggestion${out.count === 1 ? '' : 's'}`, 'ok');
+    if (out.count > 0) $('confirm-triage-btn').classList.remove('hidden');
+  } catch (e) {
+    toast(e.message, 'err');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'AI triage →'; }
+  }
+}
+
+function paintTriageBadges() {
+  document.querySelectorAll('#inbox .card').forEach(card => {
+    const tog = card.querySelector('.detail-toggle');
+    if (!tog) return;
+    const id = tog.id.replace(/^tog-/, '');
+    const v = TRIAGE[id];
+    const tagsEl = card.querySelector('.tags');
+    if (!tagsEl) return;
+    tagsEl.querySelectorAll('.triage-badge').forEach(b => b.remove());
+    if (!v) return;
+    const color = v.vote === 'approve' ? 'var(--ok)' : 'var(--no)';
+    const label = v.vote === 'approve' ? 'AI: Approve' : 'AI: Reject';
+    const badge = document.createElement('span');
+    badge.className = 'tag triage-badge';
+    badge.style.setProperty('--c', color);
+    badge.style.color = color;
+    badge.title = v.note;
+    badge.innerHTML = `<i></i>${esc(label)}`;
+    tagsEl.appendChild(badge);
+  });
+}
+
+async function confirmAllVotes() {
+  const ids = Object.keys(TRIAGE);
+  if (!ids.length) { toast('No AI votes to apply', ''); return; }
+  const go = await ask({ title: `Apply ${ids.length} AI vote${ids.length === 1 ? '' : 's'}?`, body: 'Each suggestion will be approved or rejected as the AI voted, with the AI note attached.', ok: 'Apply all', tone: 'primary' });
+  if (!go) return;
+  let applied = 0, failed = 0;
+  for (const id of ids) {
+    const v = TRIAGE[id];
+    try {
+      await call(v.vote === 'approve' ? 'approve' : 'reject',
+                 { id, note: `[AI triage] ${v.note}` }, 'POST');
+      applied++;
+    } catch (e) { failed++; }
+  }
+  TRIAGE = {};
+  $('confirm-triage-btn').classList.add('hidden');
+  toast(`Applied ${applied}${failed ? `, ${failed} failed` : ''}`, applied > 0 ? 'ok' : 'err');
+  loadInbox(); loadStats();
+}
+
+// ── queue + inbox ────────────────────────────────────────────────
+function ago(ts) {
+  const s = Date.now() / 1000 - ts;
+  if (s < 60) return 'just now';
+  if (s < 3600) return Math.floor(s / 60) + 'm ago';
+  if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+  return Math.floor(s / 86400) + 'd ago';
+}
+
+function card(r, owner, i) {
+  const who = `<span class="who">${esc(r.author && r.author.length > 20 ? short(r.author) : r.author)}</span>`
+    + (r.author_signed ? '' : ' · no account') + (r.agent ? ' · via ' + esc(r.agent) : '');
+  const acts = owner && r.status === 'pending'
+    ? `<div class="acts">
+         <button class="btn yes" onclick="decide(this,'${esc(r.id)}','approve')">Approve</button>
+         <button class="btn no" onclick="decide(this,'${esc(r.id)}','reject')">Reject</button>
+         <span class="note" style="padding:0" id="msg-${esc(r.id)}"></span>
+       </div>` : '';
+  const rid = esc(r.id);
+  return `<div class="card" style="--sev:${SEVS[r.severity] || 'var(--accent)'};animation-delay:${Math.min(i, 12) * 35}ms">
+    <div class="top"><h3>${esc(r.title)}</h3><span class="status ${esc(r.status)}">${esc(r.status)}</span></div>
+    ${r.summary ? `<p class="sum">${esc(r.summary)}</p>` : '<div style="height:10px"></div>'}
+    <div class="tags">
+      <span class="tag mn">${esc(r.module)}</span>
+      <span class="tag cap" style="--c:${KINDS[r.kind] || 'var(--dim)'}"><i></i>${esc(r.kind)}</span>
+      <span class="tag cap" style="--c:${SEVS[r.severity] || 'var(--dim)'}"><i></i>${esc(r.severity)}</span>
+      ${r.anchors ? `<span class="tag">${r.anchors} line${r.anchors === 1 ? '' : 's'}</span>` : ''}
+      ${r.has_patch ? '<span class="tag">patch</span>' : ''}
+      ${r.confidence != null ? `<span class="tag">${Math.round(r.confidence * 100)}% sure</span>` : ''}
+      ${r.comments ? `<span class="tag">${r.comments} comment${r.comments === 1 ? '' : 's'}</span>` : ''}
+      ${r.relayed ? '<span class="tag" style="--c:var(--ok);color:var(--ok)"><i></i>in build\'s idea queue</span>' : ''}
+    </div>
+    <div class="byline">${who} · ${ago(r.created_at)} <span class="grow"></span>
+      <a href="?rec=${encodeURIComponent(r.id)}">${esc(r.id)}</a>
+      <button class="detail-toggle" id="tog-${rid}" onclick="expandCard('${rid}',this)" title="Read more">${icon('chev')}</button></div>
+    <div class="detail-body hidden" id="det-${rid}"></div>
+    ${acts}</div>`;
+}
+
+function paintQStatus() {
+  const opts = ['pending', 'approved', 'rejected', 'withdrawn', ''];
+  $('q-status').innerHTML = opts.map(k =>
+    `<button class="${k === QSTATUS ? 'on' : ''}" onclick="QSTATUS='${k}';paintQStatus();loadQueue()">${k || 'all'}</button>`).join('');
+}
+
+async function loadQueue() {
+  const el = $('queue');
+  el.innerHTML = '<div class="skeleton"></div><div class="skeleton"></div>';
+  try {
+    const out = await call('recs', { status: QSTATUS, module: $('q-module').value.trim(), limit: 100 });
+    QRECS = out.recommendations || [];
+    paintQSev();
+    renderQueue(QRECS);
+  } catch (e) { el.innerHTML = `<div class="empty err">${esc(e.message)}</div>`; QRECS = []; }
+}
+
+function renderQueue(recs) {
+  const el = $('queue');
+  const filtered = QSEV ? recs.filter(r => r.severity === QSEV) : recs;
+  el.innerHTML = filtered.length
+    ? filtered.map((r, i) => card(r, false, i)).join('')
+    : `<div class="empty">Nothing here yet. <a href="#" onclick="home();return false">Read a module</a> and <b>be the first</b>.</div>`;
+}
+
+function paintQSev() {
+  const el = $('q-sev');
+  if (!el) return;
+  const counts = { critical: 0, high: 0, medium: 0, low: 0 };
+  for (const r of QRECS) if (r.severity in counts) counts[r.severity]++;
+  el.innerHTML = Object.entries(SEVS).reverse().map(([k, c]) => {
+    const n = counts[k] || 0;
+    return `<button class="pill ${k === QSEV ? 'on' : ''}" style="--c:${c}" onclick="QSEV=(QSEV==='${k}'?'':'${k}');paintQSev();renderQueue(QRECS)"><i></i>${n} ${k}</button>`;
+  }).join('');
+}
+
+async function loadInbox() {
+  const el = $('inbox');
+  const triageBtn = $('triage-btn');
+  if (!TOKEN) {
+    $('inbox-note').textContent = 'Suggestions waiting on modules you own.';
+    el.innerHTML = `<div class="empty">Connect the wallet that owns your modules to see what is <b>waiting on you</b>.<br><br>
+      <button class="btn primary" onclick="connect()">Connect wallet</button></div>`;
+    if (triageBtn) triageBtn.classList.add('hidden');
+    $('confirm-triage-btn').classList.add('hidden');
+    return;
+  }
+  if (triageBtn) triageBtn.classList.remove('hidden');
+  el.innerHTML = '<div class="skeleton"></div>';
+  try {
+    const out = await call('inbox', { status: 'pending' });
+    const n = $('n-inbox'); n.textContent = out.count; n.classList.toggle('hot', out.count > 0);
+    $('inbox-note').innerHTML = `<b style="color:var(--warn)">${out.count}</b> waiting on <span class="ok">${esc(short(out.owner))}</span>. Approving sends it to build's idea queue — you play it there.`;
+    el.innerHTML = out.count
+      ? out.recommendations.map((r, i) => card(r, true, i)).join('')
+      : '<div class="empty"><b>Inbox zero.</b> Nothing is waiting on you.</div>';
+    if (out.count) setupInboxNav();
+    if (Object.keys(TRIAGE).length) paintTriageBadges();
+  } catch (e) { el.innerHTML = `<div class="empty err">${esc(e.message)}</div>`; }
+}
+
+function cleanupInboxNav() {
+  if (_inboxKeyHandler) {
+    document.removeEventListener('keydown', _inboxKeyHandler);
+    _inboxKeyHandler = null;
+  }
+  document.querySelectorAll('#inbox .card.focused').forEach(c => c.classList.remove('focused'));
+  const keysEl = $('inbox-keys');
+  if (keysEl) keysEl.classList.add('hidden');
+  INBOX_FOCUS = -1;
+}
+
+function setupInboxNav() {
+  cleanupInboxNav();
+  const cards = [...document.querySelectorAll('#inbox .card')];
+  if (!cards.length) return;
+  $('inbox-keys').classList.remove('hidden');
+  INBOX_FOCUS = 0;
+  cards[0].classList.add('focused');
+  cards[0].scrollIntoView({ block: 'nearest' });
+  _inboxKeyHandler = e => {
+    if (['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
+    const all = [...document.querySelectorAll('#inbox .card')];
+    if (!all.length) return;
+    if (e.key === 'j' || e.key === 'ArrowDown') {
+      e.preventDefault();
+      all[INBOX_FOCUS]?.classList.remove('focused');
+      INBOX_FOCUS = Math.min(INBOX_FOCUS + 1, all.length - 1);
+      all[INBOX_FOCUS].classList.add('focused');
+      all[INBOX_FOCUS].scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'k' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      all[INBOX_FOCUS]?.classList.remove('focused');
+      INBOX_FOCUS = Math.max(INBOX_FOCUS - 1, 0);
+      all[INBOX_FOCUS].classList.add('focused');
+      all[INBOX_FOCUS].scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'e' || e.key === 'Enter') {
+      const focused = all[INBOX_FOCUS];
+      if (!focused) return;
+      const tog = focused.querySelector('.detail-toggle');
+      if (tog) { const id = tog.id.replace(/^tog-/, ''); expandCard(id, tog); }
+    } else if (e.key === 'a') {
+      const focused = all[INBOX_FOCUS];
+      if (!focused) return;
+      const btn = focused.querySelector('.btn.yes');
+      if (btn) btn.click();
+    } else if (e.key === 'r') {
+      const focused = all[INBOX_FOCUS];
+      if (!focused) return;
+      const btn = focused.querySelector('.btn.no');
+      if (btn) btn.click();
+    } else if (e.key === 'Escape') {
+      cleanupInboxNav();
+    }
+  };
+  document.addEventListener('keydown', _inboxKeyHandler);
+}
+
+async function loadOutbox() {
+  const el = $('outbox');
+  if (!TOKEN) {
+    $('outbox-note').textContent = 'Suggestions you have filed, and what happened to them.';
+    el.innerHTML = `<div class="empty">Connect the wallet you used to file suggestions to track them here.<br><br>
+      <button class="btn primary" onclick="connect()">Connect wallet</button></div>`;
+    return;
+  }
+  el.innerHTML = '<div class="skeleton"></div>';
+  try {
+    const out = await call('outbox');
+    const recs = out.recommendations || [];
+    const c = { pending: 0, approved: 0, rejected: 0, withdrawn: 0 };
+    for (const r of recs) if (r.status in c) c[r.status]++;
+    $('outbox-note').textContent = recs.length
+      ? `${recs.length} filed · ${c.approved} approved · ${c.rejected} rejected${c.pending ? ` · ${c.pending} pending` : ''}`
+      : 'Suggestions you have filed, and what happened to them.';
+    el.innerHTML = recs.length
+      ? recs.map((r, i) => cardOutbox(r, i)).join('')
+      : '<div class="empty"><b>Nothing filed yet.</b> <a href="#" onclick="home();return false">Pick a module</a> and suggest a change.</div>';
+    const n = $('n-outbox');
+    n.textContent = c.pending;
+    n.classList.toggle('hot', c.pending > 0);
+  } catch (e) { el.innerHTML = `<div class="empty err">${esc(e.message)}</div>`; }
+}
+
+function cardOutbox(r, i) {
+  const base = card(r, false, i);
+  if (r.status !== 'pending') return base;
+  const rid = esc(r.id);
+  const withdrawActs = `<div class="acts"><button class="btn" onclick="editRec('${rid}')">Edit →</button><button class="btn no" onclick="withdrawRec('${rid}',this)">Withdraw</button><span id="msg-ob-${rid}"></span></div>`;
+  return base.slice(0, base.lastIndexOf('</div>')) + withdrawActs + '</div>';
+}
+
+async function withdrawRec(id) {
+  const go = await ask({ title: 'Withdraw this suggestion?', body: 'It will be removed from the queue. You can file a new one at any time.', ok: 'Withdraw', tone: 'no' });
+  if (!go) return;
+  const msg = document.getElementById('msg-ob-' + id);
+  if (msg) msg.textContent = 'Withdrawing…';
+  try {
+    await call('withdraw', { id }, 'POST');
+    toast('Suggestion withdrawn', 'ok');
+    loadOutbox();
+    loadStats();
+  } catch (e) {
+    if (msg) msg.innerHTML = `<span class="err">${esc(e.message)}</span>`;
+    toast(e.message, 'err');
+  }
+}
+
+async function editRec(id) {
+  let rec;
+  try {
+    rec = await call('rec', { id });
+  } catch (e) { toast(e.message, 'err'); return; }
+  show('scan');
+  await loadBrief(rec.module);
+  $('title').value = rec.title || '';
+  $('summary').value = rec.summary || '';
+  $('rationale').value = rec.rationale || '';
+  $('change').value = rec.change || '';
+  $('patch').value = rec.patch || '';
+  if (rec.kind) KIND = rec.kind;
+  if (rec.severity) SEV = rec.severity;
+  ANCHORS = Array.isArray(rec.anchors) && rec.anchors.length
+    ? rec.anchors.map(a => ({ module: rec.module, path: a.path, line: a.line, note: a.note || '' }))
+    : [];
+  EDITING_ID = id;
+  paintChips(); renderAnchors(); score();
+  const panel = document.getElementById('form-panel');
+  if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const btn = $('file-btn');
+  if (btn) btn.innerHTML = '<svg class="i"><use href="#i-send"/></svg>Update suggestion';
+}
+
+async function decide(btn, id, action) {
+  const msg = $('msg-' + id);
+  const note = await ask(action === 'approve'
+    ? { title: 'Approve this suggestion?', body: 'It goes into build\'s idea queue, where you can play it as an edit.', input: true, placeholder: 'Anything to keep in mind when it is built (optional)', ok: 'Approve', tone: 'yes' }
+    : { title: 'Reject this suggestion?', body: 'The author will see your reason.', input: true, placeholder: 'Why not (optional)', ok: 'Reject', tone: 'no' });
+  if (note === null) return;
+  if (msg) msg.textContent = action === 'approve' ? 'Approving…' : 'Rejecting…';
+  try {
+    const out = await call(action, { id, note }, 'POST');
+    if (action === 'approve') burst(btn);
+    toast(`${out.status}` + (out.relay && out.relay.suggestion_id ? ` — suggestion ${out.relay.suggestion_id} in build` : ''), 'ok');
+    if (action === 'approve' && out.relay && !out.relay.ok) toast('Approved — relay to build failed, retry from the expanded card', 'err');
+    if (msg) msg.innerHTML = `<span class="ok">${esc(out.status)}</span>`;
+    setTimeout(() => { loadInbox(); loadStats(); }, 900);
+  } catch (e) { if (msg) msg.innerHTML = `<span class="err">${esc(e.message)}</span>`; toast(e.message, 'err'); }
+}
+
+async function retryRelay(id) {
+  try {
+    await call('relay', { id }, 'POST');
+    EXPANDED[id] = await call('rec', { id });
+    renderExpanded(id);
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+function navigateToAnchor(btn) {
+  const mod = btn.dataset.module;
+  const path = btn.dataset.path;
+  const line = btn.dataset.line ? +btn.dataset.line : undefined;
+  show('scan');
+  loadBrief(mod).then(() => openFile(path, line));
+}
+
+function paintReviewStrip() {
+  const boxhead = document.querySelector('#form-panel .boxhead');
+  const fileBtn = $('file-btn');
+  const reviewActs = $('review-acts');
+  if (!boxhead || !fileBtn || !reviewActs) return;
+  if (REVIEWING) {
+    const title = REVIEWING.title.length > 42 ? REVIEWING.title.slice(0, 40) + '…' : REVIEWING.title;
+    boxhead.innerHTML = `<svg class="i"><use href="#i-pen"/></svg>Reviewing: <span style="color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">${esc(title)}</span>`;
+    fileBtn.classList.add('hidden');
+    reviewActs.classList.remove('hidden');
+  } else {
+    const ownerText = BRIEF && BRIEF.owner ? short(BRIEF.owner) : 'the owner';
+    boxhead.innerHTML = `<svg class="i"><use href="#i-pen"/></svg>Your suggestion<span class="grow"></span><span class="sub">for <span id="owner-of" class="ok">${esc(ownerText)}</span></span>`;
+    fileBtn.classList.remove('hidden');
+    reviewActs.classList.add('hidden');
+  }
+}
+
+function reviewInWorkspace(recId) {
+  const rec = EXPANDED[recId];
+  if (!rec) return;
+  REVIEWING = { id: recId, title: rec.title, module: rec.module };
+  paintReviewStrip();
+  show('scan');
+  const firstAnchor = (rec.anchors || [])[0];
+  if (firstAnchor) {
+    loadBrief(rec.module).then(() => openFile(firstAnchor.path, firstAnchor.line || undefined));
+  } else {
+    loadBrief(rec.module);
+  }
+}
+
+async function decideFromReview(btn, action) {
+  if (!REVIEWING) return;
+  const id = REVIEWING.id;
+  REVIEWING = null;
+  paintReviewStrip();
+  await decide(btn, id, action);
+}
+
+const PEEK_CACHE = {};
+
+async function peekAnchor(btn, recId, anchorIdx) {
+  const mod = btn.dataset.module;
+  const path = btn.dataset.path;
+  const line = btn.dataset.line ? +btn.dataset.line : 0;
+  const peekId = `peek-${recId}-${anchorIdx}`;
+  const gotoId = `peek-goto-${recId}-${anchorIdx}`;
+  const existing = document.getElementById(peekId);
+  if (existing) {
+    existing.classList.toggle('hidden');
+    const existingGoto = document.getElementById(gotoId);
+    if (existingGoto) existingGoto.classList.toggle('hidden');
+    return;
+  }
+
+  const cacheKey = mod + ':' + path;
+  const start = Math.max(1, line - 6);
+  let fileData = PEEK_CACHE[cacheKey + ':' + start];
+  if (!fileData) {
+    try {
+      fileData = await call('file', { module: mod, path, start, lines: 12 });
+      PEEK_CACHE[cacheKey + ':' + start] = fileData;
+    } catch (e) { toast('Could not load file: ' + e.message, 'err'); return; }
+  }
+
+  const ext = (path.split('.').pop() || '').toLowerCase();
+  const lang = EXT_LANG[ext] || '';
+  const lines = fileData.content.split('\n');
+  const html = lines.map((t, i) => {
+    const n = fileData.start + i;
+    const pinned = line && n === line;
+    const code = lang ? hljs.highlight(t, { language: lang }).value : esc(t);
+    return `<div class="ln${pinned ? ' pin' : ''}" data-n="${n}"><span class="no">${n}</span><code>${code}</code></div>`;
+  }).join('');
+
+  const peek = document.createElement('div');
+  peek.id = peekId;
+  peek.className = 'peek-block';
+  peek.innerHTML = html;
+
+  const gotoLink = document.createElement('a');
+  gotoLink.id = gotoId;
+  gotoLink.className = 'peek-goto';
+  gotoLink.textContent = 'go to file →';
+  gotoLink.onclick = () => { show('scan'); loadBrief(mod).then(() => openFile(path, line || undefined)); };
+
+  const wrap = btn.closest('.detail-anchor-row') || btn.parentNode;
+  wrap.appendChild(peek);
+  wrap.appendChild(gotoLink);
+}
+
+async function expandCard(id, btn) {
+  const body = document.getElementById('det-' + id);
+  if (!body) return;
+  const opening = body.classList.contains('hidden');
+  body.classList.toggle('hidden', !opening);
+  btn.classList.toggle('open', opening);
+  if (!opening) return;
+  if (EXPANDED[id]) { renderExpanded(id); return; }
+  body.innerHTML = '<div class="note">Loading…</div>';
+  try {
+    EXPANDED[id] = await call('rec', { id });
+    renderExpanded(id);
+  } catch (e) {
+    body.innerHTML = `<div class="note" style="color:var(--no)">${esc(e.message)}</div>`;
+  }
+}
+
+function renderExpanded(id) {
+  const body = document.getElementById('det-' + id);
+  if (!body) return;
+  const rec = EXPANDED[id];
+  const field = (label, val) => val
+    ? `<div class="detail-field"><label>${label}</label><p>${esc(val)}</p></div>`
+    : '';
+  const rid = esc(id);
+  const isInboxOwner = !!body.closest('#inbox');
+  const reviewBtn = (isInboxOwner && rec.status === 'pending')
+    ? `<div class="detail-field"><button class="btn" onclick="reviewInWorkspace('${rid}')">Review code →</button></div>`
+    : '';
+  const anchorLinks = (rec.anchors || []).length
+    ? `<div class="detail-field"><label>Anchors</label><div class="detail-anchors">${
+        (rec.anchors || []).map((a, idx) =>
+          `<div class="detail-anchor-row"><button class="detail-anchor" data-module="${esc(rec.module)}" data-path="${esc(a.path)}" data-line="${a.line || ''}" onclick="peekAnchor(this,'${rid}',${idx})">${esc(a.path)}${a.line ? ':' + a.line : ''}${a.note ? ' — ' + esc(a.note) : ''}</button></div>`
+        ).join('')}</div></div>`
+    : '';
+  const patch = rec.patch
+    ? `<div class="detail-field"><label>Patch</label><pre class="diff-block">${renderDiff(rec.patch)}</pre></div>`
+    : '';
+  let relayLink = '';
+  if (rec.relay && rec.relay.ok && rec.relay.url) {
+    relayLink = `<div class="detail-field"><label>Build suggestion</label><a class="btn" href="${esc(rec.relay.url)}" target="_blank">Play in build →</a></div>`;
+  } else if (rec.relay && !rec.relay.ok) {
+    const errSnip = esc((rec.relay.error || 'Unknown error').slice(0, 120));
+    relayLink = `<div class="detail-field"><label>Build suggestion</label><p class="err">Relay to build failed: ${errSnip}</p><button class="btn" onclick="retryRelay('${rid}')">Retry relay →</button></div>`;
+  } else if (rec.status === 'approved' && !rec.relay) {
+    relayLink = `<div class="detail-field"><label>Build suggestion</label><button class="btn" onclick="retryRelay('${rid}')">Send to build →</button></div>`;
+  }
+  const decisionNote = rec.note && rec.status !== 'pending'
+    ? `<div class="detail-decision ${esc(rec.status)}">
+        <label>Owner's note</label>
+        <p>${esc(rec.note)}</p>
+        <small>${rec.decided_by ? esc(short(rec.decided_by)) + ' · ' : ''}${rec.decided_at ? ago(rec.decided_at) : ''}</small>
+      </div>`
+    : '';
+  const cmtRows = (rec.comments || []).map(c =>
+    `<div class="cmt-row"><span class="cmt-meta">${esc(c.author)} · ${ago(c.timestamp)}</span><p class="cmt-body">${esc(c.body)}</p></div>`
+  ).join('');
+  const comments = `<div class="detail-field"><label>Comments</label>
+    ${cmtRows || '<p class="cmt-none">No comments yet.</p>'}
+    <div class="cmt-add">
+      <textarea id="cmt-${rid}" placeholder="Add a comment…" rows="2"></textarea>
+      <button class="btn" onclick="addComment('${rid}')">Add comment</button>
+    </div></div>`;
+  body.innerHTML = [
+    decisionNote,
+    relayLink,
+    reviewBtn,
+    field('Rationale', rec.rationale),
+    field('Change', rec.change),
+    anchorLinks,
+    patch,
+    comments,
+  ].filter(Boolean).join('') || '<div class="note">No additional detail.</div>';
+}
+
+async function showRecModal(id) {
+  const scrim = document.createElement('div');
+  scrim.className = 'scrim';
+  const close = () => { scrim.remove(); document.removeEventListener('keydown', onKey); };
+  const onKey = e => { if (e.key === 'Escape') close(); };
+  scrim.addEventListener('click', e => { if (e.target === scrim || e.target.closest('[data-close]')) close(); });
+  document.addEventListener('keydown', onKey);
+  scrim.innerHTML = `<div class="modal" style="max-width:660px;width:min(660px,92vw);overflow-y:auto;max-height:85vh">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px">
+      <h3 id="rec-modal-title" style="margin:0;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Loading…</h3>
+      <button class="btn ghost" style="flex:none;font-size:18px;line-height:1;padding:2px 8px" data-close="1">×</button>
+    </div>
+    <div id="rec-modal-body" class="detail-body"><div class="note">Loading…</div></div>
+  </div>`;
+  document.body.appendChild(scrim);
+  try {
+    if (!EXPANDED[id]) EXPANDED[id] = await call('rec', { id });
+    const rec = EXPANDED[id];
+    const titleEl = scrim.querySelector('#rec-modal-title');
+    if (titleEl) titleEl.textContent = rec.title || id;
+    const body = scrim.querySelector('#rec-modal-body');
+    if (!body) return;
+    const rid = esc(id);
+    const field = (label, val) => val
+      ? `<div class="detail-field"><label>${label}</label><p>${esc(val)}</p></div>` : '';
+    const anchorLinks = (rec.anchors || []).length
+      ? `<div class="detail-field"><label>Anchors</label><div class="detail-anchors">${
+          (rec.anchors || []).map((a, idx) =>
+            `<div class="detail-anchor-row"><button class="detail-anchor" data-module="${esc(rec.module)}" data-path="${esc(a.path)}" data-line="${a.line || ''}" onclick="peekAnchor(this,'${rid}',${idx})">${esc(a.path)}${a.line ? ':' + a.line : ''}${a.note ? ' — ' + esc(a.note) : ''}</button></div>`
+          ).join('')}</div></div>` : '';
+    const patch = rec.patch
+      ? `<div class="detail-field"><label>Patch</label><pre class="diff-block">${renderDiff(rec.patch)}</pre></div>` : '';
+    let relayLink = '';
+    if (rec.relay && rec.relay.ok && rec.relay.url) {
+      relayLink = `<div class="detail-field"><label>Build suggestion</label><a class="btn" href="${esc(rec.relay.url)}" target="_blank">Play in build →</a></div>`;
+    } else if (rec.relay && !rec.relay.ok) {
+      const errSnip = esc((rec.relay.error || 'Unknown error').slice(0, 120));
+      relayLink = `<div class="detail-field"><label>Build suggestion</label><p class="err">Relay to build failed: ${errSnip}</p><button class="btn" onclick="retryRelay('${rid}')">Retry relay →</button></div>`;
+    } else if (rec.status === 'approved' && !rec.relay) {
+      relayLink = `<div class="detail-field"><label>Build suggestion</label><button class="btn" onclick="retryRelay('${rid}')">Send to build →</button></div>`;
+    }
+    const decisionNote = rec.note && rec.status !== 'pending'
+      ? `<div class="detail-decision ${esc(rec.status)}">
+          <label>Owner's note</label>
+          <p>${esc(rec.note)}</p>
+          <small>${rec.decided_by ? esc(short(rec.decided_by)) + ' · ' : ''}${rec.decided_at ? ago(rec.decided_at) : ''}</small>
+        </div>` : '';
+    const cmtRows = (rec.comments || []).map(c =>
+      `<div class="cmt-row"><span class="cmt-meta">${esc(c.author)} · ${ago(c.timestamp)}</span><p class="cmt-body">${esc(c.body)}</p></div>`
+    ).join('');
+    const comments = `<div class="detail-field"><label>Comments</label>
+      ${cmtRows || '<p class="cmt-none">No comments yet.</p>'}
+      <div class="cmt-add">
+        <textarea id="cmt-${rid}" placeholder="Add a comment…" rows="2"></textarea>
+        <button class="btn" onclick="addComment('${rid}')">Add comment</button>
+      </div></div>`;
+    body.innerHTML = [
+      decisionNote, relayLink,
+      field('Rationale', rec.rationale),
+      field('Change', rec.change),
+      anchorLinks, patch, comments,
+    ].filter(Boolean).join('') || '<div class="note">No additional detail.</div>';
+  } catch (e) {
+    const body = scrim.querySelector('#rec-modal-body');
+    if (body) body.innerHTML = `<div class="note" style="color:var(--no)">${esc(e.message)}</div>`;
+  }
+}
+
+async function addComment(id) {
+  const ta = document.getElementById('cmt-' + id);
+  if (!ta) return;
+  const body = ta.value.trim();
+  if (!body) return;
+  try {
+    await call('comment', { id, body }, 'POST');
+    ta.value = '';
+    EXPANDED[id] = await call('rec', { id });
+    renderExpanded(id);
+    toast('Comment added', 'ok');
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+paintWho();
+paintChips();
+paintQStatus();
+renderAnchors();
+score();
+loadModules();
+loadStats();
+peekInbox();
+peekOutbox();
+const preset = new URLSearchParams(location.search).get('module');
+if (preset) loadBrief(preset);
+const recPreset = new URLSearchParams(location.search).get('rec');
+if (recPreset) {
+  (async () => {
+    try {
+      const rec = await call('rec', { id: recPreset });
+      $('q-module').value = rec.module;
+      QSTATUS = rec.status;
+      paintQStatus();
+      for (const v of ['scan', 'queue', 'inbox', 'outbox']) {
+        $('view-' + v).classList.toggle('hidden', v !== 'queue');
+        $('tab-' + v).classList.toggle('on', v === 'queue');
+      }
+      $('main').classList.toggle('wide', false);
+      window.scrollTo(0, 0);
+      await loadQueue();
+      const tog = document.getElementById('tog-' + recPreset);
+      if (tog) {
+        expandCard(recPreset, tog);
+        tog.closest('.card')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    } catch (e) { /* silently ignore invalid deep-link */ }
+  })();
+}
+</script>
+</body>
+</html>

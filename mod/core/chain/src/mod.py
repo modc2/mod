@@ -189,6 +189,16 @@ class Mod:
             {'inputs': [{'type': 'address', 'name': 'paymentToken'},
                         {'type': 'uint256', 'name': 'paymentAmount'}], 'name': 'mint',
              'outputs': [{'type': 'uint256'}], 'stateMutability': 'nonpayable', 'type': 'function'},
+            {'inputs': [{'type': 'address', 'name': 'paymentToken'},
+                        {'type': 'uint256', 'name': 'stableAmount'},
+                        {'type': 'uint256', 'name': 'maxPaymentAmount'}], 'name': 'credit',
+             'outputs': [{'type': 'uint256'}], 'stateMutability': 'nonpayable', 'type': 'function'},
+            {'inputs': [{'type': 'address', 'name': 'paymentToken'},
+                        {'type': 'uint256', 'name': 'stableAmount'},
+                        {'type': 'uint256', 'name': 'minReceiveAmount'}], 'name': 'withdraw',
+             'outputs': [{'type': 'uint256'}], 'stateMutability': 'nonpayable', 'type': 'function'},
+            {'inputs': [], 'name': 'mintWithETH', 'outputs': [{'type': 'uint256'}],
+             'stateMutability': 'payable', 'type': 'function'},
             {'inputs': [], 'name': 'treasury', 'outputs': [{'type': 'address'}],
              'stateMutability': 'view', 'type': 'function'},
             {'inputs': [], 'name': 'creditFeeBps', 'outputs': [{'type': 'uint256'}],
@@ -273,6 +283,15 @@ class Mod:
         if not os.path.exists(self.contracts_path):
             os.makedirs(self.contracts_path, exist_ok=True)
         self.config = m.config('chain')
+        if not self.config.get('deployments'):
+            # `m.config('chain')` resolves by tree search, which a stub module
+            # named `chain` (or an odd cwd) can hijack — fall back to the
+            # config.json that ships next to this file so deployments always load.
+            own_config = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'config.json')
+            if os.path.exists(own_config):
+                with open(own_config) as f:
+                    self.config = json.load(f)
         self.load_all_contracts()
         self._mods = {}
 
@@ -841,10 +860,21 @@ class Mod:
         for name, info in contracts.items():
             address = info['address']
             try:
-                abi = self.ipfs.get(abimap.get(info['contract']))
+                abi = None
+                # Compiled artifact (via abimap) first, then the ABI CID pinned
+                # in the deployment record, then the built-in fallback — each
+                # step tolerated failing so an IPFS outage or missing artifacts
+                # never leaves the contract unloaded.
+                for cid in (abimap.get(info['contract']), info.get('abi')):
+                    if not cid:
+                        continue
+                    try:
+                        abi = self.ipfs.get(cid)
+                    except Exception:
+                        abi = None
+                    if abi:
+                        break
                 if abi is None:
-                    # Fall back to a built-in ABI for stable core contracts so
-                    # the contract still loads without a compiled artifact.
                     abi = self.BUILTIN_ABIS.get(info['contract'])
                     if abi is None:
                         m.print(f'ABI not found for {name} at {info.get("abi")}', color='red')
@@ -1592,12 +1622,17 @@ class Mod:
             print(f'Getting ETH balance for {addr}')
             balance = self.w3.eth.get_balance(addr)
         else:
-            cfg = self.contracts_config()[token.lower()]
-            token_contract = self.w3.eth.contract(
-                address=cfg['address'],
-                abi=self.ipfs.get(abimap.get(cfg['contract']))
-            )
-            print(f'Getting {token} balance for {address} at {cfg["address"]}')
+            # Prefer the contract instance load_all_contracts already built —
+            # it survives missing artifacts/IPFS via the builtin-ABI fallback.
+            token_contract = self.contracts.get(token.lower())
+            if token_contract is None:
+                cfg = self.contracts_config()[token.lower()]
+                cid = abimap.get(cfg['contract']) or cfg.get('abi')
+                abi = (self.ipfs.get(cid) if cid else None) or \
+                    self.BUILTIN_ABIS.get(cfg['contract'])
+                token_contract = self.w3.eth.contract(
+                    address=Web3.to_checksum_address(cfg['address']), abi=abi)
+            print(f'Getting {token} balance for {address} at {token_contract.address}')
             balance = token_contract.functions.balanceOf(address).call()
 
         return self.format_balance(balance, token=token.upper())
@@ -1807,9 +1842,19 @@ class Mod:
         contract_map = self.contracts_config()
         contract_info = contract_map.get(name.lower())
         contract_name = contract_info['contract']
-        abimap = self.abimap()
-        abimap = {k.lower(): v for k, v in abimap.items()}
-        return self.ipfs.get(abimap.get(contract_name.lower()))
+        abimap = {k.lower(): v for k, v in self.abimap().items()}
+        # Artifact ABI first, then the CID pinned in the deployment record,
+        # then the builtin fallback — same ladder as load_all_contracts.
+        for cid in (abimap.get(contract_name.lower()), contract_info.get('abi')):
+            if not cid:
+                continue
+            try:
+                abi = self.ipfs.get(cid)
+            except Exception:
+                abi = None
+            if abi:
+                return abi
+        return self.BUILTIN_ABIS.get(contract_name)
 
     # ==================== TOKENGATE FUNCTIONS ====================
 
@@ -2257,7 +2302,10 @@ class Mod:
         tx['gasPrice'] = hex(gas_price)
 
         if gas is None:
-            gas = self.estimate_gas(tx)
+            # Estimate with the sender attached — token approvals/transfers
+            # revert when msg.sender is the zero address — but keep `from`
+            # out of the returned dict, which gets signed as-is.
+            gas = self.estimate_gas({**tx, 'from': self.account.address})
         tx['gas'] = hex(gas)
 
         return tx
@@ -2273,7 +2321,8 @@ class Mod:
 
         account: LocalAccount = Account.from_key(private_key)
         signed = account.sign_transaction(transaction)
-        return signed.rawTransaction.hex()
+        raw = getattr(signed, 'raw_transaction', None) or signed.rawTransaction
+        return raw.hex()
 
     def send_raw_transaction(self, signed_tx: str) -> str:
         """Send a signed raw transaction using JSON-RPC."""
@@ -2345,17 +2394,37 @@ class Mod:
         payment_cfg = self.contracts_config().get(payment_token.lower())
         payment_address = payment_cfg['address']
 
+        market = self.contracts.get('market')
+        if not market:
+            raise ValueError('Market contract not loaded')
+
         tokengate = self.contracts.get('tokengate')
         price_info = tokengate.functions.getTokenPrice(payment_address).call()
         token_price = price_info[0]
-        token_decimals = price_info[1]
+        price_decimals = price_info[1]
 
-        payment_amount = int((stable_amount * (10 ** token_decimals)) // token_price)
+        # Mirror the contract's own conversion: paymentAmount =
+        # stableUnits * 10^payDec * 10^priceDec / (price * 10^marketDec).
+        pay_decimals = self.w3.eth.contract(
+            address=Web3.to_checksum_address(payment_address),
+            abi=[{'inputs': [], 'name': 'decimals', 'outputs': [{'type': 'uint8'}],
+                  'stateMutability': 'view', 'type': 'function'}],
+        ).functions.decimals().call()
+        try:
+            market_decimals = market.functions.decimals().call()
+        except Exception:
+            market_decimals = 8
+        stable_units = int(stable_amount * 10 ** market_decimals)
+        payment_amount = (stable_units * 10 ** pay_decimals * 10 ** price_decimals
+                          ) // (token_price * 10 ** market_decimals)
+        # 1% headroom for oracle movement between quote and mine; the contract
+        # only pulls its own computed paymentAmount, capped by this.
+        max_payment = payment_amount + payment_amount // 100 + 1
 
-        m.print(f'Step 1: Approving {payment_amount / (10 ** token_decimals)} {payment_token.upper()}...', color='cyan')
+        m.print(f'Step 1: Approving {max_payment / (10 ** pay_decimals)} {payment_token.upper()}...', color='cyan')
 
         spender_padded = market_address[2:].zfill(64)
-        amount_hex = hex(payment_amount)[2:].zfill(64)
+        amount_hex = hex(max_payment)[2:].zfill(64)
         approve_data = f"0x095ea7b3{spender_padded}{amount_hex}"
 
         approve_tx = self.build_transaction(to=payment_address, data=approve_data, value=0)
@@ -2365,14 +2434,38 @@ class Mod:
         if wait:
             self.wait_for_transaction(approve_hash)
             m.print(f'Approval confirmed: {approve_hash}', color='green')
+            # Public RPCs are load-balanced; wait until a node actually shows
+            # the new allowance before estimating the credit against it.
+            token = self.w3.eth.contract(
+                address=Web3.to_checksum_address(payment_address),
+                abi=[{'inputs': [{'type': 'address', 'name': 'owner'},
+                                 {'type': 'address', 'name': 'spender'}],
+                      'name': 'allowance', 'outputs': [{'type': 'uint256'}],
+                      'stateMutability': 'view', 'type': 'function'}])
+            owner = self.account.address
+            spender = Web3.to_checksum_address(market_address)
+            for _ in range(15):
+                if token.functions.allowance(owner, spender).call() >= payment_amount:
+                    break
+                time.sleep(2)
 
         m.print(f'Step 2: Crediting {stable_amount} stable tokens...', color='cyan')
 
-        market = self.contracts.get('market')
-        credit_call = market.functions.credit(payment_address, int(stable_amount * 10 ** self.decimals('usdc')))
+        credit_inputs = next((f.get('inputs', []) for f in market.abi
+                              if f.get('name') == 'credit'), [])
+        if len(credit_inputs) >= 3:
+            credit_call = market.functions.credit(payment_address, stable_units, max_payment)
+        else:
+            credit_call = market.functions.credit(payment_address, stable_units)
         credit_data = credit_call._encode_transaction_data()
 
-        credit_tx = self.build_transaction(to=market_address, data=credit_data, value=0)
+        try:
+            credit_tx = self.build_transaction(to=market_address, data=credit_data, value=0)
+        except Exception:
+            # Estimation can still race a lagging node — credit() itself is
+            # ~150k gas, so a fixed ceiling is safe and unused gas is refunded.
+            credit_tx = self.build_transaction(to=market_address, data=credit_data,
+                                               value=0, gas=400_000)
         signed_credit = self.sign_transaction(credit_tx, private_key)
         credit_hash = self.send_raw_transaction(signed_credit)
 

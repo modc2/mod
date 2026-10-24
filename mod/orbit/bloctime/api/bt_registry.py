@@ -2,7 +2,7 @@
 BlocTime instance registry — the marketplace store.
 
 Every deployed BlocTime (the official one plus anyone's fork) is one entry:
-    { id, name, description, chainId, rpc, bloctime, nativeToken,
+    { id, name, description, chainId, rpc, bloctime, nativeToken, treasury,
       owner, official, explorer, createdAt }
 
 Entries live off-tree in ~/.mod/bloctime/registry.json; the official
@@ -12,21 +12,49 @@ the address must actually respond like a BlocTime contract, and its
 owner() is recorded as the authoritative instance owner.
 """
 
+import ipaddress
 import json
 import os
 import re
+import socket
 import time
 from pathlib import Path
+from urllib.parse import urlparse
 
 MODULE_DIR = Path(__file__).parent.parent
 STORE_DIR = Path(os.path.expanduser('~/.mod/bloctime'))
 REGISTRY_PATH = STORE_DIR / 'registry.json'
+MAX_INSTANCES = 200
+
+
+def assert_public_rpc(url):
+    """SSRF guard for the unauthenticated API paths: the rpc URL the server
+    will connect to (and re-probe on every /registry call) must be an http(s)
+    endpoint on a public address — never loopback, RFC1918, link-local or
+    the cloud metadata range. The local CLI path may still use any RPC."""
+    p = urlparse(str(url))
+    if p.scheme not in ('http', 'https') or not p.hostname:
+        raise ValueError("rpc must be an http(s) URL")
+    try:
+        infos = socket.getaddrinfo(
+            p.hostname, p.port or (443 if p.scheme == 'https' else 80),
+            proto=socket.IPPROTO_TCP,
+        )
+    except socket.gaierror as e:
+        raise ValueError(f"rpc host does not resolve: {e}")
+    for info in infos:
+        ip = ipaddress.ip_address(info[4][0])
+        if not ip.is_global:
+            raise ValueError(f"rpc must resolve to a public address (got {ip})")
 
 EXPLORERS = {
     '1': 'https://etherscan.io',
     '8453': 'https://basescan.org',
     '84532': 'https://sepolia.basescan.org',
     '11155111': 'https://sepolia.etherscan.io',
+    '10': 'https://optimistic.etherscan.io',
+    '42161': 'https://arbiscan.io',
+    '137': 'https://polygonscan.com',
 }
 
 # Minimal ABI: just what verification and live stats need.
@@ -36,6 +64,13 @@ PROBE_ABI = json.loads('''[
   {"inputs":[],"name":"nextStakeId","outputs":[{"type":"uint256"}],"stateMutability":"view","type":"function"},
   {"inputs":[],"name":"nativeToken","outputs":[{"type":"address"}],"stateMutability":"view","type":"function"},
   {"inputs":[],"name":"owner","outputs":[{"type":"address"}],"stateMutability":"view","type":"function"}
+]''')
+
+# What a Treasury must answer to be recorded as one.
+TREASURY_PROBE_ABI = json.loads('''[
+  {"inputs":[],"name":"token","outputs":[{"type":"address"}],"stateMutability":"view","type":"function"},
+  {"inputs":[],"name":"reserve","outputs":[{"type":"address"}],"stateMutability":"view","type":"function"},
+  {"inputs":[],"name":"reserveDecimals","outputs":[{"type":"uint8"}],"stateMutability":"view","type":"function"}
 ]''')
 
 
@@ -82,6 +117,7 @@ def official_entry():
         'rpc': contracts.get('url', ''),
         'bloctime': contracts['bloctime'],
         'nativeToken': contracts.get('nativeToken', ''),
+        'treasury': contracts.get('treasury', ''),
         'owner': '',
         'official': True,
         'explorer': explorer_for(chain_id, contracts['bloctime']),
@@ -105,7 +141,25 @@ def get_instance(instance_id):
     return None
 
 
-def verify_instance(rpc, bloctime, native_token=None):
+def verify_treasury(w3, treasury, native_token):
+    """The treasury must be a contract whose token() is this instance's
+    NativeToken — otherwise the market would advertise a mint door that
+    mints someone else's token (or nothing)."""
+    from web3 import Web3
+    addr = Web3.to_checksum_address(treasury)
+    if w3.eth.get_code(addr) in (b'', b'\x00'):
+        raise ValueError(f"No contract code at treasury {addr}")
+    c = w3.eth.contract(address=addr, abi=TREASURY_PROBE_ABI)
+    try:
+        token = c.functions.token().call()
+        c.functions.reserve().call()
+    except Exception as e:
+        raise ValueError(f"Address does not behave like a Treasury: {e}")
+    if Web3.to_checksum_address(token) != Web3.to_checksum_address(native_token):
+        raise ValueError("Treasury token() is not this instance's nativeToken")
+
+
+def verify_instance(rpc, bloctime, native_token=None, treasury=None):
     """Probe rpc/address on-chain; returns verified facts or raises ValueError."""
     from web3 import Web3
     w3 = Web3(Web3.HTTPProvider(rpc, request_kwargs={'timeout': 10}))
@@ -126,6 +180,8 @@ def verify_instance(rpc, bloctime, native_token=None):
         owner = c.functions.owner().call()
     except Exception:
         owner = ''
+    if treasury:
+        verify_treasury(w3, treasury, chain_token)
     return {
         'chainId': str(w3.eth.chain_id),
         'nativeToken': chain_token,
@@ -134,14 +190,16 @@ def verify_instance(rpc, bloctime, native_token=None):
     }
 
 
-def add_instance(name, rpc, bloctime, native_token=None, description='', verify=True):
+def add_instance(name, rpc, bloctime, native_token=None, description='', treasury=None, verify=True):
     """Verify on-chain and persist a new marketplace entry. Returns the entry."""
     if not name or not rpc or not bloctime:
         raise ValueError("name, rpc and bloctime address are required")
-    facts = verify_instance(rpc, bloctime, native_token) if verify else {
+    facts = verify_instance(rpc, bloctime, native_token, treasury) if verify else {
         'chainId': '', 'nativeToken': native_token or '', 'owner': '', 'totalBlocTime': '0',
     }
     entries = _load()
+    if len(entries) >= MAX_INSTANCES:
+        raise ValueError(f"Registry is full ({MAX_INSTANCES} instances)")
     base = slugify(name)
     existing_ids = {e['id'] for e in entries} | {'official'}
     slug, n = base, 2
@@ -159,6 +217,7 @@ def add_instance(name, rpc, bloctime, native_token=None, description='', verify=
         'rpc': rpc,
         'bloctime': bloctime,
         'nativeToken': facts['nativeToken'],
+        'treasury': treasury or '',
         'owner': facts['owner'],
         'official': False,
         'explorer': explorer_for(facts['chainId'], bloctime),

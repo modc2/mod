@@ -20,6 +20,10 @@ pub fn keywords_for(category: &str) -> &'static [&'static str] {
             "token", "altcoin", "defi", "nft", "bnb", "dogecoin", "xrp",
             "memecoin",
         ],
+        // Bitcoin only — a sub-slice of "crypto" (dated price markets AND the
+        // 5-minute Up/Down candles), deliberately without the alt keywords so
+        // a BTC strat ranks traders on BTC flow alone.
+        "btc" => &["bitcoin", "btc"],
         "pop-culture" => &[
             "movie", "album", "oscar", "grammy", "emmy", "celebrity",
             "kardashian", "taylor swift", "drake", "rihanna", "box office",
@@ -188,6 +192,22 @@ mod query_tests {
         // No meaningful tokens — raw substring test against the trimmed query.
         assert!(market_matches_query("the winner is", "the"));
         assert!(!market_matches_query("winner", "the"));
+    }
+
+    #[test]
+    fn btc_bucket_is_bitcoin_only() {
+        // Both forms of the BTC market family land in the bucket…
+        assert!(title_in_category("Bitcoin Up or Down — 3:45pm ET", "btc"));
+        assert!(title_in_category("BTC above $110,000 on August 30", "btc"));
+        // …and the alt-coin books do not, which is the whole point of having
+        // it beside "crypto" rather than folded into it.
+        assert!(!title_in_category("Ethereum above $4,000", "btc"));
+        assert!(!title_in_category("Solana ETF approved in 2026", "btc"));
+        assert!(title_in_category("Ethereum above $4,000", "crypto"));
+        // An unknown category is a no-op filter — the fallback that made
+        // `category=btc` silently match EVERY trader before this bucket
+        // existed. Pinned so a typo'd slug is never mistaken for a filter.
+        assert!(title_in_category("Trump wins", "bitcoinnn"));
     }
 
     #[test]

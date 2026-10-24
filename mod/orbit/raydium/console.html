@@ -1,0 +1,613 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>raydium — the AMM as data</title>
+<style>
+  :root{
+    --bg:#06070d; --panel:#0c0e18; --line:#1c2036; --ink:#dde3f2; --dim:#6b7593;
+    --hot:#22d1f8; --hot2:#8c6eef; --ink2:#b7c1dc;
+    --good:#3ddc97; --warn:#fbbf24; --bad:#f87171;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:13px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace}
+  header{display:flex;align-items:baseline;gap:14px;padding:13px 18px;
+         border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg);
+         z-index:9;flex-wrap:wrap}
+  h1{font-size:15px;margin:0;letter-spacing:.14em}
+  h1 b{background:linear-gradient(90deg,var(--hot2),var(--hot));
+       -webkit-background-clip:text;background-clip:text;color:transparent}
+  .sub{color:var(--dim);font-size:11px}
+  nav{margin-left:auto;display:flex;gap:4px;flex-wrap:wrap}
+  nav button{background:none;border:1px solid var(--line);color:var(--dim);
+             padding:5px 12px;cursor:pointer;font:inherit;font-size:11px;
+             letter-spacing:.1em}
+  nav button.on{color:#04121a;background:var(--hot);border-color:var(--hot)}
+  main{padding:16px 18px;max-width:1440px}
+  section{display:none} section.on{display:block}
+  .bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+  input,select{background:var(--panel);border:1px solid var(--line);color:var(--ink);
+               padding:6px 9px;font:inherit}
+  input:focus,select:focus{outline:none;border-color:var(--hot)}
+  input.wide{min-width:min(420px,72vw)}
+  input.sm{width:110px}
+  button.go{background:var(--hot);color:#04121a;border:none;padding:7px 16px;
+            cursor:pointer;font:inherit;font-weight:600;letter-spacing:.08em}
+  button.go.alt{background:var(--hot2);color:#0b0616}
+  button.go:disabled{opacity:.5;cursor:wait}
+  button.ghost{background:none;border:1px solid var(--line);color:var(--ink);
+               padding:3px 9px;cursor:pointer;font:inherit;font-size:11px}
+  button.ghost:hover{border-color:var(--hot);color:var(--hot)}
+  table{width:100%;border-collapse:collapse;font-size:12px}
+  th{text-align:left;color:var(--dim);font-weight:400;border-bottom:1px solid var(--line);
+     padding:6px 8px;font-size:10px;letter-spacing:.12em;text-transform:uppercase}
+  td{padding:6px 8px;border-bottom:1px solid #101426;vertical-align:top}
+  tr:hover td{background:#0c1020}
+  td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+  .p{display:inline-block;padding:1px 6px;border:1px solid var(--line);border-radius:2px;
+     font-size:10px;color:var(--dim);margin-right:3px}
+  .p.hot{color:var(--hot);border-color:#12455a}
+  .p.pur{color:#bda7ff;border-color:#33235f}
+  .p.good{color:var(--good);border-color:#14432f}
+  .p.bad{color:var(--bad);border-color:#4a1d1d}
+  .up{color:var(--good)} .down{color:var(--bad)} .dimtxt{color:var(--dim)}
+  .addr{color:#bda7ff;cursor:pointer;word-break:break-all}
+  .addr:hover{text-decoration:underline}
+  pre{background:var(--panel);border:1px solid var(--line);padding:12px;overflow:auto;
+      font-size:11px;max-height:62vh;white-space:pre-wrap;word-break:break-word;margin:0}
+  .note{color:var(--dim);font-size:11px;margin:8px 0}
+  .flash{color:var(--warn);font-size:11px;min-height:16px}
+  .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;
+         margin-bottom:14px}
+  .card{background:var(--panel);border:1px solid var(--line);padding:12px}
+  .card h3{margin:0 0 6px;font-size:10px;letter-spacing:.12em;color:var(--dim);
+           text-transform:uppercase}
+  .card .big{font-size:19px;color:var(--ink2);font-variant-numeric:tabular-nums}
+  .card .big.grn{color:var(--hot)}
+  .card .sm{font-size:11px;color:var(--dim)}
+  .split{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px}
+  @media(max-width:900px){.split{grid-template-columns:minmax(0,1fr)}}
+  h2.t{font-size:11px;letter-spacing:.14em;color:var(--dim);text-transform:uppercase;
+       margin:18px 0 8px;border-bottom:1px solid var(--line);padding-bottom:5px}
+  .empty{color:var(--dim);padding:18px 0;font-size:12px}
+  .panel{background:var(--panel);border:1px solid var(--line);padding:12px;
+         margin-bottom:14px}
+  .rows{display:grid;grid-template-columns:auto 1fr;gap:6px 10px;align-items:center}
+  .rows label{color:var(--dim);font-size:11px;text-align:right;white-space:nowrap}
+  .depthbar{height:8px;background:#111629;margin-top:4px;display:flex}
+  .depthbar i{display:block;height:100%}
+  .depthbar i.bid{background:var(--good)} .depthbar i.ask{background:var(--hot2)}
+  .mini{font-size:10px;color:var(--dim)}
+  svg .liq{fill:#8c6eef55;stroke:var(--hot2);stroke-width:.6}
+  svg .now{stroke:var(--hot);stroke-width:1;stroke-dasharray:3 3}
+  svg text{fill:var(--dim);font-size:9px}
+  .seg{display:flex}
+  .seg button{background:none;border:1px solid var(--line);color:var(--dim);
+              padding:4px 10px;cursor:pointer;font:inherit;font-size:11px}
+  .seg button.on{color:var(--hot);border-color:var(--hot)}
+</style>
+</head>
+<body>
+<header>
+  <h1>◈ <b>RAYDIUM</b></h1>
+  <span class="sub" id="tagline">connecting…</span>
+  <nav>
+    <button data-tab="market" class="on">MARKET</button>
+    <button data-tab="pair">PAIR</button>
+    <button data-tab="trade">TRADE</button>
+    <button data-tab="pool">POOL</button>
+    <button data-tab="wallet">WALLET</button>
+    <button data-tab="mcp">MCP</button>
+  </nav>
+</header>
+<main>
+
+<!-- ── market ── -->
+<section id="market" class="on">
+  <div class="cards" id="m-cards"></div>
+  <div class="bar">
+    <select id="m-type">
+      <option value="all">all pools</option>
+      <option value="concentrated">concentrated (CLMM)</option>
+      <option value="standard">standard (AMM)</option>
+      <option value="farm">with farms</option>
+    </select>
+    <select id="m-sort">
+      <option value="volume24h">volume 24h</option>
+      <option value="liquidity">TVL</option>
+      <option value="fee24h">fees 24h</option>
+      <option value="apr24h">APR 24h</option>
+      <option value="volume7d">volume 7d</option>
+      <option value="apr7d">APR 7d</option>
+    </select>
+    <input id="m-search" class="sm" placeholder="symbol">
+    <input id="m-mintvl" class="sm" placeholder="min TVL $">
+    <select id="m-limit"><option>20</option><option>50</option><option>100</option></select>
+    <button class="go" id="m-go">RANK</button>
+    <span class="flash" id="m-flash"></span>
+  </div>
+  <div class="note">Sorting by TVL floats pools whose reserves are a worthless token
+    — volume is the honest ranking. Click a pool for its depth.</div>
+  <div id="m-out"></div>
+</section>
+
+<!-- ── pair ── -->
+<section id="pair">
+  <div class="bar">
+    <input id="p-a" class="sm" placeholder="SOL" value="SOL">
+    <input id="p-b" class="sm" placeholder="USDC" value="USDC">
+    <select id="p-sort">
+      <option value="liquidity">by TVL</option>
+      <option value="volume24h">by volume</option>
+      <option value="apr24h">by APR</option>
+    </select>
+    <button class="go" id="p-go">FIND POOLS</button>
+    <span class="flash" id="p-flash"></span>
+  </div>
+  <div class="note">One token lists everywhere it trades; two list the pair. The
+    spread is across pools deep enough to matter, with the backwards-quoted ones
+    flipped.</div>
+  <div class="cards" id="p-cards"></div>
+  <div id="p-out"></div>
+</section>
+
+<!-- ── trade ── -->
+<section id="trade">
+  <div class="split">
+    <div>
+      <div class="panel">
+        <div class="rows">
+          <label>spend</label><input id="t-in" value="SOL">
+          <label>receive</label><input id="t-out" value="USDC">
+          <label>amount</label><input id="t-amt" value="1">
+          <label>slippage bps</label><input id="t-slip" value="50">
+          <label>size by</label>
+          <div class="seg"><button id="t-mode-in" class="on">INPUT</button>
+            <button id="t-mode-out">OUTPUT</button></div>
+        </div>
+        <div class="bar" style="margin-top:10px">
+          <button class="go" id="t-go">QUOTE</button>
+          <span class="flash" id="t-flash"></span>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="rows">
+          <label>wallet</label><input id="t-wallet" placeholder="your address">
+        </div>
+        <div class="bar" style="margin-top:10px">
+          <button class="go alt" id="t-build">BUILD UNSIGNED TX</button>
+        </div>
+        <div class="note">Nothing here holds a key. This returns base64
+          transactions for a wallet to sign — the solana module signs, or a
+          browser wallet does.</div>
+      </div>
+    </div>
+    <div><div id="t-out"></div></div>
+  </div>
+</section>
+
+<!-- ── pool ── -->
+<section id="pool">
+  <div class="bar">
+    <input id="d-id" class="wide" placeholder="pool address (or an LP mint)">
+    <button class="go" id="d-go">READ POOL</button>
+    <span class="flash" id="d-flash"></span>
+  </div>
+  <div id="d-out"></div>
+</section>
+
+<!-- ── wallet ── -->
+<section id="wallet">
+  <div class="bar">
+    <input id="w-addr" class="wide" placeholder="wallet address">
+    <input id="w-min" class="sm" value="0.01" title="hide dust below this USD">
+    <button class="go" id="w-go">READ WALLET</button>
+    <span class="flash" id="w-flash"></span>
+  </div>
+  <div class="note">Concentrated positions are NFTs with no balance and no price;
+    the money is in an account derived from the NFT. This derives it for every NFT
+    in the wallet and prices what it finds — a wallet with many NFTs takes a few
+    seconds.</div>
+  <div class="cards" id="w-cards"></div>
+  <div id="w-out"></div>
+</section>
+
+<!-- ── mcp ── -->
+<section id="mcp">
+  <div class="bar">
+    <select id="x-tool"></select>
+    <input id="x-args" class="wide" placeholder='{"token": "SOL"}'>
+    <button class="go" id="x-go">CALL</button>
+    <span class="flash" id="x-flash"></span>
+  </div>
+  <div class="note" id="x-desc"></div>
+  <div class="split">
+    <div><h2 class="t">result</h2><pre id="x-out">—</pre></div>
+    <div><h2 class="t">connect an agent</h2><pre id="x-cfg">—</pre>
+      <div class="note">Same handlers as the REST routes and the console: one
+        implementation, three surfaces.</div></div>
+  </div>
+</section>
+
+</main>
+<script>
+const API = location.pathname.replace(/\/+$/,'') + '/_api';
+const $ = s => document.querySelector(s);
+const el = (t,c,x) => { const n=document.createElement(t); if(c)n.className=c;
+                        if(x!==undefined)n.textContent=x; return n; };
+
+async function get(path, params){
+  const u = new URL(API + path, location.origin);
+  Object.entries(params||{}).forEach(([k,v]) => (v!==''&&v!=null) && u.searchParams.set(k,v));
+  const r = await fetch(u);
+  const j = await r.json().catch(()=>({error:'bad response'}));
+  if(!r.ok) throw new Error(j.error || ('HTTP '+r.status));
+  return j;
+}
+async function post(path, body){
+  const r = await fetch(API + path, {method:'POST',
+    headers:{'content-type':'application/json'}, body: JSON.stringify(body||{})});
+  const j = await r.json().catch(()=>({error:'bad response'}));
+  if(!r.ok) throw new Error(j.error || ('HTTP '+r.status));
+  return j;
+}
+const usd = v => v==null ? '—' : v>=1e9 ? '$'+(v/1e9).toFixed(2)+'b'
+  : v>=1e6 ? '$'+(v/1e6).toFixed(2)+'m' : v>=1e3 ? '$'+(v/1e3).toFixed(1)+'k'
+  : '$'+(+v).toFixed(v<1?4:2);
+const num = (v,d) => v==null ? '—' : (+v).toLocaleString(undefined,{maximumFractionDigits:d??4});
+const pct = v => v==null ? '—' : (+v).toFixed(2)+'%';
+const short = a => !a ? '—' : a.length>16 ? a.slice(0,5)+'…'+a.slice(-4) : a;
+
+function addr(a, onclick){
+  const n = el('span','addr',short(a));
+  n.title = a + ' — click to copy';
+  n.onclick = e => { e.stopPropagation();
+    if(onclick) return onclick(a);
+    navigator.clipboard && navigator.clipboard.writeText(a); };
+  return n;
+}
+function card(title, big, sm, cls){
+  const c = el('div','card'); c.appendChild(el('h3',null,title));
+  c.appendChild(el('div','big'+(cls?' '+cls:''), big));
+  if(sm!==undefined) c.appendChild(el('div','sm', sm));
+  return c;
+}
+function table(cols, rows, onrow){
+  const t = el('table'), h = el('tr');
+  cols.forEach(c => h.appendChild(el('th', c.n?'n':null, c.label)));
+  t.appendChild(el('thead')).appendChild(h);
+  const b = el('tbody');
+  rows.forEach(r => {
+    const tr = el('tr');
+    cols.forEach(c => {
+      const td = el('td', c.n?'n':null);
+      const v = c.cell(r);
+      if(v instanceof Node) td.appendChild(v); else td.textContent = v==null?'—':v;
+      tr.appendChild(td);
+    });
+    if(onrow){ tr.style.cursor='pointer'; tr.onclick = () => onrow(r); }
+    b.appendChild(tr);
+  });
+  t.appendChild(b);
+  return t;
+}
+function busy(btn, on){ btn.disabled = on; btn.dataset.t = btn.dataset.t||btn.textContent;
+  btn.textContent = on ? 'WORKING…' : btn.dataset.t; }
+function fail(flash, e){ $(flash).textContent = String(e.message||e); }
+
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('nav button').forEach(x => x.classList.toggle('on', x===b));
+  document.querySelectorAll('section').forEach(s =>
+    s.classList.toggle('on', s.id === b.dataset.tab));
+});
+
+/* ── market ── */
+async function loadOverview(){
+  try{
+    const o = await get('/overview');
+    $('#tagline').textContent =
+      `${usd(o.tvl_usd)} TVL · ${usd(o.volume_24h_usd)} 24h · RAY ${usd(o.ray_usd)}`;
+    const c = $('#m-cards'); c.innerHTML='';
+    c.appendChild(card('TVL', usd(o.tvl_usd), 'across every pool'));
+    c.appendChild(card('VOLUME 24H', usd(o.volume_24h_usd),
+      'turnover ' + num(o.turnover_24h,3) + '×', 'grn'));
+    c.appendChild(card('RAY', usd(o.ray_usd), 'the protocol token'));
+    c.appendChild(card('SOL', usd(o.sol_usd), 'priced by Raydium'));
+    const f = o.priority_fee_micro_lamports||{};
+    c.appendChild(card('PRIORITY FEE', num(f.h,0), 'micro-lamports (high tier)'));
+  }catch(e){ $('#tagline').textContent = 'offline — ' + e.message; }
+}
+async function rank(){
+  const btn = $('#m-go'); busy(btn,true); $('#m-flash').textContent='';
+  try{
+    const j = await get('/pools', {type:$('#m-type').value, sort:$('#m-sort').value,
+      limit:$('#m-limit').value, search:$('#m-search').value,
+      min_tvl:$('#m-mintvl').value});
+    const out = $('#m-out'); out.innerHTML='';
+    if(!j.pools.length){ out.appendChild(el('div','empty','nothing matched.')); return; }
+    out.appendChild(table([
+      {label:'pair', cell:r => { const s=el('span'); s.appendChild(el('b',null,r.pair));
+        s.appendChild(el('span','p '+(r.type==='Concentrated'?'pur':'hot'),
+          r.type==='Concentrated'?'CLMM':'AMM')); return s; }},
+      {label:'price', n:1, cell:r => num(r.price,6)},
+      {label:'TVL', n:1, cell:r => usd(r.tvl)},
+      {label:'vol 24h', n:1, cell:r => usd(r.volume_24h)},
+      {label:'fees 24h', n:1, cell:r => usd(r.fees_24h)},
+      {label:'APR', n:1, cell:r => pct(r.apr_24h)},
+      {label:'fee', n:1, cell:r => r.fee_rate==null?'—':(r.fee_rate*100).toFixed(3)+'%'},
+      {label:'farms', n:1, cell:r => (r.farms||{}).ongoing||0},
+      {label:'pool', cell:r => addr(r.id)},
+    ], j.pools, r => { $('#d-id').value = r.id;
+      document.querySelector('nav button[data-tab=pool]').click(); readPool(); }));
+    if(j.note) out.appendChild(el('div','note', j.note));
+  }catch(e){ fail('#m-flash', e); } finally{ busy(btn,false); }
+}
+$('#m-go').onclick = rank;
+
+/* ── pair ── */
+$('#p-go').onclick = async () => {
+  const btn = $('#p-go'); busy(btn,true); $('#p-flash').textContent='';
+  try{
+    const j = await get('/pair', {token_a:$('#p-a').value, token_b:$('#p-b').value,
+      sort:$('#p-sort').value, limit:25});
+    const c = $('#p-cards'); c.innerHTML='';
+    c.appendChild(card('POOLS', j.pool_count + (j.more_pools?'+':''), 'trading this'));
+    c.appendChild(card('TVL', usd(j.tvl_usd), 'summed'));
+    c.appendChild(card('VOLUME 24H', usd(j.volume_24h_usd), 'summed', 'grn'));
+    c.appendChild(card('SPREAD', j.price_spread_pct==null?'—':pct(j.price_spread_pct),
+      'across the deep pools'));
+    if(j.deepest) c.appendChild(card('DEEPEST', num(j.deepest.price,6),
+      j.deepest.pair + ' · ' + usd(j.deepest.tvl)));
+    if(j.busiest) c.appendChild(card('BUSIEST', num(j.busiest.price,6),
+      usd(j.busiest.volume_24h) + ' 24h'));
+    const out = $('#p-out'); out.innerHTML='';
+    out.appendChild(table([
+      {label:'pair', cell:r => r.pair},
+      {label:'type', cell:r => el('span','p '+(r.type==='Concentrated'?'pur':'hot'),
+        r.type==='Concentrated'?'CLMM':'AMM')},
+      {label:'price', n:1, cell:r => num(r.price,6)},
+      {label:'TVL', n:1, cell:r => usd(r.tvl)},
+      {label:'vol 24h', n:1, cell:r => usd(r.volume_24h)},
+      {label:'APR', n:1, cell:r => pct(r.apr_24h)},
+      {label:'pool', cell:r => addr(r.id)},
+    ], j.pools, r => { $('#d-id').value = r.id;
+      document.querySelector('nav button[data-tab=pool]').click(); readPool(); }));
+  }catch(e){ fail('#p-flash', e); } finally{ busy(btn,false); }
+};
+
+/* ── trade ── */
+let MODE='in';
+$('#t-mode-in').onclick = () => { MODE='in';
+  $('#t-mode-in').classList.add('on'); $('#t-mode-out').classList.remove('on'); };
+$('#t-mode-out').onclick = () => { MODE='out';
+  $('#t-mode-out').classList.add('on'); $('#t-mode-in').classList.remove('on'); };
+
+$('#t-go').onclick = async () => {
+  const btn = $('#t-go'); busy(btn,true); $('#t-flash').textContent='';
+  try{
+    const j = await get('/quote', {input:$('#t-in').value, output:$('#t-out').value,
+      amount:$('#t-amt').value, slippage_bps:$('#t-slip').value, mode:MODE});
+    const out = $('#t-out'); out.innerHTML='';
+    const c = el('div','cards');
+    c.appendChild(card('YOU SPEND', num(j.input.amount,6) + ' ' + (j.input.symbol||''),
+      usd(j.input.usd)));
+    c.appendChild(card('YOU GET', num(j.output.amount,6) + ' ' + (j.output.symbol||''),
+      usd(j.output.usd), 'grn'));
+    c.appendChild(card('PRICE', num(j.price,6),
+      (j.output.symbol||'out') + ' per ' + (j.input.symbol||'in')));
+    c.appendChild(card('PRICE IMPACT', pct(j.price_impact_pct), 'router estimate'));
+    c.appendChild(card('VS SPOT', pct(j.vs_spot_pct),
+      'the whole trade, fees included'));
+    c.appendChild(card(j.worst_case.label.toUpperCase(), num(j.worst_case.amount,6),
+      'after ' + j.slippage_bps + ' bps'));
+    out.appendChild(c);
+    out.appendChild(el('h2','t','route — ' + j.hops + ' hop' + (j.hops>1?'s':'')));
+    out.appendChild(table([
+      {label:'from', cell:r => r.from}, {label:'to', cell:r => r.to},
+      {label:'fee', n:1, cell:r => r.fee_rate==null?'—':num(r.fee_rate,4)},
+      {label:'pool', cell:r => addr(r.pool)},
+    ], j.route, r => { $('#d-id').value = r.pool;
+      document.querySelector('nav button[data-tab=pool]').click(); readPool(); }));
+  }catch(e){ fail('#t-flash', e); } finally{ busy(btn,false); }
+};
+$('#t-build').onclick = async () => {
+  const btn = $('#t-build'); busy(btn,true); $('#t-flash').textContent='';
+  try{
+    const j = await post('/swap_tx', {wallet:$('#t-wallet').value,
+      input:$('#t-in').value, output:$('#t-out').value, amount:+$('#t-amt').value,
+      slippage_bps:+$('#t-slip').value, mode:MODE});
+    const out = $('#t-out'); out.innerHTML='';
+    out.appendChild(el('h2','t', j.count + ' unsigned transaction'
+      + (j.count===1?'':'s')));
+    out.appendChild(el('div','note', j.how_to_sign));
+    const pre = el('pre'); pre.textContent = JSON.stringify(j, null, 2);
+    out.appendChild(pre);
+  }catch(e){ fail('#t-flash', e); } finally{ busy(btn,false); }
+};
+
+/* ── pool ── */
+function curveSvg(curve, price){
+  const w=560, h=140, pad=18;
+  if(!curve || curve.length<2) return el('div','note','no liquidity curve published');
+  const xs = curve.map(p=>p.price), ys = curve.map(p=>p.liquidity||0);
+  const x0=Math.min(...xs), x1=Math.max(...xs), y1=Math.max(...ys)||1;
+  const X = v => pad + (v-x0)/((x1-x0)||1)*(w-pad*2);
+  const Y = v => h-pad - (v/y1)*(h-pad*2);
+  const ns='http://www.w3.org/2000/svg';
+  const svg=document.createElementNS(ns,'svg');
+  svg.setAttribute('viewBox',`0 0 ${w} ${h}`); svg.setAttribute('width','100%');
+  const path=document.createElementNS(ns,'path');
+  let d=`M ${X(x0)} ${h-pad}`;
+  curve.forEach(p => d += ` L ${X(p.price)} ${Y(p.liquidity||0)}`);
+  d += ` L ${X(x1)} ${h-pad} Z`;
+  path.setAttribute('d',d); path.setAttribute('class','liq'); svg.appendChild(path);
+  const line=document.createElementNS(ns,'line');
+  line.setAttribute('x1',X(price)); line.setAttribute('x2',X(price));
+  line.setAttribute('y1',pad-8); line.setAttribute('y2',h-pad);
+  line.setAttribute('class','now'); svg.appendChild(line);
+  [[x0,pad,'start'],[x1,w-pad,'end']].forEach(([v,x,anchor]) => {
+    const t=document.createElementNS(ns,'text');
+    t.setAttribute('x',x); t.setAttribute('y',h-4);
+    t.setAttribute('text-anchor',anchor); t.textContent=num(v,4); svg.appendChild(t);
+  });
+  const t=document.createElementNS(ns,'text');
+  t.setAttribute('x',X(price)); t.setAttribute('y',pad-10);
+  t.setAttribute('text-anchor','middle'); t.textContent='price ' + num(price,4);
+  svg.appendChild(t);
+  return svg;
+}
+async function readPool(){
+  const btn = $('#d-go'); busy(btn,true); $('#d-flash').textContent='';
+  const out = $('#d-out'); out.innerHTML='';
+  try{
+    const id = $('#d-id').value.trim();
+    const p = await get('/pool', {pool:id, keys:1});
+    const c = el('div','cards');
+    c.appendChild(card('PAIR', p.pair, p.program_name||p.type));
+    c.appendChild(card('PRICE', num(p.price,6),
+      (p.mint_b.symbol||'') + ' per ' + (p.mint_a.symbol||'')));
+    c.appendChild(card('TVL', usd(p.tvl), 'reported'));
+    c.appendChild(card('VOLUME 24H', usd(p.volume_24h), 'fees ' + usd(p.fees_24h),'grn'));
+    c.appendChild(card('APR 24H', pct(p.apr_24h),
+      'week ' + pct((p.week||{}).apr) + ' · month ' + pct((p.month||{}).apr)));
+    c.appendChild(card('FEE', p.fee_rate==null?'—':(p.fee_rate*100).toFixed(3)+'%',
+      'per trade'));
+    out.appendChild(c);
+    ['day','week','month'].forEach(k => { if(!p[k]) return; });
+    const w = p.day||{};
+    out.appendChild(el('div','note',
+      `24h range ${num(w.price_min,6)} – ${num(w.price_max,6)} · reserves `
+      + `${num(p.reserve_a,4)} ${p.mint_a.symbol||''} / ${num(p.reserve_b,4)} `
+      + `${p.mint_b.symbol||''}`));
+
+    out.appendChild(el('h2','t','depth — what is actually near the price'));
+    const dbox = el('div'); dbox.appendChild(el('div','empty','measuring…'));
+    out.appendChild(dbox);
+    const keys = p.keys||{};
+    out.appendChild(el('h2','t','on-chain accounts'));
+    out.appendChild(table([
+      {label:'account', cell:r => r[0]}, {label:'address', cell:r => addr(r[1])},
+    ], Object.entries(keys).filter(([k,v]) => typeof v === 'string')));
+
+    const d = await get('/depth', {pool: p.id});
+    dbox.innerHTML='';
+    dbox.appendChild(el('div','note', d.method + (d.within_1pct_of_tvl!=null
+      ? ` · only ${pct(d.within_1pct_of_tvl)} of TVL is within 1% of the price` : '')));
+    dbox.appendChild(table([
+      {label:'band', cell:r => '±' + r.band_pct + '%'},
+      {label:'bids ' + (d.quote||''), n:1, cell:r => usd(r.bid_usd)},
+      {label:'asks ' + (d.base||''), n:1, cell:r => usd(r.ask_usd)},
+      {label:'total', n:1, cell:r => usd(r.total_usd)},
+      {label:'', cell:r => { const b=el('div','depthbar'), t=(r.bid_usd||0)+(r.ask_usd||0)||1;
+        const i1=el('i','bid'), i2=el('i','ask');
+        i1.style.width = (100*(r.bid_usd||0)/t)+'%';
+        i2.style.width = (100*(r.ask_usd||0)/t)+'%';
+        b.appendChild(i1); b.appendChild(i2); return b; }},
+    ], d.bands));
+    if(d.full_range) dbox.appendChild(el('div','note',
+      `full range ${num(d.full_range.base_amount,3)} ${d.base||''} / `
+      + `${num(d.full_range.quote_amount,3)} ${d.quote||''}`
+      + (d.full_range.coverage_pct!=null
+         ? ` — ${pct(d.full_range.coverage_pct)} of the reported reserves` : '')));
+    if(d.curve) dbox.appendChild(curveSvg(d.curve, d.price));
+  }catch(e){ fail('#d-flash', e); } finally{ busy(btn,false); }
+}
+$('#d-go').onclick = readPool;
+
+/* ── wallet ── */
+$('#w-go').onclick = async () => {
+  const btn = $('#w-go'); busy(btn,true); $('#w-flash').textContent='';
+  try{
+    const j = await get('/wallet', {wallet:$('#w-addr').value.trim(),
+      min_usd:$('#w-min').value});
+    const c = $('#w-cards'); c.innerHTML='';
+    c.appendChild(card('ON RAYDIUM', usd(j.total_usd), 'positions + LP', 'grn'));
+    c.appendChild(card('CONCENTRATED', usd(j.positions_usd),
+      j.positions.length + ' position' + (j.positions.length===1?'':'s')));
+    c.appendChild(card('LP TOKENS', usd(j.lp_usd), j.lp_tokens.length + ' pools'));
+    c.appendChild(card('FEES OWED', usd(j.fees_owed_usd), 'checkpointed'));
+    c.appendChild(card('OUT OF RANGE', String(j.out_of_range.length),
+      'earning nothing', j.out_of_range.length?'':'grn'));
+    const out = $('#w-out'); out.innerHTML='';
+    if(j.positions.length){
+      out.appendChild(el('h2','t','concentrated positions'));
+      out.appendChild(table([
+        {label:'pair', cell:r => r.pair},
+        {label:'range', cell:r => r.price_lower==null ? '—'
+          : num(r.price_lower,4) + ' – ' + num(r.price_upper,4)},
+        {label:'state', cell:r => el('span','p '+(r.closed?'':(r.in_range?'good':'bad')),
+          r.closed ? 'closed' : (r.in_range ? 'in range' : 'out of range'))},
+        {label:'amounts', cell:r => num(r.amount_a,4) + ' / ' + num(r.amount_b,4)},
+        {label:'value', n:1, cell:r => usd(r.value_usd)},
+        {label:'fees', n:1, cell:r => usd(r.fees_owed_usd)},
+        {label:'APR', n:1, cell:r => pct(r.apr_24h)},
+        {label:'nft', cell:r => addr(r.nft_mint)},
+      ], j.positions));
+    }
+    if(j.lp_tokens.length){
+      out.appendChild(el('h2','t','LP tokens'));
+      out.appendChild(table([
+        {label:'pair', cell:r => r.pair},
+        {label:'balance', n:1, cell:r => num(r.balance,6)},
+        {label:'share', n:1, cell:r => r.share_pct==null?'—':num(r.share_pct,6)+'%'},
+        {label:'holds', cell:r => num(r.amount_a,4) + ' / ' + num(r.amount_b,4)},
+        {label:'value', n:1, cell:r => usd(r.value_usd)},
+        {label:'APR', n:1, cell:r => pct(r.apr_24h)},
+        {label:'pool', cell:r => addr(r.pool)},
+      ], j.lp_tokens));
+    }
+    if(!j.positions.length && !j.lp_tokens.length)
+      out.appendChild(el('div','empty','nothing on Raydium in this wallet.'));
+    const s = j.scanned||{};
+    out.appendChild(el('div','note',
+      `scanned ${s.token_accounts} token accounts · ${s.nft_candidates} NFTs `
+      + `· ${s.closed_positions||0} closed positions skipped`));
+  }catch(e){ fail('#w-flash', e); } finally{ busy(btn,false); }
+};
+
+/* ── mcp ── */
+let TOOLS = [];
+async function loadTools(){
+  try{
+    const j = await get('/tools');
+    TOOLS = j.tools;
+    const sel = $('#x-tool'); sel.innerHTML='';
+    TOOLS.forEach(t => { const o=el('option',null,t.name); o.value=t.name;
+                         sel.appendChild(o); });
+    sel.onchange = () => {
+      const t = TOOLS.find(t => t.name===sel.value);
+      $('#x-desc').textContent = t ? t.description : '';
+      const props = Object.keys((t.inputSchema||{}).properties||{});
+      const req = (t.inputSchema||{}).required||[];
+      $('#x-args').placeholder = props.length
+        ? JSON.stringify(Object.fromEntries((req.length?req:props.slice(0,1))
+            .map(k => [k, ''])))
+        : '{}';
+    };
+    sel.onchange();
+    $('#x-cfg').textContent = JSON.stringify({mcpServers:{raydium:{type:'http',
+      url: location.origin + (location.pathname.replace(/\/+$/,'')||'') + '/_api/mcp'
+    }}}, null, 2) + '\n\n' + TOOLS.length + ' tools:\n'
+      + TOOLS.map(t => '  ' + t.name).join('\n');
+  }catch(e){ $('#x-desc').textContent = 'could not load tools — ' + e.message; }
+}
+$('#x-go').onclick = async () => {
+  const btn = $('#x-go'); busy(btn,true); $('#x-flash').textContent='';
+  try{
+    let args = {};
+    const raw = $('#x-args').value.trim();
+    if(raw) args = JSON.parse(raw);
+    const j = await post('/mcp', {jsonrpc:'2.0', id:1, method:'tools/call',
+      params:{name:$('#x-tool').value, arguments:args}});
+    const content = ((j.result||{}).content||[])[0]||{};
+    $('#x-out').textContent = content.text || JSON.stringify(j, null, 2);
+    if((j.result||{}).isError) $('#x-flash').textContent = 'the tool returned an error';
+  }catch(e){ fail('#x-flash', e); } finally{ busy(btn,false); }
+};
+
+loadOverview(); rank(); loadTools();
+</script>
+</body>
+</html>

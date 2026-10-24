@@ -1,0 +1,189 @@
+{
+  "netuid": 71,
+  "name": "Leadpoet",
+  "symbol": "ㄴ",
+  "owner": "5DwHzMhBXPGPSSxnPzp3J8Y12UyYmU17nppQ8oHum6yrRjSk",
+  "description": "Intent-driven AI for modern sales teams.",
+  "github": "https://github.com/leadpoet/leadpoet",
+  "url": "https://leadpoet.com",
+  "discord": null,
+  "logo": "https://leadpoet.com/leadpoet-social-logo.png",
+  "registered_at": 5048438,
+  "tempo": 360,
+  "active": true,
+  "block": 9322663,
+  "related": [],
+  "market": {
+    "price": 0.004969849,
+    "moving_price": 0.004874532809481025,
+    "market_cap": 29659.565087156327,
+    "tao_in": 5613.225007884,
+    "alpha_in": 1129455.889790533,
+    "alpha_out": 4838444.762152077,
+    "volume": 1472901.651385993,
+    "vol_24h": 2571.3394012709614,
+    "emission": 0.0,
+    "change_1h": -0.22154701856135217,
+    "change_24h": 2.6662003510175225,
+    "change_7d": -1.6220580736499124
+  },
+  "spark_24h": [
+    0.004840784,
+    0.004887708,
+    0.004821324,
+    0.004762704,
+    0.004762703,
+    0.004762703,
+    0.004765833,
+    0.00480056,
+    0.00480056,
+    0.004817938,
+    0.004817917,
+    0.004817917,
+    0.005146133,
+    0.005121885,
+    0.005130431,
+    0.00513025,
+    0.005098342,
+    0.004988071,
+    0.004988071,
+    0.005076046,
+    0.005040277,
+    0.004956464,
+    0.004974145,
+    0.004975486,
+    0.004975486,
+    0.004860904,
+    0.004865943,
+    0.004865943,
+    0.004865386,
+    0.004853317,
+    0.004854393,
+    0.004854393,
+    0.004854393,
+    0.00485081,
+    0.004849719,
+    0.004850034,
+    0.004850034,
+    0.004848969,
+    0.00484903,
+    0.004849028,
+    0.004849028,
+    0.004849028,
+    0.004849028,
+    0.004849026,
+    0.004892826,
+    0.004980884,
+    0.004987714,
+    0.004969849
+  ],
+  "trades_24h": {
+    "trades": 317,
+    "buys": 166,
+    "sells": 151,
+    "buy_tao": 1322.574815288,
+    "sell_tao": 1246.215652487,
+    "net_tao": 76.35916280100014,
+    "traders": 113
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5Cw2qFy2tZy9ZLt4LsJc9b68nffQndZDHF1KZynmVbA4Z3pC",
+      "net_tao": 32.965023042999995,
+      "gross_tao": 277.034976957,
+      "trades": 21
+    },
+    {
+      "coldkey": "5Gp5B45qzEuaS6QCn5qC6WYmxdLwrawzDWLR7HEyHR1dXfE1",
+      "net_tao": 1.0088704059999998,
+      "gross_tao": 250.818984858,
+      "trades": 6
+    },
+    {
+      "coldkey": "5Gb23Q7n115ypiHr6jAMRhkhADhEkRFYa5ovgipVApqMt3FV",
+      "net_tao": -0.6342456800000029,
+      "gross_tao": 180.63424568,
+      "trades": 8
+    },
+    {
+      "coldkey": "5GFASTQftoZcMXRuaML9brsMMZQJMqyTViMnYHQsN5mTi1hN",
+      "net_tao": -0.0456672419999975,
+      "gross_tao": 149.732331228,
+      "trades": 14
+    },
+    {
+      "coldkey": "5G77RdddzCq241C5CMhxhjHytaFuHTfFVKJqfG9dZnkdhp1m",
+      "net_tao": -99.323878893,
+      "gross_tao": 99.323878893,
+      "trades": 1
+    }
+  ],
+  "news": [
+    {
+      "ts": 1792467876,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #579 from leadpoet/fix/arena-closed-cost-round-mem…",
+      "url": "https://github.com/leadpoet/leadpoet/commit/e8f6063e2a188bc5217f39740be3be9a423f48bc",
+      "publisher": "leadpoet/leadpoet"
+    },
+    {
+      "ts": 1792467842,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge remote-tracking branch 'origin/main' into fix/arena-closed-cost…",
+      "url": "https://github.com/leadpoet/leadpoet/commit/503ed579005e7ca6dad60efc0bd4255c21963683",
+      "publisher": "leadpoet/leadpoet"
+    },
+    {
+      "ts": 1792467821,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #578 from leadpoet/fix/arena-public-result-round-c…",
+      "url": "https://github.com/leadpoet/leadpoet/commit/394b7fb816071c903738a9d828bfbad3e932670e",
+      "publisher": "leadpoet/leadpoet"
+    },
+    {
+      "ts": 1792467233,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge remote-tracking branch 'origin/main' into fix/arena-public-resu…",
+      "url": "https://github.com/leadpoet/leadpoet/commit/f38121a1f3984b19f71d619968016d22feceea41",
+      "publisher": "leadpoet/leadpoet"
+    },
+    {
+      "ts": 1792447484,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #562 from leadpoet/fix/gateway-chain-startup-recov…",
+      "url": "https://github.com/leadpoet/leadpoet/commit/c26a116c244f4b4894e7f77d61b03ebde2c4969a",
+      "publisher": "leadpoet/leadpoet"
+    },
+    {
+      "ts": 1792447440,
+      "kind": "commit",
+      "source": "github",
+      "title": "Bind reviewed chain startup recovery to protected source",
+      "url": "https://github.com/leadpoet/leadpoet/commit/9360cc74fdc1cf6f81c75b6acc2147fa710abb20",
+      "publisher": "leadpoet/leadpoet"
+    },
+    {
+      "ts": 1792447401,
+      "kind": "commit",
+      "source": "github",
+      "title": "Recover transient gateway chain startup failures within deadline",
+      "url": "https://github.com/leadpoet/leadpoet/commit/fe79289ebf25941a1e5bf8c2c1f8a91f1fc200ad",
+      "publisher": "leadpoet/leadpoet"
+    },
+    {
+      "ts": 1792447315,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #561 from leadpoet/fix/arena-linkedin-actor-normal…",
+      "url": "https://github.com/leadpoet/leadpoet/commit/e02a73c7343ddbe9475a7b0654c1bf244ab07901",
+      "publisher": "leadpoet/leadpoet"
+    }
+  ],
+  "updated": 1792474861,
+  "updated_day": "2026-10-20"
+}

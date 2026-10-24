@@ -1,0 +1,290 @@
+// A crypto-backed digital dollar
+//
+// A crypto-backed stablecoin, the DAI / LUSD kind. No bank: the dollars are
+// backed by crypto locked inside this contract. The plain-English version:
+//
+//   1. You lock up some ETH (deposit).          "I put $3000 of ETH in a safe"
+//   2. You borrow dollars against it (mint).    "the safe lends me up to $2000"
+//      You may borrow at most 2/3 of what the ETH is worth: the extra 1/3 is
+//      a cushion in case the ETH price falls (MIN_RATIO = 150%).
+//   3. Pay the dollars back (repay) and take your ETH out (withdraw).
+//   4. If ETH falls and a loan drops under 150%, anyone may liquidate it:
+//      they pay off that loan with their own dollars and get the ETH.
+//      That's what keeps every coin worth a dollar: there is always more
+//      than $1 of crypto behind it.
+//
+// To keep the lesson in one contract, the "ETH" here is pretend: deposit
+// just adds to a number. A real one would pull an ERC20 with transfer_from
+// in deposit and send it back in withdraw. The price comes from an oracle
+// account that calls set_price (real ones read Pragma or Chainlink).
+
+use starknet::ContractAddress;
+
+#[starknet::interface]
+pub trait IVaultusd<TContractState> {
+    fn name(self: @TContractState) -> felt252;
+    fn symbol(self: @TContractState) -> felt252;
+    fn decimals(self: @TContractState) -> u8;
+    fn total_supply(self: @TContractState) -> u256;
+    fn balance_of(self: @TContractState, account: ContractAddress) -> u256;
+    fn price(self: @TContractState) -> u256;
+    fn collateral_of(self: @TContractState, user: ContractAddress) -> u256;
+    fn debt_of(self: @TContractState, user: ContractAddress) -> u256;
+    fn ratio_of(self: @TContractState, user: ContractAddress) -> u256;
+    fn max_mint(self: @TContractState, user: ContractAddress) -> u256;
+    fn is_safe(self: @TContractState, user: ContractAddress) -> bool;
+    fn transfer(ref self: TContractState, to: ContractAddress, amount: u256) -> bool;
+    fn deposit(ref self: TContractState, amount: u256);
+    fn withdraw(ref self: TContractState, amount: u256);
+    fn mint(ref self: TContractState, amount: u256);
+    fn repay(ref self: TContractState, amount: u256);
+    fn liquidate(ref self: TContractState, user: ContractAddress);
+    fn set_price(ref self: TContractState, price: u256);
+}
+
+#[starknet::contract]
+pub mod Vaultusd {
+    use starknet::{ContractAddress, get_caller_address};
+    use starknet::storage::{
+        Map, StorageMapReadAccess, StorageMapWriteAccess, StoragePointerReadAccess,
+        StoragePointerWriteAccess,
+    };
+
+    // you must keep $1.50 of collateral for every $1 borrowed
+    pub const MIN_RATIO: u256 = 150;
+
+    #[storage]
+    struct Storage {
+        name: felt252,
+        symbol: felt252,
+        oracle: ContractAddress,
+        // dollars per 1 whole ETH, e.g. 3000
+        price: u256,
+        supply: u256,
+        balances: Map<ContractAddress, u256>,
+        collateral: Map<ContractAddress, u256>,
+        debt: Map<ContractAddress, u256>,
+    }
+
+    #[event]
+    #[derive(Drop, starknet::Event)]
+    pub enum Event {
+        Transfer: Transfer,
+        Deposited: Deposited,
+        Withdrew: Withdrew,
+        Minted: Minted,
+        Repaid: Repaid,
+        Liquidated: Liquidated,
+        PriceSet: PriceSet,
+    }
+
+    #[derive(Drop, starknet::Event)]
+    pub struct Transfer {
+        #[key]
+        pub from: ContractAddress,
+        #[key]
+        pub to: ContractAddress,
+        pub amount: u256,
+    }
+
+    #[derive(Drop, starknet::Event)]
+    pub struct Deposited {
+        #[key]
+        pub who: ContractAddress,
+        pub amount: u256,
+    }
+
+    #[derive(Drop, starknet::Event)]
+    pub struct Withdrew {
+        #[key]
+        pub who: ContractAddress,
+        pub amount: u256,
+    }
+
+    #[derive(Drop, starknet::Event)]
+    pub struct Minted {
+        #[key]
+        pub who: ContractAddress,
+        pub amount: u256,
+    }
+
+    #[derive(Drop, starknet::Event)]
+    pub struct Repaid {
+        #[key]
+        pub who: ContractAddress,
+        pub amount: u256,
+    }
+
+    #[derive(Drop, starknet::Event)]
+    pub struct Liquidated {
+        #[key]
+        pub user: ContractAddress,
+        #[key]
+        pub by: ContractAddress,
+        pub debt: u256,
+        pub collateral: u256,
+    }
+
+    #[derive(Drop, starknet::Event)]
+    pub struct PriceSet {
+        pub price: u256,
+    }
+
+    #[constructor]
+    fn constructor(
+        ref self: ContractState,
+        name: felt252,
+        symbol: felt252,
+        oracle: ContractAddress,
+        price: u256,
+    ) {
+        self.name.write(name);
+        self.symbol.write(symbol);
+        self.oracle.write(oracle);
+        self.price.write(price);
+    }
+
+    #[abi(embed_v0)]
+    impl VaultusdImpl of super::IVaultusd<ContractState> {
+        fn name(self: @ContractState) -> felt252 {
+            self.name.read()
+        }
+
+        fn symbol(self: @ContractState) -> felt252 {
+            self.symbol.read()
+        }
+
+        fn decimals(self: @ContractState) -> u8 {
+            18
+        }
+
+        fn total_supply(self: @ContractState) -> u256 {
+            self.supply.read()
+        }
+
+        fn balance_of(self: @ContractState, account: ContractAddress) -> u256 {
+            self.balances.read(account)
+        }
+
+        fn price(self: @ContractState) -> u256 {
+            self.price.read()
+        }
+
+        fn collateral_of(self: @ContractState, user: ContractAddress) -> u256 {
+            self.collateral.read(user)
+        }
+
+        fn debt_of(self: @ContractState, user: ContractAddress) -> u256 {
+            self.debt.read(user)
+        }
+
+        // collateral value / debt, in percent (0 = no loan)
+        fn ratio_of(self: @ContractState, user: ContractAddress) -> u256 {
+            let debt = self.debt.read(user);
+            if debt == 0 {
+                return 0;
+            }
+            self.value_of(user) * 100 / debt
+        }
+
+        // how many more dollars `user` could borrow right now
+        fn max_mint(self: @ContractState, user: ContractAddress) -> u256 {
+            let cap = self.value_of(user) * 100 / MIN_RATIO;
+            let debt = self.debt.read(user);
+            if cap > debt {
+                cap - debt
+            } else {
+                0
+            }
+        }
+
+        fn is_safe(self: @ContractState, user: ContractAddress) -> bool {
+            self.value_of(user) * 100 >= self.debt.read(user) * MIN_RATIO
+        }
+
+        fn transfer(ref self: ContractState, to: ContractAddress, amount: u256) -> bool {
+            let from = get_caller_address();
+            let bal = self.balances.read(from);
+            assert(bal >= amount, 'not enough dollars');
+            self.balances.write(from, bal - amount);
+            self.balances.write(to, self.balances.read(to) + amount);
+            self.emit(Transfer { from, to, amount });
+            true
+        }
+
+        fn deposit(ref self: ContractState, amount: u256) {
+            let who = get_caller_address();
+            self.collateral.write(who, self.collateral.read(who) + amount);
+            self.emit(Deposited { who, amount });
+        }
+
+        fn withdraw(ref self: ContractState, amount: u256) {
+            let who = get_caller_address();
+            let col = self.collateral.read(who);
+            assert(col >= amount, 'not that much locked');
+            self.collateral.write(who, col - amount);
+            // taking ETH out must not leave the loan under-backed
+            assert(self.is_safe(who), 'would make your loan unsafe');
+            self.emit(Withdrew { who, amount });
+        }
+
+        fn mint(ref self: ContractState, amount: u256) {
+            let who = get_caller_address();
+            self.debt.write(who, self.debt.read(who) + amount);
+            assert(self.is_safe(who), 'not enough collateral');
+            self.supply.write(self.supply.read() + amount);
+            self.balances.write(who, self.balances.read(who) + amount);
+            let zero: ContractAddress = 0.try_into().unwrap();
+            self.emit(Transfer { from: zero, to: who, amount });
+            self.emit(Minted { who, amount });
+        }
+
+        fn repay(ref self: ContractState, amount: u256) {
+            let who = get_caller_address();
+            let debt = self.debt.read(who);
+            assert(debt >= amount, 'you owe less than that');
+            self.burn(who, amount);
+            self.debt.write(who, debt - amount);
+            self.emit(Repaid { who, amount });
+        }
+
+        // An unsafe loan can be closed by anyone: they pay its whole debt
+        // with their own dollars and receive all of its collateral. The
+        // collateral is worth more than the debt, so it pays to do it.
+        fn liquidate(ref self: ContractState, user: ContractAddress) {
+            assert(!self.is_safe(user), 'that loan is still safe');
+            let by = get_caller_address();
+            let debt = self.debt.read(user);
+            let col = self.collateral.read(user);
+            self.burn(by, debt);
+            self.debt.write(user, 0);
+            self.collateral.write(user, 0);
+            self.collateral.write(by, self.collateral.read(by) + col);
+            self.emit(Liquidated { user, by, debt, collateral: col });
+        }
+
+        fn set_price(ref self: ContractState, price: u256) {
+            assert(get_caller_address() == self.oracle.read(), 'only the price oracle');
+            assert(price > 0, 'price must be above 0');
+            self.price.write(price);
+            self.emit(PriceSet { price });
+        }
+    }
+
+    #[generate_trait]
+    impl InternalImpl of InternalTrait {
+        // dollar value of a user's locked ETH (both sides have 18 decimals)
+        fn value_of(self: @ContractState, user: ContractAddress) -> u256 {
+            self.collateral.read(user) * self.price.read()
+        }
+
+        fn burn(ref self: ContractState, from: ContractAddress, amount: u256) {
+            let bal = self.balances.read(from);
+            assert(bal >= amount, 'not enough dollars');
+            self.balances.write(from, bal - amount);
+            self.supply.write(self.supply.read() - amount);
+            let zero: ContractAddress = 0.try_into().unwrap();
+            self.emit(Transfer { from, to: zero, amount });
+        }
+    }
+}

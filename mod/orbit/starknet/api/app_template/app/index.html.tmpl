@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{title}} · Starknet app</title>
+<style>
+  :root { --bg:#05030b; --panel:#0d0a18; --line:#241d3a; --ink:#ece8ff; --ink2:#a59fc4; --ink3:#6d6790;
+          --tone:{{tone}}; --cyan:#00f0ff; --ok:#39ff88; --err:#ff4d6d; --mono:ui-monospace, 'JetBrains Mono', monospace; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.5 system-ui, sans-serif; }
+  a { color:var(--cyan); text-decoration:none; }
+  .wrap { max-width:960px; margin:0 auto; padding:24px 20px 60px; }
+  .top { display:flex; align-items:center; gap:12px; margin-bottom:28px; }
+  .top .back { font:12px var(--mono); color:var(--ink3); margin-left:auto; }
+  .icon { width:44px; height:44px; border-radius:12px; display:grid; place-items:center; font-weight:900; font-size:19px;
+          color:#0b0d14; background:var(--tone); box-shadow:0 0 24px color-mix(in srgb, var(--tone) 45%, transparent); }
+  h1 { margin:0; font-size:26px; letter-spacing:-.3px; }
+  .sub { font:12px var(--mono); color:var(--ink3); }
+  .pitch { color:var(--ink2); max-width:640px; margin:0 0 24px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:16px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:18px; }
+  .card h2 { margin:0 0 12px; font-size:12px; text-transform:uppercase; letter-spacing:2px; color:var(--cyan); }
+  .big { font:700 34px var(--mono); color:var(--tone); }
+  .dim { color:var(--ink3); font-size:12.5px; }
+  .fn { display:flex; gap:8px; align-items:center; margin-bottom:8px; }
+  .fn code { font:600 13px var(--mono); min-width:70px; }
+  input { flex:1; min-width:0; background:var(--bg); border:1px solid var(--line); border-radius:8px; color:var(--ink);
+          padding:7px 9px; font:12px var(--mono); }
+  button { background:var(--tone); color:#0b0d14; border:0; border-radius:8px; padding:7px 12px; font-weight:700; cursor:pointer; }
+  pre { background:var(--bg); border:1px solid var(--line); border-radius:9px; padding:10px; font:12px var(--mono);
+        color:var(--ink2); overflow:auto; max-height:260px; margin:10px 0 0; white-space:pre-wrap; }
+  ol { margin:0; padding-left:18px; color:var(--ink2); } ol li { margin-bottom:6px; } ol code { color:var(--ink); }
+  html.embedded .top .back { display:none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div class="icon">{{icon}}</div>
+    <div><h1>{{title}}</h1><div class="sub">starknet.{{name}} · app on Starknet</div></div>
+    <a class="back" href="../">‹ all apps</a>
+  </div>
+  <p class="pitch">{{pitch}}</p>
+
+  <div class="grid">
+    <div class="card">
+      <h2>Latest block</h2>
+      <div class="big" id="block">…</div>
+      <div class="dim" id="blockSub">read by head() in mod.py, every 10s</div>
+    </div>
+
+    <div class="card">
+      <h2>Your fns</h2>
+      <div id="fns" class="dim">…</div>
+      <pre id="out">pick a fn and press Call</pre>
+    </div>
+
+    <div class="card">
+      <h2>Make it yours</h2>
+      <ol>
+        <li>Edit <code>mods/{{name}}/app/index.html</code> — this page.</li>
+        <li>Add a fn to <code>mods/{{name}}/mod.py</code> and list it in <code>config.json</code> "fns".</li>
+        <li>Call it here: <code>api('my_fn', {x: 1})</code>. Reload — no build, no restart.</li>
+      </ol>
+    </div>
+  </div>
+</div>
+
+<script>
+  const NAME = '{{name}}';
+  // /starknet/apps/<name>/ -> /starknet/_api/apps/<name>/<fn>, under any prefix
+  const API = location.pathname.replace(/\/apps\/[^/]+\/?.*$/, '') + '/_api/apps/' + NAME;
+  if (window.self !== window.top) document.documentElement.classList.add('embedded');
+
+  async function api(fn, args) {
+    const r = await fetch(`${API}/${fn}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(args || {}),
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+    return j;
+  }
+
+  async function tick() {
+    try {
+      const h = await api('head');
+      document.getElementById('block').textContent = '#' + Number(h.block).toLocaleString();
+      document.getElementById('blockSub').textContent =
+        `${h.txs} transactions · ${new Date(h.timestamp * 1000).toLocaleTimeString()}`;
+    } catch (e) { document.getElementById('blockSub').textContent = e.message; }
+  }
+
+  async function listFns() {
+    const me = await fetch(API).then(r => r.json());
+    const box = document.getElementById('fns');
+    box.innerHTML = '';
+    for (const fn of me.fns || []) {
+      const row = document.createElement('div');
+      row.className = 'fn';
+      row.innerHTML = `<code>${fn}</code><input placeholder='{"who": "you"}'><button>Call</button>`;
+      row.querySelector('button').onclick = async () => {
+        const out = document.getElementById('out');
+        let args = {};
+        try { args = JSON.parse(row.querySelector('input').value || '{}'); }
+        catch { out.textContent = 'args must be JSON'; return; }
+        out.textContent = '…';
+        try { out.textContent = JSON.stringify(await api(fn, args), null, 2); }
+        catch (e) { out.textContent = 'error: ' + e.message; }
+      };
+      box.appendChild(row);
+    }
+  }
+
+  tick(); setInterval(tick, 10000); listFns();
+</script>
+</body>
+</html>

@@ -1,0 +1,49 @@
+{
+    "name": "selfimp",
+    "version": "0.1.0",
+    "description": "Self-improvement rounds over the agent protocol. Pick a coder agent and a reviewer agent from any agent-protocol server (GET /agents, POST /run); round 1 the coder does the task, the reviewer assesses the result and returns feedback, the coder revises, and so on until the reviewer approves or the round limit is hit. selfimp is itself an agent-protocol server, so a console can mount it like any other agent.",
+    "icon": "S",
+    "color": "#4fd1a5",
+    "anchor": "mod.py",
+    "network": "local",
+    "port": 51450,
+    "app_port": 51450,
+    "gateway_port": 51450,
+    "base_path": "/selfimp",
+    "route": false,
+    "deps": [
+        "claudecode"
+    ],
+    "defaults": {
+        "agent_url": "http://127.0.0.1:51260",
+        "coder": {
+            "agent": "claude"
+        },
+        "reviewer": {
+            "agent": "claude"
+        },
+        "rounds": 3,
+        "timeout": 900
+    },
+    "state": "~/.mod/selfimp/runs/<id>.json (override with SELFIMP_DIR)",
+    "fns": [
+        "info",
+        "agents",
+        "roster",
+        "run",
+        "get",
+        "list",
+        "serve",
+        "test",
+        "kill"
+    ],
+    "endpoints": {
+        "GET /agents": "Agent-protocol roster: selfimp itself",
+        "GET /roster": "Agents selfimp can use as coder/reviewer (from the configured agent-protocol servers)",
+        "POST /run": "Run rounds {query, coder, reviewer, rounds, path, timeout}; coder/reviewer = {agent, url, model, prompt}",
+        "GET /list": "Past runs, newest first",
+        "GET /get": "One run with every round (id)"
+    },
+    "key": "selfimp",
+    "schema": "QmRE1bWojybE5yvUJHwckzsm8RiY9ASPdLdaUXnC6Wi7aN"
+}

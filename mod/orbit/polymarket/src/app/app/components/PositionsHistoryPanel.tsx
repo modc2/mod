@@ -15,6 +15,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "../context/AuthContext";
+import { useCopyEngine } from "../context/CopyEngineContext";
 import { getOwnerAddress } from "../lib/access";
 import {
   fetchPositions,
@@ -109,6 +110,7 @@ interface Row {
   pnl: number;         // open: unrealized · closed: realized
   redeemable: boolean;
   ts: number;          // closed: close time (ms) · open + dead-unsettled: 0
+  tokenId?: string;    // CTF token id — used to look up backend entry metadata
 }
 
 function fmtUsd(v: number): string {
@@ -132,6 +134,7 @@ const POLL_MS = 60_000;
 
 export default function PositionsHistoryPanel() {
   const { auth } = useAuth();
+  const { backendPositions } = useCopyEngine();
   const [open, setOpen] = useState<PolymarketPosition[]>([]);
   const [closed, setClosed] = useState<ClosedPosition[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -148,7 +151,7 @@ export default function PositionsHistoryPanel() {
     // Resolve the V2 deposit wallet — that's where trades live, not the EOA.
     let wallet: string | null = null;
     try {
-      const r = await fetch(`/api/polymarket/deposit-wallet/info?eoa=${eoa}`, {
+      const r = await fetch(`/polymarket/api/deposit-wallet/info?eoa=${eoa}`, {
         cache: "no-store",
       });
       if (r.ok) wallet = ((await r.json()) as { depositWallet?: string }).depositWallet ?? null;
@@ -205,6 +208,7 @@ export default function PositionsHistoryPanel() {
           pnl: p.pnlUsd,
           redeemable: !dead && p.redeemable,
           ts: 0,
+          tokenId: p.tokenId,
         };
       });
     const openRows: Row[] = held
@@ -463,12 +467,19 @@ export default function PositionsHistoryPanel() {
                     </span>
                   )}
                 </span>
-                <span className="truncate min-w-0 text-pixel-white" title={`${r.market} · ${r.outcome}`}>
-                  {r.market}
-                  <span className={r.outcome.toLowerCase() === "no" ? "text-red-400/80" : "text-green-400/80"}> · {r.outcome}</span>
-                  {r.redeemable && (
-                    <span className="ml-1.5 text-[9px] px-1 py-px rounded-full border border-amber-400/50 text-amber-400 font-sans font-semibold tracking-wide" title="Market resolved — cash out via REDEEM">
-                      REDEEM
+                <span className="min-w-0 text-pixel-white flex flex-col" title={`${r.market} · ${r.outcome}`}>
+                  <span className="truncate">
+                    {r.market}
+                    <span className={r.outcome.toLowerCase() === "no" ? "text-red-400/80" : "text-green-400/80"}> · {r.outcome}</span>
+                    {r.redeemable && (
+                      <span className="ml-1.5 text-[9px] px-1 py-px rounded-full border border-amber-400/50 text-amber-400 font-sans font-semibold tracking-wide" title="Market resolved — cash out via REDEEM">
+                        REDEEM
+                      </span>
+                    )}
+                  </span>
+                  {r.status === "open" && r.tokenId && backendPositions[r.tokenId]?.leader && (
+                    <span className="text-[9px] text-pixel-muted/60 font-mono truncate">
+                      ↳ {backendPositions[r.tokenId]!.leader.slice(0, 6)}…
                     </span>
                   )}
                 </span>
@@ -484,7 +495,11 @@ export default function PositionsHistoryPanel() {
                   <span className="opacity-70"> {pct >= 0 ? "+" : ""}{pct.toFixed(0)}%</span>
                 </span>
                 <span className="text-right text-pixel-muted text-[10px]">
-                  {r.status === "open" ? "live" : r.ts > 0 ? fmtWhen(r.ts) : "ended"}
+                  {r.status === "open"
+                    ? (r.tokenId && backendPositions[r.tokenId]?.openedAt
+                        ? fmtWhen(backendPositions[r.tokenId]!.openedAt!)
+                        : "live")
+                    : r.ts > 0 ? fmtWhen(r.ts) : "ended"}
                 </span>
               </div>
             );

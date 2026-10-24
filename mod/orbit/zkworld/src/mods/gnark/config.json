@@ -1,0 +1,39 @@
+{
+    "name": "gnark",
+    "title": "gnark \u00b7 zkworld",
+    "description": "The gnark framework as a running submod of zkworld: its toolchain, starters and every gnark project here. Consensys' Go library for zkSNARK circuits: a Define(api) method over frontend.Variable fields. The starter ships a runner (zkworld.go) that solves the circuit with test.IsSolved; `go test` runs the native asserts.",
+    "version": "0.2.0",
+    "submod_of": "zkworld",
+    "kind": "framework",
+    "framework_id": "gnark",
+    "anchor": "mod.py",
+    "server": "../../api/fwserver.py",
+    "port": 51358,
+    "host": "127.0.0.1",
+    "route": "/zkworld/gnark/",
+    "fns": [
+        "forward",
+        "info",
+        "health",
+        "toolchain",
+        "templates",
+        "projects",
+        "new",
+        "build",
+        "test",
+        "vibe",
+        "clean",
+        "abi",
+        "witness",
+        "serve",
+        "kill"
+    ],
+    "write_fns": [
+        "new",
+        "build",
+        "test",
+        "vibe",
+        "clean"
+    ],
+    "schema": "QmZ3TSBKVYSu3YdvhcB6qnRPXce2gRRc8zTxaMUSBvaENC"
+}

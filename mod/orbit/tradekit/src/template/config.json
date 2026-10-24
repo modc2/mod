@@ -1,0 +1,35 @@
+{
+    "name": "__NAME__",
+    "version": "0.1.0",
+    "description": "__VENUE__ copy-trading — top traders, strats, backtests, dry-run live engine, MCP. Scaffolded by tradekit from the hyperliquid framework.",
+    "anchor": "src/mod.py",
+    "private": true,
+    "fns": [
+        "forward", "serve", "api", "kill", "status", "build", "logs", "test",
+        "whoami",
+        "markets", "top_traders", "analyze_trader",
+        "strat", "list_strats", "run_strat", "backtest_strats",
+        "live_start", "live_stop", "live_status",
+        "mcp", "mcp_tools", "mcp_call", "mcp_config",
+        "build_cid", "publish_build", "build_onchain"
+    ],
+    "ports": {"api": __API_PORT__, "app": __APP_PORT__},
+    "urls": {
+        "api": "http://localhost:__API_PORT__",
+        "app": "http://localhost:__APP_PORT__/__NAME__",
+        "gateway": "http://localhost:3000/__NAME__"
+    },
+    "mcp": {
+        "endpoint": "POST /mcp",
+        "schema": "GET /mcp/schema",
+        "tool_prefix": "__TOOL_PREFIX__"
+    },
+    "standard": {
+        "spec": "tradekit/1",
+        "venue": "__VENUE__",
+        "currency": "__CURRENCY__",
+        "symbol": "__SYMBOL__",
+        "reference": "hyperliquid",
+        "aliases": {}
+    }
+}

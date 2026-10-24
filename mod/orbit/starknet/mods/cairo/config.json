@@ -1,0 +1,24 @@
+{
+    "name": "starknet.cairo",
+    "submod_of": "starknet",
+    "version": "0.1.0",
+    "description": "The cairo mod's contract workbench, as a Starknet app.",
+    "anchor": "mod.py",
+    "app": {
+        "title": "Cairo workbench",
+        "icon": "\u25c6",
+        "tone": "#f97316",
+        "tag": "build",
+        "kind": "mod",
+        "mod": "cairo",
+        "order": 40,
+        "pitch": "Write a Cairo contract, let an agent edit it, build and test it, then poke it on a local devnet. Every contract gets its own app."
+    },
+    "fns": [
+        "facts"
+    ],
+    "depends": [
+        "cairo"
+    ],
+    "schema": "QmZYUPNuYsLdCG4cU38nYvbpjKGuwEDxuuLWYRPKEQt2Fp"
+}

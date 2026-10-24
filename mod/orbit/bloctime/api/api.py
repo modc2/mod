@@ -5,11 +5,14 @@ Served via mod.serve() as part of the bloctime orbit module.
 
 import json
 import os
+import re
+import secrets
 import sys
 import time
 from pathlib import Path
-from typing import Optional
-from fastapi import FastAPI, HTTPException
+from typing import List, Optional
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from web3 import Web3
@@ -17,6 +20,8 @@ from web3 import Web3
 sys.path.insert(0, str(Path(__file__).parent))
 import bt_registry
 import bt_contracts
+import agent
+import shadow
 
 app = FastAPI(title="BlocTime API", description="Time-weighted staking")
 
@@ -35,6 +40,72 @@ DEPLOY_PATH = MODULE_DIR / "deployment.json"
 CONFIG_PATH = MODULE_DIR / "config.json"
 ABI_PATH = MODULE_DIR / "artifacts" / "contracts" / "BlocTime.sol" / "BlocTime.json"
 TOKEN_ABI_PATH = MODULE_DIR / "artifacts" / "contracts" / "NativeToken.sol" / "NativeToken.json"
+TREASURY_ABI_PATH = MODULE_DIR / "artifacts" / "contracts" / "Treasury.sol" / "Treasury.json"
+
+# ── Signing-endpoint auth ────────────────────────────────────────────────
+# Every endpoint that spends the server's PRIVATE_KEY (stake, deploy,
+# contract/write, ...) requires a bearer token. The token comes from
+# BLOCTIME_API_TOKEN, or is generated once into ~/.mod/bloctime/api_token
+# (off-tree, 0600) the first time the API runs with a signer configured.
+# The CLI (mod.py call()) picks it up automatically; the console sends
+# localStorage['bloctime_api_token'] if the operator pastes it there.
+
+API_TOKEN_PATH = Path(os.path.expanduser("~/.mod/bloctime")) / "api_token"
+
+
+def _api_token():
+    token = os.environ.get("BLOCTIME_API_TOKEN", "").strip()
+    if token:
+        return token
+    if API_TOKEN_PATH.exists():
+        return API_TOKEN_PATH.read_text().strip()
+    if os.environ.get("PRIVATE_KEY"):
+        API_TOKEN_PATH.parent.mkdir(parents=True, exist_ok=True)
+        token = secrets.token_hex(24)
+        API_TOKEN_PATH.write_text(token)
+        API_TOKEN_PATH.chmod(0o600)
+        return token
+    return ""
+
+
+async def _require_signer(authorization: str = Header(default="")):
+    token = _api_token()
+    if not token:
+        return  # no signer configured — the endpoint will 500 harmlessly
+    supplied = authorization.removeprefix("Bearer ").strip()
+    if not supplied or not secrets.compare_digest(supplied, token):
+        raise HTTPException(
+            status_code=401,
+            detail="This endpoint spends the server signer — send "
+                   "'Authorization: Bearer <token>' (see ~/.mod/bloctime/api_token "
+                   "on the server, or BLOCTIME_API_TOKEN)",
+        )
+
+
+SIGNER = [Depends(_require_signer)]
+
+
+async def _require_owner(authorization: str = Header(default="")):
+    """Strict variant of _require_signer for owner-curated state (the reserve
+    token allowlist): never waves a request through when no token is
+    configured — it mints one into the off-tree file so the operator can
+    read it, then rejects the caller."""
+    token = _api_token()
+    if not token:
+        API_TOKEN_PATH.parent.mkdir(parents=True, exist_ok=True)
+        token = secrets.token_hex(24)
+        API_TOKEN_PATH.write_text(token)
+        API_TOKEN_PATH.chmod(0o600)
+    supplied = authorization.removeprefix("Bearer ").strip()
+    if not supplied or not secrets.compare_digest(supplied, token):
+        raise HTTPException(
+            status_code=401,
+            detail="Owner only — send 'Authorization: Bearer <token>' "
+                   "(see ~/.mod/bloctime/api_token on the server, or BLOCTIME_API_TOKEN)",
+        )
+
+
+OWNER = [Depends(_require_owner)]
 
 
 def _load_deploy_info():
@@ -104,11 +175,17 @@ def load_contract():
 
 def _send_tx(w3, account, tx_fn):
     """Build, sign, send a transaction."""
-    tx = tx_fn.build_transaction({
+    tx_params = {
         "from": account.address,
-        "nonce": w3.eth.get_transaction_count(account.address),
-        "gas": 500000,
-    })
+        "nonce": w3.eth.get_transaction_count(account.address, "pending"),
+    }
+    # Estimate so long catch-ups (distributeRewards after idle weeks) fit;
+    # fall back to the old fixed cap if the node refuses to estimate.
+    try:
+        tx_params["gas"] = int(tx_fn.estimate_gas({"from": account.address}) * 1.2)
+    except Exception:
+        tx_params["gas"] = 500000
+    tx = tx_fn.build_transaction(tx_params)
     signed = account.sign_transaction(tx)
     tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
     receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=60)
@@ -125,7 +202,8 @@ ZERO_ADDR = "0x0000000000000000000000000000000000000000"
 
 class StakeReq(BaseModel):
     amount: str
-    lock_blocks: int
+    lock_seconds: Optional[int] = None
+    lock_blocks: Optional[int] = None  # legacy — converted via secondsPerBlock
     as_ether: bool = True
 
 class UnstakeReq(BaseModel):
@@ -145,7 +223,24 @@ class SetInflationReq(BaseModel):
     initial_reward: str      # ether amount
     halving_interval: int    # epochs
     min_reward: str = "0"    # ether amount
-    epoch_length: int = 43200  # blocks per epoch
+    epoch_length: int = 86400  # SECONDS per epoch (1 day)
+
+class QuoteReq(BaseModel):
+    amount: str
+    lock_seconds: Optional[int] = None
+    lock_blocks: Optional[int] = None
+    as_ether: bool = True
+
+class SetPriceReq(BaseModel):
+    price_usd: float         # dollars per whole token (e.g. 1.0)
+
+class CurvePointReq(BaseModel):
+    lock_seconds: int
+    multiplier: Optional[int] = None      # basis points, 10000 = 1x
+    multiplier_x: Optional[float] = None  # same thing in x (1.5 = 15000 bps)
+
+class SetPointsReq(BaseModel):
+    points: List[CurvePointReq]
 
 class FundPotReq(BaseModel):
     amount: str
@@ -168,6 +263,25 @@ def _call(fn, default=None):
 
 
 SCHEDULE = "Weekly, Friday 12:00 EST (17:00 UTC)"
+
+SECONDS_PER_BLOCK_DEFAULT = 2  # Base
+
+
+def _seconds_per_block(contract):
+    """The contract's on-chain blocks↔seconds conversion (params[1] on v2)."""
+    prm = _call(contract.functions.params())
+    if prm and len(prm) > 1 and prm[1] > 0:
+        return prm[1]
+    return SECONDS_PER_BLOCK_DEFAULT
+
+
+def _resolve_lock_seconds(contract, lock_seconds, lock_blocks):
+    """Locks are seconds-native; a blocks value converts via secondsPerBlock."""
+    if lock_seconds is not None:
+        return int(lock_seconds)
+    if lock_blocks is not None:
+        return int(lock_blocks) * _seconds_per_block(contract)
+    raise HTTPException(status_code=400, detail="Provide lock_seconds (or lock_blocks)")
 
 
 def _pot_info(contract):
@@ -197,8 +311,50 @@ async def health():
     return {"status": "ok", "module": "bloctime"}
 
 
+WHITEPAPER_PATH = MODULE_DIR / "whitepaper.md"
+
+
+@app.get("/whitepaper")
+async def whitepaper():
+    """The protocol paper as markdown, read from disk on every request so
+    edits to whitepaper.md go live without a restart."""
+    if not WHITEPAPER_PATH.exists():
+        raise HTTPException(status_code=404, detail="whitepaper.md missing")
+    return {"markdown": WHITEPAPER_PATH.read_text(), "updated": int(WHITEPAPER_PATH.stat().st_mtime)}
+
+
+# ── Ask agent ───────────────────────────────────────────────────────────
+# The bottom-right guide. Tool-less and read-only (see agent.py); public but
+# rate-limited per caller since every answer spends model credits.
+
+class AskRequest(BaseModel):
+    question: str
+    history: List[dict] = []
+    context: Optional[dict] = None
+
+
+@app.get("/ask/status")
+async def ask_status():
+    return agent.status()
+
+
+@app.post("/ask")
+async def ask(req: AskRequest, request: Request):
+    if not req.question.strip():
+        raise HTTPException(status_code=400, detail="Ask a question")
+    caller = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip() \
+        or (request.client.host if request.client else "?")
+    why = agent.admit(caller)
+    if why:
+        raise HTTPException(status_code=429, detail=why)
+    return StreamingResponse(
+        agent.stream(req.question, req.history, req.context),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
 @app.post("/overview")
-async def overview(req: Optional[AddressReq] = None):
+def overview(req: Optional[AddressReq] = None):
     w3, contract, account, _ = load_contract()
     if not contract:
         raise HTTPException(status_code=500, detail="Contract not deployed")
@@ -215,14 +371,14 @@ async def overview(req: Optional[AddressReq] = None):
 
     for sid in stake_ids:
         pos = contract.functions.getStakePosition(addr, sid).call()
-        amount, start_block, lock_blocks, bt_balance, remaining = pos
+        amount, start_time, lock_seconds, bt_balance, remaining = pos
         positions.append({
             "stakeId": sid,
             "amount": str(amount),
-            "startBlock": start_block,
-            "lockBlocks": lock_blocks,
+            "startTime": start_time,
+            "lockSeconds": lock_seconds,
             "blocTimeBalance": str(bt_balance),
-            "blocksRemaining": remaining,
+            "secondsRemaining": remaining,
         })
         total_staked += amount
         total_bloctime += bt_balance
@@ -244,8 +400,8 @@ async def overview(req: Optional[AddressReq] = None):
     }}
 
 
-@app.post("/stake")
-async def stake(req: StakeReq):
+@app.post("/stake", dependencies=SIGNER)
+def stake(req: StakeReq):
     w3, contract, account, token = load_contract()
     if not contract or not account:
         raise HTTPException(status_code=500, detail="Contract not deployed or no signer")
@@ -258,21 +414,23 @@ async def stake(req: StakeReq):
                 contract.address, amount_wei
             ).build_transaction({
                 "from": account.address,
-                "nonce": w3.eth.get_transaction_count(account.address),
+                "nonce": w3.eth.get_transaction_count(account.address, "pending"),
                 "gas": 100000,
             })
             signed = account.sign_transaction(approve_tx)
             tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
             w3.eth.wait_for_transaction_receipt(tx_hash, timeout=60)
 
-        result = _send_tx(w3, account, contract.functions.stake(amount_wei, req.lock_blocks))
+        lock_seconds = _resolve_lock_seconds(contract, req.lock_seconds, req.lock_blocks)
+        result = _send_tx(w3, account, contract.functions.stake(amount_wei, lock_seconds))
+        result["lockSeconds"] = lock_seconds
         return {"result": result}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@app.post("/unstake")
-async def unstake(req: UnstakeReq):
+@app.post("/unstake", dependencies=SIGNER)
+def unstake(req: UnstakeReq):
     w3, contract, account, _ = load_contract()
     if not contract or not account:
         raise HTTPException(status_code=500, detail="Contract not deployed or no signer")
@@ -285,42 +443,95 @@ async def unstake(req: UnstakeReq):
 
 
 @app.post("/get_position")
-async def get_position(req: PositionReq):
+def get_position(req: PositionReq):
     w3, contract, _, _ = load_contract()
     if not contract:
         raise HTTPException(status_code=500, detail="Contract not deployed")
 
     addr = Web3.to_checksum_address(req.address)
     pos = contract.functions.getStakePosition(addr, req.stake_id).call()
-    amount, start_block, lock_blocks, bt_balance, remaining = pos
+    amount, start_time, lock_seconds, bt_balance, remaining = pos
 
     return {"result": {
         "stakeId": req.stake_id,
         "amount": str(amount),
-        "startBlock": start_block,
-        "lockBlocks": lock_blocks,
+        "startTime": start_time,
+        "lockSeconds": lock_seconds,
         "blocTimeBalance": str(bt_balance),
-        "blocksRemaining": remaining,
+        "secondsRemaining": remaining,
     }}
 
 
 @app.post("/get_multiplier")
-async def get_multiplier(req: dict):
+def get_multiplier(req: dict):
     w3, contract, _, _ = load_contract()
     if not contract:
         raise HTTPException(status_code=500, detail="Contract not deployed")
 
-    block_count = int(req.get("block_count", 0))
-    multiplier = contract.functions.getMultiplier(block_count).call()
+    if "lock_seconds" in req:
+        lock_seconds = int(req.get("lock_seconds", 0))
+    elif "block_count" in req:  # legacy blocks input
+        lock_seconds = int(req.get("block_count", 0)) * _seconds_per_block(contract)
+    else:
+        lock_seconds = 0
+    multiplier = contract.functions.getMultiplier(lock_seconds).call()
     return {"result": {
-        "blockCount": block_count,
+        "lockSeconds": lock_seconds,
         "multiplier": multiplier,
         "multiplierX": multiplier / 10000,
     }}
 
 
+@app.post("/quote")
+def quote(req: QuoteReq):
+    """BLOC minted for a hypothetical stake — usd value × seconds × multiplier."""
+    w3, contract, _, _ = load_contract()
+    if not contract:
+        raise HTTPException(status_code=500, detail="Contract not deployed")
+
+    amount_wei = Web3.to_wei(req.amount, 'ether') if req.as_ether else int(req.amount)
+    lock_seconds = _resolve_lock_seconds(contract, req.lock_seconds, req.lock_blocks)
+    bloc = contract.functions.quoteBloc(amount_wei, lock_seconds).call()
+    price = _call(contract.functions.priceUsdMicro(), 1_000_000)
+    return {"result": {
+        "amount": str(amount_wei),
+        "lockSeconds": lock_seconds,
+        "priceUsd": price / 1e6,
+        "bloc": str(bloc),
+        "blocEther": float(Web3.from_wei(bloc, 'ether')),
+        "model": "usd_seconds_linear",
+    }}
+
+
+@app.get("/price")
+def get_price():
+    w3, contract, _, _ = load_contract()
+    if not contract:
+        raise HTTPException(status_code=500, detail="Contract not deployed")
+    price = _call(contract.functions.priceUsdMicro(), None)
+    if price is None:
+        raise HTTPException(status_code=501, detail="Deployed contract predates priceUsdMicro")
+    return {"result": {"priceUsdMicro": price, "priceUsd": price / 1e6}}
+
+
+@app.post("/set_price", dependencies=SIGNER)
+def set_price(req: SetPriceReq):
+    """Owner-only: reprice the staked token (dollars per whole token)."""
+    w3, contract, account, _ = load_contract()
+    if not contract or not account:
+        raise HTTPException(status_code=500, detail="Contract not deployed or no signer")
+    micro = int(round(req.price_usd * 1e6))
+    if micro <= 0:
+        raise HTTPException(status_code=400, detail="Price must be > 0")
+    try:
+        result = _send_tx(w3, account, contract.functions.setPriceUsd(micro))
+        return {"result": result}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @app.get("/points")
-async def get_points():
+def get_points():
     w3, contract, _, _ = load_contract()
     if not contract:
         raise HTTPException(status_code=500, detail="Contract not deployed")
@@ -330,24 +541,123 @@ async def get_points():
     except Exception:
         # Deployed contract predates getPoints — no curve to show.
         pts = []
-    return {"result": [{"blocks": p[0], "multiplier": p[1], "multiplierX": p[1] / 10000} for p in pts]}
+    return {"result": [{"lockSeconds": p[0], "multiplier": p[1], "multiplierX": p[1] / 10000} for p in pts]}
+
+
+@app.post("/set_points", dependencies=SIGNER)
+def set_points(req: SetPointsReq):
+    """Owner-only: reshape the lock-length → multiplier curve. Each point is
+    {lock_seconds, multiplier (bps) | multiplier_x}; the contract interpolates
+    between them. Mirrors the contract's requires so a bad curve fails here
+    with a readable message instead of a gas estimate revert."""
+    w3, contract, account, _ = load_contract()
+    if not contract or not account:
+        raise HTTPException(status_code=500, detail="Contract not deployed or no signer — "
+                            "apply the curve from the console with the owner wallet instead")
+    pts = []
+    for p in req.points:
+        mult = p.multiplier if p.multiplier is not None else (
+            round(p.multiplier_x * 10000) if p.multiplier_x is not None else 0)
+        pts.append((int(p.lock_seconds), int(mult)))
+    if not pts:
+        raise HTTPException(status_code=400, detail="Need at least 1 point")
+    max_lock = _call(contract.functions.params(), None)
+    for i, (lock, mult) in enumerate(pts):
+        if mult < 10000:
+            raise HTTPException(status_code=400, detail="Multiplier must be >= 1x (10000 bps)")
+        if max_lock and lock > max_lock[0]:
+            raise HTTPException(status_code=400, detail=f"Point exceeds max lock ({max_lock[0]}s)")
+        if i > 0 and lock <= pts[i - 1][0]:
+            raise HTTPException(status_code=400, detail="Lock seconds must strictly increase")
+        if i > 0 and mult < pts[i - 1][1]:
+            raise HTTPException(status_code=400, detail="Multipliers must not decrease")
+    try:
+        result = _send_tx(w3, account, contract.functions.setPoints(pts))
+        return {"result": result}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @app.get("/params")
-async def get_params():
+def get_params():
     w3, contract, _, _ = load_contract()
     if not contract:
         raise HTTPException(status_code=500, detail="Contract not deployed")
 
     p = contract.functions.params().call()
     return {"result": {
-        "maxLockBlocks": p[0],
-        "distributionPercentage": p[1],
+        "maxLockSeconds": p[0],
+        "secondsPerBlock": p[1],
     }}
 
 
+def _treasury_address():
+    """The configured treasury for the served instance — deployment.json
+    first, then config.json's per-network contracts. Empty for the official
+    v2, whose NativeToken predates the mintable/Ownable treasury model."""
+    _, _, deploy = _load_deploy_info()
+    if deploy.get("treasury"):
+        return deploy["treasury"]
+    net = deploy.get("network", "testnet")
+    return (deploy.get("contracts", {}).get(net, {}) or {}).get("treasury", "") or ""
+
+
+TREASURY_VIEW_ABI = [
+    {"inputs": [], "name": "info", "outputs": [
+        {"type": "address"}, {"type": "address"}, {"type": "uint8"},
+        {"type": "uint256"}, {"type": "uint256"}, {"type": "uint256"}],
+     "stateMutability": "view", "type": "function"},
+]
+ERC20_SYMBOL_ABI = [
+    {"inputs": [], "name": "symbol", "outputs": [{"type": "string"}],
+     "stateMutability": "view", "type": "function"},
+]
+
+
+@app.get("/treasury")
+def treasury_status():
+    """Is this instance connected to a treasury? A live probe, not a config
+    echo: the address must hold code and its token() must be this instance's
+    NativeToken — only then do deposits mint the token the stake form takes,
+    1:1 per dollar."""
+    w3, _, _, _ = load_contract()
+    if not w3:
+        raise HTTPException(status_code=500, detail="No RPC connection")
+    _, ntv_addr, _ = _load_deploy_info()
+    taddr = _treasury_address()
+    if not taddr:
+        return {"result": {"configured": False, "connected": False, "address": "",
+                           "note": "No treasury — tokens on this instance are not dollar-backed"}}
+    out = {"configured": True, "connected": False, "address": taddr}
+    try:
+        addr = Web3.to_checksum_address(taddr)
+        if not w3.eth.get_code(addr):
+            out["note"] = "No contract code at the treasury address"
+            return {"result": out}
+        t = w3.eth.contract(address=addr, abi=TREASURY_VIEW_ABI)
+        token, reserve, decimals, held, deposited, redeemed = t.functions.info().call()
+        matches = bool(ntv_addr) and token.lower() == ntv_addr.lower()
+        symbol = _call(w3.eth.contract(
+            address=reserve, abi=ERC20_SYMBOL_ABI).functions.symbol(), "")
+        out.update({
+            "connected": matches,
+            "token": token,
+            "tokenMatches": matches,
+            "reserve": {"address": reserve, "symbol": symbol, "decimals": decimals},
+            "reserveHeld": str(held),
+            "reserveHeldUsd": held / (10 ** decimals) if decimals is not None else 0,
+            "totalDeposited": str(deposited),
+            "totalRedeemed": str(redeemed),
+        })
+        if not matches:
+            out["note"] = "Treasury answers but its token() is not this instance's NativeToken"
+    except Exception as e:
+        out["note"] = f"Treasury unreachable: {e}"
+    return {"result": out}
+
+
 @app.get("/stats")
-async def stats():
+def stats():
     w3, contract, _, _ = load_contract()
     if not contract:
         raise HTTPException(status_code=500, detail="Contract not deployed")
@@ -370,8 +680,31 @@ async def stats():
     bt_addr, ntv_addr, deploy = _load_deploy_info()
     pot = _pot_info(contract)
 
+    # The lock cap travels with the stats poll: the stake form needs it on
+    # every render to keep its presets inside what the contract will accept.
+    try:
+        prm = contract.functions.params().call()
+        max_lock, spb = prm[0], prm[1]
+    except Exception:
+        max_lock, spb = 0, SECONDS_PER_BLOCK_DEFAULT
+    price_micro = _call(contract.functions.priceUsdMicro(), 0)
+
+    # Who can reshape the curve / params, and whether a dollar door exists —
+    # the console's owner gates and the treasury strip key off these.
+    owner_addr = _call(contract.functions.owner(), "") or ""
+    chain_id = deploy.get("chainId") or \
+        (deploy.get("contracts", {}).get(deploy.get("network", "testnet"), {}) or {}).get("chainId", "")
+
     return {"result": {
         "pot": pot,
+        "owner": owner_addr,
+        "treasury": _treasury_address(),
+        "chainId": str(chain_id or ""),
+        "maxLockSeconds": max_lock,
+        "secondsPerBlock": spb,
+        "priceUsdMicro": price_micro,
+        "priceUsd": price_micro / 1e6,
+        "model": "usd_seconds_linear",
         "totalBlocTime": str(total_bt),
         "totalSupply": str(supply),
         "totalStakes": next_id,
@@ -387,8 +720,8 @@ async def stats():
             "initialRewardPerEpoch": str(infl[0]),
             "halvingInterval": infl[1],
             "minRewardPerEpoch": str(infl[2]),
-            "epochLength": infl[3],
-            "startBlock": infl[4],
+            "epochLength": infl[3],   # seconds per epoch on v2
+            "startTime": infl[4],
         } if infl else None,
     }}
 
@@ -396,7 +729,7 @@ async def stats():
 # ── Delegation & Rewards Endpoints ──────────────────────────────────────
 
 @app.post("/get_voting_power")
-async def get_voting_power(req: AddressReq):
+def get_voting_power(req: AddressReq):
     _, contract, _, _ = load_contract()
     if not contract:
         raise HTTPException(status_code=500, detail="Contract not deployed")
@@ -414,7 +747,7 @@ async def get_voting_power(req: AddressReq):
 
 
 @app.post("/get_rewards")
-async def get_rewards(req: AddressReq):
+def get_rewards(req: AddressReq):
     _, contract, _, _ = load_contract()
     if not contract:
         raise HTTPException(status_code=500, detail="Contract not deployed")
@@ -432,7 +765,7 @@ async def get_rewards(req: AddressReq):
 
 
 @app.get("/get_inflation_params")
-async def get_inflation_params():
+def get_inflation_params():
     _, contract, _, _ = load_contract()
     if not contract:
         raise HTTPException(status_code=500, detail="Contract not deployed")
@@ -445,8 +778,8 @@ async def get_inflation_params():
         "initialRewardPerEpoch": str(infl[0]),
         "halvingInterval": infl[1],
         "minRewardPerEpoch": str(infl[2]),
-        "epochLength": infl[3],
-        "startBlock": infl[4],
+        "epochLength": infl[3],   # seconds per epoch on v2
+        "startTime": infl[4],
         "currentEpoch": epoch,
         "epochReward": str(epoch_reward),
         "totalDistributed": str(total_distributed),
@@ -455,7 +788,7 @@ async def get_inflation_params():
 
 
 @app.get("/get_inflation_curve")
-async def get_inflation_curve():
+def get_inflation_curve():
     """Return sampled inflation rewards over epochs for chart display."""
     _, contract, _, _ = load_contract()
     if not contract:
@@ -480,8 +813,8 @@ async def get_inflation_curve():
 
 # ── Delegation / Rewards Write Endpoints ─────────────────────────────────
 
-@app.post("/delegate")
-async def delegate(req: DelegateReq):
+@app.post("/delegate", dependencies=SIGNER)
+def delegate(req: DelegateReq):
     w3, contract, account, _ = load_contract()
     if not contract or not account:
         raise HTTPException(status_code=500, detail="Not loaded or no signer")
@@ -493,8 +826,8 @@ async def delegate(req: DelegateReq):
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@app.post("/undelegate")
-async def undelegate():
+@app.post("/undelegate", dependencies=SIGNER)
+def undelegate():
     w3, contract, account, _ = load_contract()
     if not contract or not account:
         raise HTTPException(status_code=500, detail="Not loaded or no signer")
@@ -505,8 +838,8 @@ async def undelegate():
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@app.post("/claim_rewards")
-async def claim_rewards():
+@app.post("/claim_rewards", dependencies=SIGNER)
+def claim_rewards():
     w3, contract, account, _ = load_contract()
     if not contract or not account:
         raise HTTPException(status_code=500, detail="Not loaded or no signer")
@@ -518,7 +851,7 @@ async def claim_rewards():
 
 
 @app.get("/pot")
-async def pot():
+def pot():
     """Reward pot waiting on the next weekly distribution."""
     _, contract, _, _ = load_contract()
     if not contract:
@@ -529,8 +862,8 @@ async def pot():
     return {"result": info}
 
 
-@app.post("/fund_pot")
-async def fund_pot(req: FundPotReq):
+@app.post("/fund_pot", dependencies=SIGNER)
+def fund_pot(req: FundPotReq):
     """Add BLOC to the pot — paid out at the next Friday 12:00 EST."""
     w3, contract, account, _ = load_contract()
     if not contract or not account:
@@ -543,8 +876,8 @@ async def fund_pot(req: FundPotReq):
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@app.post("/distribute_rewards")
-async def distribute_rewards():
+@app.post("/distribute_rewards", dependencies=SIGNER)
+def distribute_rewards():
     """Sweep the pot to BLOC holders. Only opens Friday 12:00 EST, weekly."""
     w3, contract, account, _ = load_contract()
     if not contract or not account:
@@ -556,6 +889,9 @@ async def distribute_rewards():
             detail=f"Next distribution at {info['nextDistribution']} "
                    f"({info['secondsRemaining']}s away) — {SCHEDULE}",
         )
+    if info and int(info["projected"]) == 0:
+        # The contract would revert "Pot too small" — don't burn gas on it.
+        raise HTTPException(status_code=409, detail="Pot is empty — nothing to distribute")
     try:
         result = _send_tx(w3, account, contract.functions.distributeRewards())
         return {"result": {**result, "pot": info}}
@@ -680,7 +1016,7 @@ def _json_safe(v):
 
 
 @app.get("/contracts")
-async def contracts():
+def contracts():
     """All deployed contracts with address, ABI, and Solidity source."""
     network, cfg = _network_cfg()
     out = []
@@ -720,7 +1056,7 @@ async def contracts():
 
 
 @app.post("/contract/read")
-async def contract_read(req: AbiCallReq):
+def contract_read(req: AbiCallReq):
     """Call any view/pure function on a registered contract."""
     w3, contract, _, abi = _load_any_contract(req.contract)
     entry = _find_fn(abi, req.fn, len(req.args))
@@ -740,8 +1076,8 @@ async def contract_read(req: AbiCallReq):
     }}
 
 
-@app.post("/contract/write")
-async def contract_write(req: AbiCallReq):
+@app.post("/contract/write", dependencies=SIGNER)
+def contract_write(req: AbiCallReq):
     """Send a state-changing transaction via the server signer (PRIVATE_KEY)."""
     w3, contract, account, abi = _load_any_contract(req.contract)
     if not account:
@@ -751,14 +1087,19 @@ async def contract_write(req: AbiCallReq):
         raise HTTPException(status_code=400, detail=f"'{req.fn}' is read-only — use /contract/read")
     try:
         args = [_coerce_arg(a, i["type"]) for a, i in zip(req.args, entry.get("inputs", []))]
+        fn_call = getattr(contract.functions, req.fn)(*args)
         tx_params = {
             "from": account.address,
-            "nonce": w3.eth.get_transaction_count(account.address),
-            "gas": 500000,
+            "nonce": w3.eth.get_transaction_count(account.address, "pending"),
         }
         if entry.get("stateMutability") == "payable" and int(req.value or "0") > 0:
             tx_params["value"] = int(req.value)
-        tx = getattr(contract.functions, req.fn)(*args).build_transaction(tx_params)
+        try:
+            estimate_params = {k: v for k, v in tx_params.items() if k != "nonce"}
+            tx_params["gas"] = int(fn_call.estimate_gas(estimate_params) * 1.2)
+        except Exception:
+            tx_params["gas"] = 500000
+        tx = fn_call.build_transaction(tx_params)
         signed = account.sign_transaction(tx)
         tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
         receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=60)
@@ -778,40 +1119,149 @@ async def contract_write(req: AbiCallReq):
 # ── Factory: deploy-your-own kit ─────────────────────────────────────────
 
 # Mirrors scripts/deploy.js so wallet deploys match the canonical recipe.
+#
+# v2 is seconds-native: locks are capped at 8 years of wall-clock time, the
+# inflation epoch is 1 day of seconds, and the reward model is linear —
+# BLOC = USD value staked × seconds locked. The default curve is one flat
+# 1x point (the constructor sets it), so no setPoints call is needed.
+SECONDS_PER_DAY = 86400
+SECONDS_PER_YEAR = SECONDS_PER_DAY * 365        # 31,536,000
+MAX_LOCK_SECONDS = SECONDS_PER_YEAR * 8         # 252,288,000 — the 8-year cap
+
+LINEAR_POINTS = [
+    {"lockSeconds": 0, "multiplier": 10000},    # flat 1x — pure usd × seconds
+]
+
+# Seed list for the owner-curated allowlist below — canonical Circle USDC
+# per chain. Once ~/.mod/bloctime/reserve_tokens.json exists, that file is
+# the only source of truth and these are never consulted again.
+RESERVE_TOKENS = {
+    "1":        {"symbol": "USDC", "address": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", "decimals": 6},
+    "8453":     {"symbol": "USDC", "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", "decimals": 6},
+    "84532":    {"symbol": "USDC", "address": "0x036CbD53842c5426634e7929541eC2318f3dCF7e", "decimals": 6},
+    "11155111": {"symbol": "USDC", "address": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238", "decimals": 6},
+    "10":       {"symbol": "USDC", "address": "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85", "decimals": 6},
+    "42161":    {"symbol": "USDC", "address": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", "decimals": 6},
+    "137":      {"symbol": "USDC", "address": "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359", "decimals": 6},
+}
+
+# ── Reserve token allowlist — owner-curated ──────────────────────────────
+# The deploy form only offers reserve tokens from this per-chain list; it
+# is the website owner's allowlist, editable solely with the API bearer
+# token. Lives off-tree next to the registry, shape:
+#     { "<chainId>": [ {symbol, address, decimals}, ... ] }
+RESERVE_STORE_PATH = Path(os.path.expanduser("~/.mod/bloctime")) / "reserve_tokens.json"
+MAX_RESERVE_TOKENS_PER_CHAIN = 50
+
+
+def _load_reserve_tokens():
+    if RESERVE_STORE_PATH.exists():
+        with open(RESERVE_STORE_PATH) as f:
+            return json.load(f)
+    return {cid: [dict(t)] for cid, t in RESERVE_TOKENS.items()}
+
+
+def _save_reserve_tokens(data):
+    RESERVE_STORE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(RESERVE_STORE_PATH, "w") as f:
+        json.dump(data, f, indent=2)
+
+
 DEPLOY_DEFAULTS = {
     "initialSupply": "1000000",
-    "maxLockBlocks": 100000,
-    "distributionPercentage": 5000,
-    "points": [
-        {"blocks": 0, "multiplier": 10000},
-        {"blocks": 10000, "multiplier": 15000},
-        {"blocks": 50000, "multiplier": 20000},
-        {"blocks": 100000, "multiplier": 30000},
-    ],
+    "maxLockSeconds": MAX_LOCK_SECONDS,
+    "priceUsdMicro": 1_000_000,                 # $1.00 per token
+    "secondsPerBlock": 2,
+    "points": LINEAR_POINTS,
+    "model": "usd_seconds_linear",
     "inflation": {
         "initialRewardPerEpoch": "50",
         "halvingInterval": 1460,
         "minRewardPerEpoch": "0",
-        "epochLength": 43200,
+        "epochLength": SECONDS_PER_DAY,
     },
 }
 
 
 @app.get("/factory")
-async def factory():
+def factory():
     """ABI + bytecode + default params so a browser wallet can deploy its own BlocTime."""
     out = {}
-    for key, path in (("bloctime", ABI_PATH), ("nativeToken", TOKEN_ABI_PATH)):
+    for key, path in (("bloctime", ABI_PATH), ("nativeToken", TOKEN_ABI_PATH), ("treasury", TREASURY_ABI_PATH)):
         if not path.exists():
             raise HTTPException(status_code=500, detail="Artifacts missing. Run 'npx hardhat compile' first.")
         with open(path) as f:
             artifact = json.load(f)
         out[key] = {"abi": artifact["abi"], "bytecode": artifact["bytecode"]}
+    lists = _load_reserve_tokens()
+    defaults = dict(DEPLOY_DEFAULTS)
+    defaults["reserveTokenLists"] = lists
+    # First entry per chain, for callers that still expect one token/chain.
+    defaults["reserveTokens"] = {cid: toks[0] for cid, toks in lists.items() if toks}
     return {"result": {
         "contracts": out,
-        "defaults": DEPLOY_DEFAULTS,
+        "defaults": defaults,
         "fork": "m bloctime/fork name=<yourname>   # copies the whole module into orbit/<yourname>",
     }}
+
+
+@app.get("/reserve-tokens")
+def reserve_tokens():
+    """Per-chain allowlist of reserve tokens the deploy form may offer."""
+    return {"result": _load_reserve_tokens()}
+
+
+class ReserveTokenAdd(BaseModel):
+    chainId: str
+    symbol: str
+    address: str
+    decimals: int = 6
+
+
+@app.post("/reserve-tokens/add", dependencies=OWNER)
+def reserve_tokens_add(req: ReserveTokenAdd):
+    chain_id = str(req.chainId).strip()
+    if not chain_id.isdigit():
+        raise HTTPException(status_code=400, detail="chainId must be a decimal chain id")
+    if not Web3.is_address(req.address):
+        raise HTTPException(status_code=400, detail="Not an EVM address")
+    symbol = req.symbol.strip().upper()
+    if not re.fullmatch(r"[A-Z0-9.$+-]{1,12}", symbol):
+        raise HTTPException(status_code=400, detail="Symbol must be 1-12 chars (A-Z, 0-9)")
+    if not (0 <= req.decimals <= 36):
+        raise HTTPException(status_code=400, detail="Decimals out of range (0-36)")
+    address = Web3.to_checksum_address(req.address)
+    data = _load_reserve_tokens()
+    tokens = data.get(chain_id, [])
+    if any(t["address"].lower() == address.lower() for t in tokens):
+        raise HTTPException(status_code=400, detail="Already listed on this chain")
+    if len(tokens) >= MAX_RESERVE_TOKENS_PER_CHAIN:
+        raise HTTPException(status_code=400, detail=f"List full ({MAX_RESERVE_TOKENS_PER_CHAIN} per chain)")
+    tokens.append({"symbol": symbol, "address": address, "decimals": req.decimals})
+    data[chain_id] = tokens
+    _save_reserve_tokens(data)
+    return {"result": data}
+
+
+class ReserveTokenRemove(BaseModel):
+    chainId: str
+    address: str
+
+
+@app.post("/reserve-tokens/remove", dependencies=OWNER)
+def reserve_tokens_remove(req: ReserveTokenRemove):
+    chain_id = str(req.chainId).strip()
+    data = _load_reserve_tokens()
+    tokens = data.get(chain_id, [])
+    kept = [t for t in tokens if t["address"].lower() != req.address.strip().lower()]
+    if len(kept) == len(tokens):
+        raise HTTPException(status_code=400, detail="Not on the list for this chain")
+    if kept:
+        data[chain_id] = kept
+    else:
+        data.pop(chain_id, None)
+    _save_reserve_tokens(data)
+    return {"result": data}
 
 
 # ── Deploy anything: compile Solidity and put it on chain ────────────────
@@ -869,7 +1319,7 @@ class DeployContractReq(BaseModel):
 
 
 @app.get("/compile/starter")
-async def compile_starter():
+def compile_starter():
     """A tiny contract to start from, plus what the compiler here can do."""
     return {"result": {
         "source": STARTER_SOL,
@@ -879,7 +1329,7 @@ async def compile_starter():
 
 
 @app.post("/compile")
-async def compile_contract(req: CompileReq):
+def compile_contract(req: CompileReq):
     """Compile Solidity → ABI + bytecode for every contract in the file."""
     try:
         return {"result": bt_contracts.compile_source(
@@ -890,16 +1340,17 @@ async def compile_contract(req: CompileReq):
 
 
 @app.get("/deployments")
-async def deployments():
+def deployments():
     """Contracts deployed through this console (yours and anyone else's on this box)."""
     entries = bt_contracts.list_deployments()
     return {"result": {"count": len(entries), "deployments": entries}}
 
 
 @app.post("/deployments/record")
-async def deployments_record(req: RecordDeployReq):
+def deployments_record(req: RecordDeployReq):
     """Remember a wallet-deployed contract so it joins the CONTRACTS playground."""
     try:
+        bt_registry.assert_public_rpc(req.rpc)
         entry = bt_contracts.add_deployment(
             name=req.name, address=req.address, abi=req.abi, rpc=req.rpc,
             chain_id=req.chainId, deployer=req.deployer, tx_hash=req.txHash,
@@ -911,7 +1362,7 @@ async def deployments_record(req: RecordDeployReq):
 
 
 @app.post("/deployments/forget")
-async def deployments_forget(req: ForgetDeployReq):
+def deployments_forget(req: ForgetDeployReq):
     """Drop a deployment record. Deployer must sign 'bloctime:forget:<id>'."""
     entry = bt_contracts.get_deployment(req.id)
     if not entry:
@@ -934,8 +1385,8 @@ async def deployments_forget(req: ForgetDeployReq):
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@app.post("/deploy")
-async def deploy_contract(req: DeployContractReq):
+@app.post("/deploy", dependencies=SIGNER)
+def deploy_contract(req: DeployContractReq):
     """Deploy a contract with the server signer (PRIVATE_KEY) — the CLI path.
 
     The app deploys from your own wallet instead; this is for headless use.
@@ -987,6 +1438,7 @@ class RegisterReq(BaseModel):
     rpc: str
     bloctime: str
     nativeToken: str = ""
+    treasury: str = ""
     description: str = ""
 
 class UnregisterReq(BaseModel):
@@ -1000,8 +1452,11 @@ STATS_TTL = 60
 
 
 @app.get("/registry")
-async def registry_list():
-    """All known BlocTime instances (official first) with best-effort live stats."""
+def registry_list():
+    """All known BlocTime instances (official first) with best-effort live stats.
+
+    Sync `def` on purpose: the per-instance on-chain probes block, and in the
+    threadpool they tie up one worker instead of freezing the event loop."""
     instances = bt_registry.list_instances()
     now = time.time()
     for e in instances:
@@ -1012,16 +1467,24 @@ async def registry_list():
             s = bt_registry.instance_stats(e)
             _stats_cache[e["id"]] = (now, s)
             e["stats"] = s
+    # Drop cache entries for instances that left the registry, so the cache
+    # is bounded by the (capped) registry size.
+    live = {e["id"] for e in instances}
+    for key in list(_stats_cache):
+        if key not in live:
+            _stats_cache.pop(key, None)
     return {"result": {"count": len(instances), "instances": instances}}
 
 
 @app.post("/registry/register")
-async def registry_register(req: RegisterReq):
+def registry_register(req: RegisterReq):
     """Register a deployed BlocTime. Verified on-chain; owner() is recorded."""
     try:
+        bt_registry.assert_public_rpc(req.rpc)
         entry = bt_registry.add_instance(
             name=req.name, rpc=req.rpc, bloctime=req.bloctime,
             native_token=req.nativeToken or None, description=req.description,
+            treasury=req.treasury or None,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -1030,7 +1493,7 @@ async def registry_register(req: RegisterReq):
 
 
 @app.post("/registry/unregister")
-async def registry_unregister(req: UnregisterReq):
+def registry_unregister(req: UnregisterReq):
     """Remove an entry. Caller must sign 'bloctime:unregister:<id>' with the instance owner key."""
     entry = bt_registry.get_instance(req.id)
     if not entry:
@@ -1078,11 +1541,16 @@ BRIDGE_ACTIVATOR_URL = os.environ.get("BRIDGE_ACTIVATOR_URL", "http://localhost:
 def _bridge_call(fn: str, params: Optional[dict] = None):
     import requests as req_lib
 
+    if fn in BRIDGE_PATH_FNS:
+        addr = str((params or {}).get("address", ""))
+        # addr lands in the URL path — a plain address only, so it can't
+        # traverse out of the whitelisted route (e.g. "x/../other_fn").
+        if not re.fullmatch(r"[A-Za-z0-9]{1,128}", addr):
+            raise HTTPException(status_code=400, detail=f"'{fn}' needs a plain address")
+
     def hit(base, timeout):
         if fn in BRIDGE_PATH_FNS:
-            addr = (params or {}).get("address", "")
-            if not addr:
-                raise HTTPException(status_code=400, detail=f"'{fn}' needs an address")
+            addr = str((params or {}).get("address", ""))
             r = req_lib.get(f"{base}/{fn}/{addr}", timeout=timeout)
         else:
             r = req_lib.post(f"{base}/{fn}", json=params or {}, timeout=timeout)
@@ -1101,7 +1569,7 @@ def _bridge_call(fn: str, params: Optional[dict] = None):
 
 
 @app.get("/bridge/info")
-async def bridge_info():
+def bridge_info():
     """Bridge module health + totals, plus where its app lives."""
     try:
         health, code = _bridge_call("health")
@@ -1123,7 +1591,7 @@ async def bridge_info():
 
 
 @app.post("/bridge/{fn}")
-async def bridge_proxy(fn: str, params: Optional[dict] = None):
+def bridge_proxy(fn: str, params: Optional[dict] = None):
     """Whitelisted read-only pass-through to the bridge module's API."""
     if fn not in BRIDGE_FNS:
         raise HTTPException(status_code=403, detail=f"Bridge fn '{fn}' not allowed via this proxy")
@@ -1133,8 +1601,8 @@ async def bridge_proxy(fn: str, params: Optional[dict] = None):
     return {"result": body}
 
 
-@app.post("/set_inflation_params")
-async def set_inflation_params(req: SetInflationReq):
+@app.post("/set_inflation_params", dependencies=SIGNER)
+def set_inflation_params(req: SetInflationReq):
     w3, contract, account, _ = load_contract()
     if not contract or not account:
         raise HTTPException(status_code=500, detail="Not loaded or no signer")
@@ -1147,3 +1615,248 @@ async def set_inflation_params(req: SetInflationReq):
         return {"result": result}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+# ── ShadowBloc: private staking on Starknet (cairo/ + api/shadow.py) ─────
+# Positions are owned by one-time Stark keys made in the browser; the
+# server only ever relays. Every route is a plain `def` (devnet RPC and
+# sncast block). Reverts surface as 400s with the contract's reason.
+
+_shadow_hits: dict = {}
+SHADOW_STAKES_PER_HOUR = 12
+
+
+def _shadow(fn, *a, **kw):
+    try:
+        return fn(*a, **kw)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except OSError as e:
+        raise HTTPException(status_code=409, detail=f"Shadow devnet unreachable: {e}")
+
+
+class ShadowStakeReq(BaseModel):
+    key: str
+    denom: int
+    tier: int
+
+
+class ShadowSignedReq(BaseModel):
+    id: int
+    arg: str  # recipient address (claim/unstake) or new key (rekey)
+    r: str
+    s: str
+
+
+class ShadowFundReq(BaseModel):
+    amount: float
+
+
+class ShadowWarpReq(BaseModel):
+    to: str = "friday"
+
+
+@app.get("/shadow")
+def shadow_info():
+    return _shadow(shadow.info)
+
+
+@app.get("/shadow/notes")
+def shadow_notes(limit: int = 100):
+    return {"notes": _shadow(shadow.notes, min(max(limit, 1), 200))}
+
+
+@app.get("/shadow/note/{id}")
+def shadow_note(id: int):
+    return _shadow(shadow.note, id)
+
+
+@app.get("/shadow/balance/{address}")
+def shadow_balance(address: str):
+    return {"address": address, "balance": _shadow(shadow.balance, address)}
+
+
+@app.post("/shadow/stake")
+def shadow_stake(req: ShadowStakeReq, request: Request):
+    caller = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip() \
+        or (request.client.host if request.client else "?")
+    now = time.time()
+    hits = [t for t in _shadow_hits.get(caller, []) if now - t < 3600]
+    if len(hits) >= SHADOW_STAKES_PER_HOUR:
+        raise HTTPException(status_code=429, detail="Paper stake limit reached — try again within the hour")
+    _shadow_hits[caller] = hits + [now]
+    return _shadow(shadow.stake, req.key, req.denom, req.tier)
+
+
+@app.post("/shadow/claim")
+def shadow_claim(req: ShadowSignedReq):
+    return _shadow(shadow.claim, req.id, req.arg, req.r, req.s)
+
+
+@app.post("/shadow/unstake")
+def shadow_unstake(req: ShadowSignedReq):
+    return _shadow(shadow.unstake, req.id, req.arg, req.r, req.s)
+
+
+@app.post("/shadow/rekey")
+def shadow_rekey(req: ShadowSignedReq):
+    return _shadow(shadow.rekey, req.id, req.arg, req.r, req.s)
+
+
+@app.post("/shadow/distribute")
+def shadow_distribute():
+    return _shadow(shadow.distribute)
+
+
+@app.post("/shadow/fund_pot", dependencies=OWNER)
+def shadow_fund_pot(req: ShadowFundReq):
+    return _shadow(shadow.fund_pot, req.amount)
+
+
+@app.post("/shadow/warp", dependencies=OWNER)
+def shadow_warp(req: ShadowWarpReq):
+    return _shadow(shadow.warp, req.to)
+
+
+# ── Yuma by BlocTime (yuma/ — bloctime.yuma) ─────────────────────────────
+# Validator stake = BlocTime voting power. The paper ledger is shared and
+# public to play with; params/reset/source are owner-only. Plain `def`
+# everywhere: live stake reads hit the chain RPC.
+
+import importlib.util as _ilu
+
+_yspec = _ilu.spec_from_file_location("bloctime_yuma_service", MODULE_DIR / "yuma" / "service.py")
+yuma_svc = _ilu.module_from_spec(_yspec)
+_yspec.loader.exec_module(yuma_svc)
+
+
+def _yuma(fn, *a, **kw):
+    try:
+        return _jsonable(fn(*a, **kw))
+    except (ValueError, KeyError, TypeError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+
+def _jsonable(x):
+    """Wei-scale ints overflow JS numbers — send anything ≥ 2^53 as a string."""
+    if isinstance(x, bool):
+        return x
+    if isinstance(x, int):
+        return str(x) if abs(x) >= 2 ** 53 else x
+    if isinstance(x, dict):
+        return {k: _jsonable(v) for k, v in x.items()}
+    if isinstance(x, (list, tuple)):
+        return [_jsonable(v) for v in x]
+    return x
+
+
+class YumaAddrReq(BaseModel):
+    address: str
+
+
+class YumaStakeReq(BaseModel):
+    address: str
+    bloc: str
+
+
+class YumaWeightsReq(BaseModel):
+    address: str
+    weights: dict | list
+
+
+class YumaSimReq(BaseModel):
+    stakes: list
+    weights: list
+    kappa: float = 0.5
+    alpha: float = 1
+    emission: float = 100
+    owner_cut_bps: int = 1000
+    miner_share_bps: int = 5000
+    epochs: int = 1
+
+
+class YumaSourceReq(BaseModel):
+    mode: str
+
+
+@app.get("/yuma")
+def yuma_state():
+    return _yuma(yuma_svc.state)
+
+
+@app.get("/yuma/whitepaper")
+async def yuma_whitepaper():
+    """The Yuma subnet paper (yuma/whitepaper.md), read per request."""
+    path = MODULE_DIR / "yuma" / "whitepaper.md"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="yuma/whitepaper.md missing")
+    return {"markdown": path.read_text(), "updated": int(path.stat().st_mtime)}
+
+
+@app.get("/yuma/preview")
+def yuma_preview():
+    return _yuma(yuma_svc.preview)
+
+
+@app.get("/yuma/chain")
+def yuma_chain(network: str | None = None):
+    return _yuma(yuma_svc.chain_state, network)
+
+
+@app.post("/yuma/simulate")
+def yuma_simulate(req: YumaSimReq):
+    if len(req.stakes) > 64 or (req.weights and len(req.weights[0]) > 256):
+        raise HTTPException(status_code=400, detail="at most 64 validators x 256 miners")
+    return _yuma(yuma_svc.simulate, req.stakes, req.weights, req.kappa, req.alpha, req.emission,
+                 req.owner_cut_bps, req.miner_share_bps, req.epochs)
+
+
+@app.post("/yuma/set_stake")
+def yuma_set_stake(req: YumaStakeReq):
+    if yuma_svc.ledger().s.get("source") == "live":
+        raise HTTPException(status_code=400, detail="stake is live BlocTime — stake BLOC on the Stake tab instead")
+    return _yuma(yuma_svc.set_stake, req.address, req.bloc)
+
+
+@app.post("/yuma/register_validator")
+def yuma_register_validator(req: YumaAddrReq):
+    return _yuma(yuma_svc.register_validator, req.address)
+
+
+@app.post("/yuma/register_miner")
+def yuma_register_miner(req: YumaAddrReq):
+    return _yuma(yuma_svc.register_miner, req.address)
+
+
+@app.post("/yuma/set_weights")
+def yuma_set_weights(req: YumaWeightsReq):
+    return _yuma(yuma_svc.set_weights, req.address, req.weights)
+
+
+@app.post("/yuma/epoch")
+def yuma_epoch():
+    return _yuma(yuma_svc.epoch)
+
+
+@app.post("/yuma/claim")
+def yuma_claim(req: YumaAddrReq):
+    return _yuma(yuma_svc.claim, req.address)
+
+
+@app.post("/yuma/params", dependencies=OWNER)
+def yuma_params(params: dict):
+    return _yuma(yuma_svc.set_params, **params)
+
+
+@app.post("/yuma/source", dependencies=OWNER)
+def yuma_source(req: YumaSourceReq):
+    return _yuma(yuma_svc.set_source, req.mode)
+
+
+@app.post("/yuma/reset", dependencies=OWNER)
+def yuma_reset():
+    return _yuma(yuma_svc.reset)

@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LIGHT CYCLES</title>
+<style>
+  :root { --bg:#05070c; --card:#0d1320; --line:#1a2638; --fg:#d7e2ec; --dim:#6f8299; --a:#3df2ff; --b:#ff4fd8; }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:16px; background:var(--bg); color:var(--fg); font:14px/1.5 ui-monospace,Menlo,Consolas,monospace; text-align:center; }
+  .t { letter-spacing:4px; font-size:12px; color:var(--dim); }
+  #st { margin:6px 0 10px; color:var(--dim); min-height:21px; } #st.turn { color:var(--a); font-weight:700; } #st.over { color:var(--fg); font-weight:700; }
+  #note { color:var(--dim); font-size:12px; min-height:18px; margin-bottom:8px; }
+  canvas { width:min(92vw, 455px); aspect-ratio:1; border:1px solid var(--line); border-radius:12px; background:#03050a; touch-action:none; }
+  .pad { display:inline-grid; grid-template-columns:repeat(3,52px); gap:6px; margin-top:12px; }
+  button { font:inherit; color:var(--fg); background:var(--card); border:1px solid var(--line); border-radius:10px; padding:8px 14px; cursor:pointer; }
+  .pad button { height:44px; padding:0; font-weight:700; }
+  button:hover:not(:disabled) { border-color:var(--a); color:var(--a); } button:disabled { opacity:.25; cursor:default; }
+  button.safe { border-color:#1d6b72; }
+  button.go { background:var(--a); color:var(--bg); border-color:var(--a); font-weight:700; }
+  .legend { margin-top:8px; font-size:12px; color:var(--dim); }
+  .legend b.a { color:var(--a); } .legend b.b { color:var(--b); }
+</style></head><body>
+<div class=t>LIGHT CYCLES</div><div id=st>waiting for the table…</div>
+<div id=note></div>
+<canvas id=cv width=520 height=520></canvas>
+<div class=legend id=you></div>
+<div class=pad>
+  <span></span><button data-d=N>N</button><span></span>
+  <button data-d=W>W</button><span></span><button data-d=E>E</button>
+  <span></span><button data-d=S>S</button><span></span>
+</div>
+<div class=legend>arrow keys, WASD, swipe, or the pad</div>
+<p><button id=again class=go onclick="send({arena:'new'})">start a game</button></p>
+<script>
+const $ = (id) => document.getElementById(id);
+const send = (m) => parent.postMessage({ protocol: "arena-frontend/1", ...m }, "*");
+let S = {}, sent = false;
+const can = (d) => S.your_turn && !S.done && !sent && (S.legal || []).includes(d);
+const move = (d) => { if (!can(d)) return; sent = true; send({ arena: "move", move: d }); paint(); };
+
+addEventListener("message", (e) => {
+  if (e.source !== parent || e.data?.arena !== "state") return;
+  S = e.data; sent = false;
+  $("st").textContent = S.status || "";
+  $("st").className = S.done ? "over" : S.your_turn ? "turn" : "";
+  $("again").hidden = S.started && !S.done;
+  $("again").textContent = S.started ? "ride again" : "start a game";
+  const note = /Last tick: (.*)/.exec(S.view || "");
+  $("note").textContent = S.done ? (S.result?.summary || "") : note ? note[1] : "";
+  const me = /riding `(.)`/.exec(S.view || "");
+  $("you").innerHTML = me ? `you ride <b class=${me[1].toLowerCase()}>${me[1] === "A" ? "cyan" : "magenta"}</b>` : "";
+  paint();
+});
+new ResizeObserver(() => send({ arena: "height", px: document.documentElement.scrollHeight })).observe(document.body);
+send({ arena: "ready" });
+
+const KEYS = { ArrowUp:"N", ArrowDown:"S", ArrowLeft:"W", ArrowRight:"E", w:"N", s:"S", a:"W", d:"E" };
+addEventListener("keydown", (e) => { const d = KEYS[e.key]; if (d) { e.preventDefault(); move(d); } });
+document.querySelectorAll(".pad button").forEach((b) => b.onclick = () => move(b.dataset.d));
+let t0 = null;
+$("cv").addEventListener("pointerdown", (e) => t0 = [e.clientX, e.clientY]);
+$("cv").addEventListener("pointerup", (e) => {
+  if (!t0) return; const dx = e.clientX - t0[0], dy = e.clientY - t0[1]; t0 = null;
+  if (Math.max(Math.abs(dx), Math.abs(dy)) < 20) return;
+  move(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? "E" : "W") : (dy > 0 ? "S" : "N"));
+});
+
+function grid(view) {
+  return (view || "").split("\n").map((l) => l.trim().split(/\s+/))
+    .filter((t) => t.length >= 5 && t.every((c) => c.length === 1 && ".#aAbB".includes(c)));
+}
+function paint() {
+  const safe = new Set((/Safe right now: (.*)/.exec(S.view || "") || ["", ""])[1].split(/[ ,]+/));
+  document.querySelectorAll(".pad button").forEach((b) => {
+    b.disabled = !can(b.dataset.d); b.classList.toggle("safe", safe.has(b.dataset.d));
+  });
+  const g = grid(S.view), cv = $("cv"), x = cv.getContext("2d"), W = cv.width;
+  x.clearRect(0, 0, W, W);
+  const n = g.length || 13, k = W / n;
+  x.strokeStyle = "#0e1726"; x.lineWidth = 1;
+  for (let i = 0; i <= n; i++) { x.beginPath(); x.moveTo(i * k, 0); x.lineTo(i * k, W); x.moveTo(0, i * k); x.lineTo(W, i * k); x.stroke(); }
+  const col = { a: "#3df2ff", b: "#ff4fd8" };
+  g.forEach((row, r) => row.forEach((ch, c) => {
+    if (ch === ".") return;
+    const px = c * k, py = r * k;
+    if (ch === "#") { x.shadowBlur = 0; x.fillStyle = "#2a3446"; x.fillRect(px + 3, py + 3, k - 6, k - 6); return; }
+    const hue = col[ch.toLowerCase()], head = ch === ch.toUpperCase();
+    x.shadowColor = hue; x.shadowBlur = head ? 22 : 10; x.fillStyle = hue;
+    x.globalAlpha = head ? 1 : 0.55;
+    if (head) { x.beginPath(); x.arc(px + k / 2, py + k / 2, k * 0.38, 0, 7); x.fill(); }
+    else x.fillRect(px + k * 0.2, py + k * 0.2, k * 0.6, k * 0.6);
+    x.globalAlpha = 1;
+  }));
+  x.shadowBlur = 0;
+  if (S.done) {
+    x.fillStyle = "rgba(3,5,10,.55)"; x.fillRect(0, 0, W, W);
+    x.fillStyle = "#d7e2ec"; x.font = "bold 28px ui-monospace,monospace"; x.textAlign = "center";
+    const sc = S.result?.scores || [], me = S.seat ?? S.you;
+    const msg = sc[0] === sc[1] ? "DRAW" : (me != null && sc[me] === 1) ? "YOU WIN" : (me != null ? "DEREZZED" : "GAME OVER");
+    x.fillText(msg, W / 2, W / 2);
+  }
+}
+paint();
+</script></body></html>

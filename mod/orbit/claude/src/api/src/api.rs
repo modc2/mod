@@ -258,7 +258,7 @@ async fn api_schema() -> impl IntoResponse {
     };
     Json(json!({
         "service": "claude-jobs",
-        "base": "/api/claude",
+        "base": "/claude/api",
         "auth_note": "Bearer token from /auth/challenge + /auth/verify (wallet signature). Non-owner wallets sign the Terms of Use embedded in their first challenge.",
         "endpoints": [
             e("GET", "/health", "public", "Liveness + whether auth is disabled (local mode)"),

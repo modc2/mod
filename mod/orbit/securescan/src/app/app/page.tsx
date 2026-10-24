@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { ScanForm } from "./components/ScanForm";
 import { ScanList } from "./components/ScanList";
 import { ScanReport } from "./components/ScanReport";
@@ -8,6 +8,32 @@ import { ScanReport } from "./components/ScanReport";
 export default function Home() {
   const [selected, setSelected] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+
+  // Read initial selection from URL hash on mount
+  useEffect(() => {
+    const id = window.location.hash.slice(1);
+    if (id) setSelected(id);
+  }, []);
+
+  // Sync hash <-> selected
+  useEffect(() => {
+    const onHashChange = () => {
+      setSelected(window.location.hash.slice(1) || null);
+    };
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, []);
+
+  function selectScan(id: string | null) {
+    if (typeof window !== "undefined") {
+      if (id) {
+        window.location.hash = id;
+      } else {
+        history.replaceState(null, "", window.location.pathname);
+      }
+    }
+    setSelected(id);
+  }
 
   return (
     <main className="min-h-screen bg-grid">
@@ -35,7 +61,7 @@ export default function Home() {
           <aside className="space-y-4">
             <ScanForm
               onStarted={(id) => {
-                setSelected(id);
+                selectScan(id);
                 setRefreshKey((k) => k + 1);
               }}
             />
@@ -45,7 +71,7 @@ export default function Home() {
               </div>
               <ScanList
                 selectedId={selected}
-                onSelect={setSelected}
+                onSelect={selectScan}
                 refreshKey={refreshKey}
               />
             </div>

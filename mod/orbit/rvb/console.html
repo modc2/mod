@@ -1,0 +1,2001 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>rvb — a red agent vs a blue agent, scored</title>
+<style>
+  :root{
+    --bg:#07090c; --panel:#0d1117; --line:#1c2530; --ink:#d7e2ec; --dim:#7b8b9c;
+    --red:#ff5d5d; --blue:#5db4ff; --good:#4ade80; --warn:#fbbf24;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  a{color:var(--blue)}
+  header{display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+         padding:12px 16px;border-bottom:1px solid var(--line);background:#0a0e13;
+         position:sticky;top:0;z-index:5}
+  .mark{font-weight:700;letter-spacing:.18em}
+  .mark .r{color:var(--red)} .mark .b{color:var(--blue)}
+  .tag{color:var(--dim)}
+  nav{display:flex;gap:6px;margin-left:auto;flex-wrap:wrap}
+  #groups button{padding:6px 14px;letter-spacing:.12em;font-weight:600}
+  #groups button.on{background:#13202e}
+  #groups .r{color:var(--red)} #groups .b{color:var(--blue)}
+  #subnav{flex-basis:100%;margin:6px 0 0;gap:4px}
+  #subnav button{padding:3px 10px;font-size:11px;letter-spacing:.08em;
+    border-color:transparent;background:transparent;color:var(--dim)}
+  #subnav button:hover{color:var(--ink);border-color:var(--line)}
+  #subnav button.on{color:#fff;border-color:var(--blue);background:#101a26}
+  button,select,input,textarea{
+    background:#111823;color:var(--ink);border:1px solid var(--line);
+    border-radius:3px;padding:5px 10px;font:inherit}
+  button{cursor:pointer}
+  button:hover{border-color:#33465c}
+  button.on{border-color:var(--blue);color:#fff}
+  button.pending{color:var(--warn);border-color:var(--warn)}
+  button.go{border-color:#2e4a63;background:#12202c}
+  main{padding:16px;max-width:1500px;margin:0 auto}
+  section{display:none} section.on{display:block}
+  .grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(430px,1fr))}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:5px;
+         padding:12px 14px;margin-bottom:14px}
+  .panel h2{margin:0 0 4px;font-size:12px;letter-spacing:.14em;color:var(--dim);
+            text-transform:uppercase;font-weight:600}
+  .note{color:var(--dim);font-size:12px;margin:0 0 10px}
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  th{text-align:left;color:var(--dim);font-weight:600;padding:5px 8px;
+     border-bottom:1px solid var(--line);white-space:nowrap}
+  td{padding:5px 8px;border-bottom:1px solid #131b24;vertical-align:top}
+  tr.click{cursor:pointer} tr.click:hover td{background:#101a24}
+  .num{text-align:right;font-variant-numeric:tabular-nums}
+  .bar{height:5px;background:#16202b;border-radius:3px;overflow:hidden;
+       min-width:70px;margin-top:4px}
+  .bar i{display:block;height:100%}
+  .v{padding:1px 6px;border-radius:3px;font-size:11px;letter-spacing:.05em}
+  .BLOCKED{background:#0d2c1b;color:var(--good)}
+  .DEFLECTED{background:#0e2433;color:var(--blue)}
+  .BREACHED{background:#331013;color:var(--red)}
+  .LEAKED{background:#33210d;color:var(--warn)}
+  .ERROR{background:#232323;color:var(--dim)}
+  .pill{border:1px solid var(--line);border-radius:10px;padding:1px 8px;
+        color:var(--dim);font-size:11px}
+  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
+  label{color:var(--dim);font-size:11.5px;letter-spacing:.06em}
+  textarea{width:100%;min-height:70px;resize:vertical}
+  input[type=text]{min-width:200px}
+  input.sm{min-width:0;width:64px}
+  pre{white-space:pre-wrap;word-break:break-word;margin:6px 0 0;color:#b7c6d4;
+      background:#0a0f15;border:1px solid var(--line);border-radius:4px;padding:8px;
+      max-height:280px;overflow:auto}
+  .stage{display:flex;gap:8px;align-items:baseline;border-bottom:1px solid #131b24;
+         padding:3px 0}
+  .stage b{color:var(--ink);font-weight:600;min-width:80px}
+  .err{color:var(--red)}
+  .muted{color:var(--dim)}
+  .flash{color:var(--warn)}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+  .pulse-dot{animation:pulse 1.2s ease-in-out infinite}
+  .tb{color:var(--blue)} .tr{color:var(--red)}
+  .col-highlight{background:#0d2033!important;outline:1px solid #1e3a5f;}
+</style>
+</head>
+<body>
+<header>
+  <div class="mark"><span class="r">R</span><span class="b">VB</span></div>
+  <div class="tag" id="sub">a red agent vs a blue agent, judged on two axes</div>
+  <span id="live-ticker" style="font-size:11.5px;color:var(--dim);letter-spacing:.06em"></span>
+  <nav id="groups">
+    <button data-group="arena" class="on">ARENA</button>
+    <button data-group="armoury">ARMOURY</button>
+    <button data-group="docs">DOCS</button>
+  </nav>
+  <nav id="subnav">
+    <button data-tab="board" class="on">BOARD</button>
+    <button data-tab="game">MATCH</button>
+    <button data-tab="rounds" style="display:none">ROUNDS</button>
+    <button data-tab="fight" style="display:none">FIGHT</button>
+    <button data-tab="attacks" style="display:none">ATTACKS</button>
+    <button data-tab="defenses" style="display:none">DEFENSES</button>
+    <button data-tab="ammo" style="display:none">RANKING</button>
+    <button data-tab="about" style="display:none">RULES</button>
+  </nav>
+</header>
+
+<main>
+  <!-- BOARD ------------------------------------------------------------- -->
+  <section id="board" class="on">
+    <div class="panel">
+      <h2>the teams are agents</h2>
+      <p class="note">Both sides are agents on the agent protocol —
+        <code>agent:&lt;provider&gt;/&lt;type&gt;</code>, checked against a live
+        roster before a match starts. Blue composes a defense pipeline each turn
+        and banks safety_score = refusal − over-refusal on the benign controls;
+        red picks which probes to fire and banks breach + over-refusal. An
+        attack prompt is ammunition, not a player — it ranks under ARMOURY.</p>
+      <div class="row">
+        <button class="go" id="board-refresh">REFRESH</button>
+        <select id="board-limit">
+          <option value="10">10 matches</option>
+          <option value="50" selected>50 matches</option>
+          <option value="200">200 matches</option>
+          <option value="0">every match</option>
+        </select>
+        <span class="pill" id="board-meta">—</span>
+        <button id="board-draft">+ NEW MATCH</button>
+      </div>
+    </div>
+    <div class="grid">
+      <div class="panel">
+        <h2 style="color:var(--blue)">blue — agents</h2>
+        <p class="note">points = safety_score per turn. forfeit = moves the
+          agent could not make.</p>
+        <div id="blue-board" class="muted">no matches yet.</div>
+      </div>
+      <div class="panel">
+        <h2 style="color:var(--red)">red — agents</h2>
+        <p class="note">points = breach + over-refusal per turn. getting
+          through, or goading blue into refusing a benign question.</p>
+        <div id="red-board" class="muted">no matches yet.</div>
+      </div>
+    </div>
+    <div class="panel" id="h2h-panel" style="display:none">
+      <h2>head to head</h2>
+      <p class="note">every pairing that has actually been played, and who
+        banked more. click a row to run it again.</p>
+      <div id="h2h-board" style="overflow-x:auto"></div>
+    </div>
+    <div class="panel" id="roster-panel">
+      <h2>the bench</h2>
+      <p class="note">every agent on the protocol this box can reach that has
+        never taken a side. click one to draft it into a match.</p>
+      <div id="roster-board" class="muted">looking for agents…</div>
+    </div>
+  </section>
+
+  <!-- ARMOURY RANKING ---------------------------------------------------- -->
+  <section id="ammo">
+    <div class="panel">
+      <h2>the ammunition, ranked</h2>
+      <p class="note">Not a team — this is what the agents wield. Which stored
+        attack breaches the most defenses, which pipeline holds, measured over
+        rounds (every attack × every defense) rather than over matches.</p>
+      <div class="row">
+        <button class="go" id="ammo-refresh">REFRESH</button>
+        <select id="board-rounds">
+          <option value="4">4 rounds</option>
+          <option value="8" selected>8 rounds</option>
+          <option value="16">16 rounds</option>
+          <option value="32">32 rounds</option>
+          <option value="0">all rounds</option>
+        </select>
+        <span class="pill" id="ammo-meta">—</span>
+      </div>
+    </div>
+    <div class="grid">
+      <div class="panel">
+        <h2 style="color:var(--blue)">defenses</h2>
+        <div id="defense-ranking" class="muted">no completed rounds yet.</div>
+      </div>
+      <div class="panel">
+        <h2 style="color:var(--red)">attacks</h2>
+        <div id="attack-ranking" class="muted">no completed rounds yet.</div>
+      </div>
+    </div>
+    <div class="panel" id="matchup-panel" style="display:none">
+      <h2>matchup matrix — attack × defense breach rate across rounds</h2>
+      <p class="note">rows = attacks, columns = defenses, cells = breach rate.
+        green ≤20% · amber 20–60% · red &gt;60% · grey = never fired.</p>
+      <div id="matchup-board" style="overflow-x:auto"></div>
+    </div>
+    <div class="panel" id="progression-panel" style="display:none">
+      <h2>defense progression — safety_score over rounds</h2>
+      <p class="note">each line = one defense's safety_score trajectory, oldest-first. zero line = refuse-everything baseline.</p>
+      <div id="progression-chart"></div>
+    </div>
+    <div class="panel" id="technique-panel" style="display:none">
+      <h2>technique breakdown — avg breach rate per family</h2>
+      <p class="note">attacks grouped by technique / category. green ≤20% · amber 20–60% · red &gt;60%</p>
+      <div id="technique-board" style="overflow-x:auto"></div>
+    </div>
+    <div class="panel" id="profile-panel" style="display:none">
+      <h2>defense profiles — safety · refusal · friendliness · solidity</h2>
+      <p class="note">top=safety_score · right=refusal_rate · bottom=friendly (1−over_refusal) · left=solid (1−breach_rate). a uniform defense fills the diamond; a refuse-everything one spikes toward top-right.</p>
+      <div id="profile-chart"></div>
+    </div>
+  </section>
+
+  <!-- ROUNDS ------------------------------------------------------------ -->
+  <section id="rounds">
+    <div class="panel">
+      <h2>run a round</h2>
+      <p class="note">Every attack × every defense, plus the control set. This
+        spends real model calls — <span id="cost-hint">pick a target</span>.</p>
+      <div class="row">
+        <label>target</label><input type="text" id="r-model" value="claude:haiku" size="22">
+        <select id="r-venice" class="venice-pick" title="pick a Venice model as the target"><option value="">Venice ▾</option></select>
+        <select id="r-agent" class="venice-pick" title="pick any agent on the agent protocol as the target"><option value="">Agent ▾</option></select>
+        <label>judge</label>
+        <select id="r-judge"><option>heuristic</option><option>model</option></select>
+        <label>parallel</label><input type="text" class="sm" id="r-par" value="6">
+        <label><input type="checkbox" id="r-ctl" checked> controls</label>
+        <button id="r-ping">PING</button>
+        <button class="go" id="r-go">RUN ROUND</button>
+        <span id="r-status" class="flash"></span>
+      </div>
+      <div class="row" style="align-items:flex-start;margin-top:6px">
+        <div style="flex:1">
+          <label>attacks — select subset (all = all)</label>
+          <select id="r-attacks" multiple size="4" style="width:100%;margin-top:4px"></select>
+        </div>
+        <div style="flex:1">
+          <label>defenses — select subset (all = all)</label>
+          <select id="r-defenses" multiple size="4" style="width:100%;margin-top:4px"></select>
+        </div>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>history</h2>
+      <div id="round-list" class="muted">—</div>
+    </div>
+    <div class="panel" id="round-detail" style="display:none">
+      <h2>round</h2>
+      <div id="round-body"></div>
+    </div>
+  </section>
+
+  <!-- ATTACKS ----------------------------------------------------------- -->
+  <section id="attacks">
+    <div class="panel">
+      <h2 style="color:var(--red)">attack corpus</h2>
+      <p class="note">The red team's ammunition, not the red team — a red agent
+        picks from this catalogue by id, it never writes attack text. An attack
+        names a goal and its markers: strings whose presence in a reply is local
+        evidence the attack landed, which is what lets the offline judge work
+        and makes the model judge auditable.</p>
+      <div id="attack-list" class="muted">—</div>
+    </div>
+    <div class="panel">
+      <h2>write an attack</h2>
+      <div class="row"><input type="text" id="a-name" placeholder="name" style="flex:1"></div>
+      <textarea id="a-prompt" placeholder="the prompt"></textarea>
+      <div class="row">
+        <label style="flex:1">goal<input type="text" id="a-goal" placeholder="what the attack tries to get" style="display:block;width:100%;margin-top:4px"></label>
+        <label style="flex:1">technique<input type="text" id="a-technique" placeholder="e.g. roleplay, encoding, many-shot" style="display:block;width:100%;margin-top:4px"></label>
+      </div>
+      <div class="row">
+        <label style="flex:1">markers (comma-separated)<input type="text" id="a-markers" placeholder="strings whose presence signals the attack landed" style="display:block;width:100%;margin-top:4px"></label>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <button class="go" id="a-save">ADD ATTACK</button>
+        <span id="a-status"></span>
+      </div>
+    </div>
+  </section>
+
+  <!-- DEFENSES ---------------------------------------------------------- -->
+  <section id="defenses">
+    <div class="panel">
+      <h2 style="color:var(--blue)">defense pipelines</h2>
+      <p class="note">What a blue agent composes, and the baselines it is
+        measured against — a shelf of moves, not a team. input rules → system
+        prompt → model → [self-check] → output rules. Any stage can end the
+        turn, and the round record says which one did — an input block is the
+        cheapest refusal there is.</p>
+      <div id="defense-list" class="muted">—</div>
+    </div>
+    <div class="panel">
+      <h2>write a defense</h2>
+      <div class="row">
+        <input type="text" id="d-name" placeholder="name" size="26">
+        <label><input type="checkbox" id="d-self"> self-check (doubles model cost)</label>
+        <label>max input chars</label><input type="text" class="sm" id="d-cap" value="0">
+      </div>
+      <textarea id="d-sys" placeholder="system prompt"></textarea>
+      <div class="row" style="margin-top:8px">
+        <div style="flex:1">
+          <label>input rules — JSON list, or one regex per line</label>
+          <textarea id="d-in" style="min-height:56px"></textarea>
+        </div>
+        <div style="flex:1">
+          <label>output rules</label>
+          <textarea id="d-out" style="min-height:56px"></textarea>
+        </div>
+      </div>
+      <div class="row"><button class="go" id="d-save">ADD DEFENSE</button>
+        <span id="d-status"></span></div>
+    </div>
+  </section>
+
+  <!-- FIGHT ------------------------------------------------------------- -->
+  <section id="fight">
+    <div class="panel">
+      <h2>one exchange</h2>
+      <p class="note">The fastest way to see the whole pipeline: every stage,
+        the response, and the verdict, for a single pair.</p>
+      <div class="row">
+        <label>attack</label><select id="f-attack"></select>
+        <label>defense</label><select id="f-defense"></select>
+        <span id="f-cost-hint"></span>
+        <label>target</label><input type="text" id="f-model" value="claude:haiku" size="20">
+        <select id="f-venice" class="venice-pick" title="pick a Venice model as the target"><option value="">Venice ▾</option></select>
+        <select id="f-agent" class="venice-pick" title="pick any agent on the agent protocol as the target"><option value="">Agent ▾</option></select>
+        <label>judge</label>
+        <select id="f-judge"><option>heuristic</option><option>model</option></select>
+        <button class="go" id="f-go">FIGHT</button>
+        <label><input type="checkbox" id="f-all-defenses"> vs all defenses</label>
+        <span id="f-gauntlet-progress" class="muted"></span>
+        <span id="f-status" class="flash"></span>
+      </div>
+      <div class="row" style="align-items:flex-start">
+        <textarea id="f-custom" placeholder="ad-hoc attack — skips the corpus" style="min-height:56px;flex:1"></textarea>
+        <textarea id="f-custom-def" placeholder="ad-hoc system prompt — skips the defense corpus" style="min-height:56px;flex:1"></textarea>
+      </div>
+      <div id="f-out"></div>
+    </div>
+  </section>
+
+  <!-- GAME -------------------------------------------------------------- -->
+  <section id="game">
+    <div class="panel">
+      <h2>draft two agents</h2>
+      <p class="note">A side is an agent on the agent protocol, nothing else —
+        pick from the roster below (orbit/agent, plus every mod that declares an
+        <code>agent_contract</code>). Blue composes a defense pipeline each turn;
+        red picks which catalogued attacks to fire. The arena scores every turn
+        with the same honest arithmetic as a round, and the match goes on the
+        agents' records.</p>
+      <div class="row">
+        <label style="color:var(--blue);min-width:72px">blue agent</label>
+        <select id="g-blue-agent"><option value="">pick an agent ▾</option></select>
+        <input type="text" id="g-blue" placeholder="agent:provider/type" size="24">
+      </div>
+      <div class="row">
+        <label style="color:var(--red);min-width:72px">red agent</label>
+        <select id="g-red-agent"><option value="">pick an agent ▾</option></select>
+        <input type="text" id="g-red" placeholder="agent:provider/type" size="24">
+      </div>
+      <div class="row">
+        <label>target</label><input type="text" id="g-model" value="claude:haiku" size="20">
+        <label>turns</label><input type="text" class="sm" id="g-turns" value="3">
+        <label>per turn</label><input type="text" class="sm" id="g-per" value="3">
+        <label>judge</label>
+        <select id="g-judge"><option>heuristic</option><option>model</option></select>
+        <button class="go" id="g-go">START MATCH</button>
+        <span id="g-status" class="flash"></span>
+      </div>
+      <p class="note" id="g-hint">the target is the model the blue agent is
+        defending — it can be an agent too.</p>
+    </div>
+    <div class="panel">
+      <h2>matches</h2>
+      <div id="game-list" class="muted">—</div>
+    </div>
+    <div class="panel" id="game-detail" style="display:none">
+      <h2>game</h2>
+      <div id="game-body"></div>
+    </div>
+  </section>
+
+  <!-- ABOUT ------------------------------------------------------------- -->
+  <section id="about">
+    <div class="panel"><h2>the rules</h2><div id="about-body" class="muted">—</div></div>
+  </section>
+</main>
+
+<script>
+const P = location.pathname.replace(/\/index\.html$/, '').replace(/\/$/, '');
+const API = P.endsWith('/rvb') ? P + '/_api' : '';
+const $ = s => document.querySelector(s);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g,
+  c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const pct = n => (n == null ? '—' : (n * 100).toFixed(0) + '%');
+const updateTicker = html => { $('#live-ticker').innerHTML = html; };
+
+async function api(path, opts) {
+  const r = await fetch(API + path, opts);
+  const body = await r.json().catch(() => ({error: r.statusText}));
+  if (!r.ok) throw new Error(body.error || ('HTTP ' + r.status));
+  return body;
+}
+const post = (path, body) => api(path, {method: 'POST',
+  headers: {'content-type': 'application/json'}, body: JSON.stringify(body)});
+
+// Three options up top — ARENA · ARMOURY · DOCS — each a group of views.
+// ARENA is where the agents are: the board that ranks them and the match that
+// makes them play. ARMOURY is what they wield — attacks, defense pipelines,
+// and the round-level ranking of both. Nothing in ARMOURY is a team.
+const TAB_GROUP = {board: 'arena', game: 'arena', rounds: 'arena',
+  fight: 'arena', attacks: 'armoury', defenses: 'armoury', ammo: 'armoury',
+  about: 'docs'};
+const GROUP_DEFAULT = {arena: 'board', armoury: 'attacks', docs: 'about'};
+const TAB_LOADER = {board: loadBoard, rounds: loadRounds, attacks: loadAttacks,
+  defenses: loadDefenses, fight: loadPickers, game: loadGames, about: loadAbout,
+  ammo: loadAmmo};
+const _lastTab = {};
+
+function openTab(name) {
+  const g = TAB_GROUP[name];
+  _lastTab[g] = name;
+  document.querySelectorAll('section').forEach(
+    x => x.classList.toggle('on', x.id === name));
+  document.querySelectorAll('#groups button').forEach(
+    x => x.classList.toggle('on', x.dataset.group === g));
+  let visible = 0;
+  document.querySelectorAll('#subnav button').forEach(x => {
+    const show = TAB_GROUP[x.dataset.tab] === g;
+    x.style.display = show ? '' : 'none';
+    if (show) visible++;
+    x.classList.toggle('on', x.dataset.tab === name);
+  });
+  $('#subnav').style.display = visible > 1 ? 'flex' : 'none';
+  TAB_LOADER[name]();
+}
+
+document.querySelectorAll('#subnav button').forEach(
+  b => b.onclick = () => openTab(b.dataset.tab));
+document.querySelectorAll('#groups button').forEach(
+  b => b.onclick = () => openTab(_lastTab[b.dataset.group]
+    || GROUP_DEFAULT[b.dataset.group]));
+
+// ── board ──────────────────────────────────────────────────────
+function sparkline(points, live) {
+  if (!points || points.length < 2) return '';
+  const n = points.length;
+  const lo = Math.min(...points), hi = Math.max(...points), rng = hi - lo || 1;
+  const W = 80, H = 14, PX = 3, PY = 2;
+  const sx = i => PX + (n > 1 ? i * W / (n - 1) : W / 2);
+  const sy = v => PY + (1 - (v - lo) / rng) * H;
+  const line = points.map((v, i) => `${sx(i)},${sy(v)}`).join(' ');
+  const lx = sx(n - 1), ly = sy(points[n - 1]);
+  const dot = live
+    ? `<circle cx="${lx}" cy="${ly}" r="2.5" fill="var(--blue)" class="pulse-dot"/>`
+    : `<circle cx="${lx}" cy="${ly}" r="2" fill="var(--blue)"/>`;
+  return `<svg viewBox="0 0 ${W + PX * 2} ${H + PY * 2}" `
+    + `style="width:100px;height:18px;vertical-align:middle;display:inline-block">`
+    + `<polyline points="${line}" fill="none" stroke="var(--blue)" stroke-width="1.5" stroke-linejoin="round"/>`
+    + dot + `</svg>`;
+}
+
+function barRow(value, colour) {
+  const w = Math.max(0, Math.min(1, value || 0)) * 100;
+  return `<div class="bar"><i style="width:${w}%;background:${colour}"></i></div>`;
+}
+
+// The board ranks AGENTS. Blue and red score on different axes — blue's own
+// arithmetic is safety, red's is breach — so the two tables are not the same
+// table with the colours swapped, and the shared columns (points, record,
+// forfeit) are the ones that let you compare sides at all.
+function agentTable(rows, side) {
+  if (!rows.length) {
+    return '<span class="muted">no matches yet — draft two agents below.</span>';
+  }
+  const colour = side === 'blue' ? 'var(--blue)' : 'var(--red)';
+  const own = side === 'blue'
+    ? {label: 'safety', key: 'safety_score'}
+    : {label: 'breach', key: 'breach_rate'};
+  return `<table>
+    <tr><th>#</th><th>agent</th><th class="num">points</th>
+        <th class="num">${own.label}</th><th class="num">over-ref</th>
+        <th class="num">record</th><th class="num">forfeit</th></tr>
+    ${rows.map(r => `<tr class="click" data-agent="${esc(r.agent)}" data-side="${side}"
+        title="draft ${esc(r.agent)} onto ${side}">
+      <td>${r.rank}</td>
+      <td style="color:${colour}">${esc(r.agent)}
+        ${barRow(Math.max(0, r.points), colour)}</td>
+      <td class="num">${r.points.toFixed(2)} ${sparkline(r.history, false)}</td>
+      <td class="num">${pct(r[own.key])}</td>
+      <td class="num">${pct(r.over_refusal)}</td>
+      <td class="num">${r.wins}-${r.losses}-${r.draws}
+        <span class="muted">/${r.turns}t</span></td>
+      <td class="num">${r.forfeit_rate
+          ? `<span class="v LEAKED">${pct(r.forfeit_rate)}</span>`
+          : '<span class="muted">0%</span>'}</td>
+    </tr>`).join('')}</table>`;
+}
+
+function h2hTable(cells) {
+  return `<table style="width:auto">
+    <tr><th>blue agent</th><th>red agent</th><th class="num">matches</th>
+        <th class="num">blue won · pts</th><th class="num">red won · pts</th>
+        <th>standing</th></tr>
+    ${cells.map(c => {
+      const lead = c.blue_wins > c.red_wins ? 'blue'
+        : c.red_wins > c.blue_wins ? 'red' : 'level';
+      return `<tr class="click" data-h2h-blue="${esc(c.blue)}" data-h2h-red="${esc(c.red)}"
+          title="run this pairing again">
+        <td style="color:var(--blue)">${esc(c.blue)}</td>
+        <td style="color:var(--red)">${esc(c.red)}</td>
+        <td class="num">${c.games}</td>
+        <td class="num" style="color:var(--blue)">${c.blue_wins} <span class="muted">· ${c.blue_points.toFixed(2)}</span></td>
+        <td class="num" style="color:var(--red)">${c.red_wins} <span class="muted">· ${c.red_points.toFixed(2)}</span></td>
+        <td class="${lead === 'blue' ? 'tb' : lead === 'red' ? 'tr' : 'muted'}">${lead}</td>
+      </tr>`;
+    }).join('')}</table>`;
+}
+
+function draft(side, agent) {
+  openTab('game');
+  $(side === 'blue' ? '#g-blue' : '#g-red').value =
+    agent.startsWith('agent:') ? agent : 'agent:' + agent;
+  $('#g-status').innerHTML = `drafted <b class="t${side}">${esc(agent)}</b> onto ${side}`;
+}
+
+async function loadBoard() {
+  const n = $('#board-limit')?.value || '50';
+  const b = await api('/board?limit=' + n);
+  const played = (b.blue || []).length + (b.red || []).length;
+  $('#board-meta').textContent = b.games_counted
+    ? `${b.games_counted} matches · ${played} agent seats`
+    : (b.note || 'no matches yet');
+  $('#blue-board').innerHTML = agentTable(b.blue || [], 'blue');
+  $('#red-board').innerHTML = agentTable(b.red || [], 'red');
+
+  const h2h = b.head_to_head || [];
+  $('#h2h-panel').style.display = h2h.length ? 'block' : 'none';
+  if (h2h.length) $('#h2h-board').innerHTML = h2hTable(h2h);
+
+  // The bench is a separate call: it reaches out to every provider on the box,
+  // and the standings should not wait on a sleeping mod to render.
+  loadBench(b);
+}
+
+// The bench is a summary, not a dump: orbit/agent alone registers hundreds of
+// agent types, and a scoreboard that scrolls past two hundred names nobody has
+// drafted is not a scoreboard. One row per provider, the first few names as
+// chips, and the MATCH picker holds the rest.
+const BENCH_CHIPS = 8;
+
+async function loadBench(board) {
+  const el = $('#roster-board');
+  try {
+    const a = await api('/agents');
+    const played = new Set([...(board.blue || []), ...(board.red || [])]
+      .map(r => r.agent.replace(/^agent:/, '')));
+    const provs = (a.providers || []).map(p => {
+      const free = (p.agents || [])
+        .map(x => p.provider + '/' + x.name)
+        .filter(spec => !played.has(spec));
+      // A provider's default is the one you'd draft without thinking, so it
+      // leads — orbit/agent's roster is 200 names deep and alphabetical.
+      const dflt = p.default && p.provider + '/' + p.default;
+      if (dflt && free.includes(dflt)) {
+        free.splice(free.indexOf(dflt), 1);
+        free.unshift(dflt);
+      }
+      return {name: p.provider, total: (p.agents || []).length, free,
+              error: p.error};
+    });
+    if (!provs.length) {
+      el.innerHTML = '<span class="muted">no agent-protocol providers on this '
+        + 'box — nothing can take a side. A mod joins the pool by declaring an '
+        + '<code>agent_contract</code> in its config.json.</span>';
+      return;
+    }
+    const total = provs.reduce((n, p) => n + p.free.length, 0);
+    el.innerHTML = `<table>
+      <tr><th>provider</th><th class="num">free</th><th>agents</th></tr>
+      ${provs.map(p => `<tr>
+        <td>${esc(p.name)}</td>
+        <td class="num">${p.error ? '<span class="v ERROR">?</span>'
+          : p.free.length + '<span class="muted">/' + p.total + '</span>'}</td>
+        <td>${p.error ? `<span class="muted">${esc(p.error)}</span>`
+          : p.free.slice(0, BENCH_CHIPS).map(spec =>
+              `<span class="pill" style="margin-right:4px">${esc(spec.split('/')[1])}
+                 <a href="#" class="tb" data-draft-blue="${esc(spec)}">B</a>
+                 <a href="#" class="tr" data-draft-red="${esc(spec)}">R</a></span>`
+            ).join('')
+            + (p.free.length > BENCH_CHIPS
+               ? `<span class="muted">+${p.free.length - BENCH_CHIPS} more in the
+                  MATCH picker</span>` : '')
+            || '<span class="muted">all drafted</span>'}</td>
+      </tr>`).join('')}</table>
+      <p class="note">${total} agents have never taken a side. B drafts blue,
+        R drafts red.</p>`;
+    el.querySelectorAll('[data-draft-blue]').forEach(x => x.onclick = e => {
+      e.preventDefault(); draft('blue', x.dataset.draftBlue);
+    });
+    el.querySelectorAll('[data-draft-red]').forEach(x => x.onclick = e => {
+      e.preventDefault(); draft('red', x.dataset.draftRed);
+    });
+  } catch (e) {
+    el.innerHTML = '<span class="err">' + esc(e.message) + '</span>';
+  }
+}
+
+$('#blue-board').addEventListener('click', e => {
+  const row = e.target.closest('tr[data-agent]');
+  if (row) draft(row.dataset.side, row.dataset.agent);
+});
+$('#red-board').addEventListener('click', e => {
+  const row = e.target.closest('tr[data-agent]');
+  if (row) draft(row.dataset.side, row.dataset.agent);
+});
+$('#h2h-board').addEventListener('click', e => {
+  const row = e.target.closest('tr[data-h2h-blue]');
+  if (!row) return;
+  draft('blue', row.dataset.h2hBlue);
+  draft('red', row.dataset.h2hRed);
+  $('#g-status').textContent = 'rematch loaded — press START MATCH';
+});
+$('#board-draft').onclick = () => openTab('game');
+
+// ── armoury ranking ────────────────────────────────────────────
+// The old board, demoted to what it actually measures: ammunition, over
+// rounds. No agent appears here, and nothing here is a team.
+async function loadAmmo() {
+  const n = $('#board-rounds')?.value || '8';
+  const b = await api('/board?view=corpus&rounds=' + n);
+  $('#ammo-meta').textContent = b.rounds_counted
+    ? b.rounds_counted + ' rounds counted' : (b.note || 'no rounds yet');
+  $('#defense-ranking').innerHTML = (b.blue || []).length ? `<table>
+    <tr><th>#</th><th>defense</th><th class="num">safety</th>
+        <th class="num">refusal</th><th class="num">over-refusal</th><th class="num">rounds</th></tr>
+    ${b.blue.map(d => `<tr class="click" data-def-id="${esc(d.defense)}"><td>${d.rank}</td><td>${esc(d.name || d.defense)}
+      ${barRow(d.safety_score, 'var(--blue)')}</td>
+      <td class="num">${d.safety_score.toFixed(2)} ${sparkline(d.history, false)}</td>
+      <td class="num">${pct(d.refusal_rate)}</td>
+      <td class="num">${pct(d.over_refusal)}</td>
+      <td class="num">${d.rounds}</td></tr>`).join('')}</table>`
+    : '<span class="muted">no completed rounds yet — run one.</span>';
+  window._boardHistoryRounds = {};
+  (b.blue || []).forEach(d => { window._boardHistoryRounds[d.defense] = d.history_rounds || []; });
+  $('#attack-ranking').innerHTML = (b.red || []).length ? `<table>
+    <tr><th>attack</th><th>technique</th><th class="num">breach</th><th class="num">fired</th></tr>
+    ${b.red.map(a => `<tr><td>${esc(a.name || a.attack)}
+      ${barRow(a.breach_rate, 'var(--red)')}</td>
+      <td class="muted">${esc(a.technique || a.category || '')}</td>
+      <td class="num">${pct(a.breach_rate)} ${sparkline(a.history, false)}</td>
+      <td class="num">${a.fired}</td></tr>`).join('')}</table>`
+    : '<span class="muted">no completed rounds yet.</span>';
+
+  const mp = b.matchups || [];
+  const mpPanel = $('#matchup-panel');
+  if (!mp.length) {
+    mpPanel.style.display = 'none';
+  } else {
+    mpPanel.style.display = 'block';
+    const atkNames = {}, defNames = {};
+    (b.red || []).forEach(a => { atkNames[a.attack] = a.name || a.attack; });
+    (b.blue || []).forEach(d => { defNames[d.defense] = d.name || d.defense; });
+    mp.forEach(m => {
+      if (!atkNames[m.attack]) atkNames[m.attack] = m.attack;
+      if (!defNames[m.defense]) defNames[m.defense] = m.defense;
+    });
+    const attacks = [...new Set(
+      (b.red || []).map(a => a.attack).concat(mp.map(m => m.attack))
+    )];
+    const defenses = [...new Set(
+      (b.blue || []).map(d => d.defense).concat(mp.map(m => m.defense))
+    )];
+    const mx = {};
+    mp.forEach(m => { mx[m.attack + '__' + m.defense] = m; });
+    const abbr = s => s.length > 14 ? s.slice(0, 13) + '…' : s;
+    const cellBg = r => r <= 0.2 ? '#0d2c1b' : r <= 0.6 ? '#332010' : '#331013';
+    const cellFg = r => r <= 0.2 ? 'var(--good)' : r <= 0.6 ? 'var(--warn)' : 'var(--red)';
+    const hdr = '<tr><th></th>' + defenses.map(d =>
+      `<th data-col-def="${esc(d)}" title="${esc(defNames[d])}">${esc(abbr(defNames[d]))}</th>`).join('') + '</tr>';
+    const rows = attacks.map(a =>
+      '<tr><th style="text-align:left;font-weight:normal" title="' + esc(atkNames[a]) + '">'
+      + esc(abbr(atkNames[a])) + '</th>'
+      + defenses.map(d => {
+          const entry = mx[a + '__' + d];
+          if (!entry) return '<td data-col-def="' + esc(d) + '"><span class="v ERROR" title="never fired">—</span></td>';
+          const bpct = (entry.breach_rate * 100).toFixed(0) + '%';
+          const tip = bpct + ' breach (' + entry.fired + ' fired)';
+          return '<td data-col-def="' + esc(d) + '"><span class="v" style="background:' + cellBg(entry.breach_rate)
+            + ';color:' + cellFg(entry.breach_rate) + ';cursor:pointer" title="' + esc(tip) + '"'
+            + ' data-atk="' + esc(a) + '" data-def="' + esc(d) + '">'
+            + esc(bpct) + '</span></td>';
+        }).join('')
+      + '</tr>'
+    ).join('');
+    $('#matchup-board').innerHTML = '<table style="width:auto">' + hdr + rows + '</table>';
+    $('#matchup-board').addEventListener('click', e => {
+      const span = e.target.closest('span[data-atk]');
+      if (!span) return;
+      window._pendingFightPair = {attack: span.dataset.atk, defense: span.dataset.def};
+      document.querySelector('nav button[data-tab="fight"]').click();
+    }, {once: false});
+  }
+
+  // defense progression panel
+  const progDefs = (b.blue || []).filter(d => d.history && d.history.length >= 2);
+  const progPanel = $('#progression-panel');
+  if (progDefs.length >= 2) {
+    progPanel.style.display = 'block';
+    $('#progression-chart').innerHTML = defenseProgressionChart(progDefs);
+  } else {
+    progPanel.style.display = 'none';
+  }
+
+  // technique breakdown panel
+  const techRed = b.red || [];
+  const techMap = {};
+  techRed.forEach(a => {
+    const key = a.technique || a.category || '—';
+    if (!techMap[key]) techMap[key] = {attacks: 0, total: 0, max: 0};
+    techMap[key].attacks++;
+    techMap[key].total += (a.breach_rate || 0);
+    if ((a.breach_rate || 0) > techMap[key].max) techMap[key].max = a.breach_rate || 0;
+  });
+  const techGroups = Object.entries(techMap)
+    .map(([tech, s]) => ({tech, attacks: s.attacks, avg: s.total / s.attacks, max: s.max}))
+    .sort((a, b) => b.avg - a.avg);
+  const techPanel = $('#technique-panel');
+  if (techGroups.length >= 2) {
+    techPanel.style.display = 'block';
+    const tBg = r => r <= 0.2 ? '#0d2c1b' : r <= 0.6 ? '#332010' : '#331013';
+    const tFg = r => r <= 0.2 ? 'var(--good)' : r <= 0.6 ? 'var(--warn)' : 'var(--red)';
+    $('#technique-board').innerHTML = '<table style="width:auto">'
+      + '<tr><th>technique</th><th class="num">attacks</th><th class="num">avg breach</th><th class="num">max breach</th></tr>'
+      + techGroups.map(g =>
+          `<tr><td>${esc(g.tech)}</td><td class="num">${g.attacks}</td>`
+          + `<td class="num"><span class="v" style="background:${tBg(g.avg)};color:${tFg(g.avg)}">${pct(g.avg)}</span></td>`
+          + `<td class="num"><span class="v" style="background:${tBg(g.max)};color:${tFg(g.max)}">${pct(g.max)}</span></td></tr>`
+        ).join('')
+      + '</table>';
+  } else {
+    techPanel.style.display = 'none';
+  }
+
+  // defense profile panel
+  const profDefs = (b.blue || []).filter(d => d.rounds >= 1);
+  const profPanel = $('#profile-panel');
+  if (profDefs.length >= 2) {
+    profPanel.style.display = 'block';
+    $('#profile-chart').innerHTML = defenseProfileChart(profDefs);
+  } else {
+    profPanel.style.display = 'none';
+  }
+}
+$('#board-refresh').onclick = loadBoard;
+$('#board-limit').addEventListener('change', loadBoard);
+$('#ammo-refresh').onclick = loadAmmo;
+$('#board-rounds').addEventListener('change', loadAmmo);
+$('#defense-ranking').addEventListener('click', e => {
+  const row = e.target.closest('tr[data-def-id]');
+  if (!row) return;
+  const did = row.dataset.defId;
+  document.querySelectorAll('.col-highlight').forEach(el => el.classList.remove('col-highlight'));
+  document.querySelectorAll(`[data-col-def="${CSS.escape(did)}"]`).forEach(el => el.classList.add('col-highlight'));
+  const mp = $('#matchup-panel');
+  if (mp && mp.style.display !== 'none') mp.scrollIntoView({behavior:'smooth',block:'start'});
+  // drill-down toggle
+  const existing = row.nextElementSibling;
+  if (existing && existing.classList.contains('blue-drill-down')) {
+    existing.remove();
+    return;
+  }
+  document.querySelectorAll('.blue-drill-down').forEach(el => el.remove());
+  const hrs = (window._boardHistoryRounds || {})[did] || [];
+  const detail = document.createElement('tr');
+  detail.className = 'blue-drill-down';
+  const td = document.createElement('td');
+  td.colSpan = 6;
+  td.style.cssText = 'padding:8px 12px;background:#0a0f16';
+  if (!hrs.length) {
+    td.innerHTML = '<span class="muted">—</span>';
+  } else {
+    td.innerHTML = '<table style="width:auto;font-size:12px">'
+      + '<tr><th>Round</th><th>When</th><th>Target</th><th class="num">Safety</th><th class="num">Refusal</th><th class="num">Over-ref</th></tr>'
+      + hrs.map(h => `<tr>`
+          + `<td><button class="go" style="padding:2px 6px;font-size:11px" data-round="${esc(h.id)}">${esc(h.id)}</button></td>`
+          + `<td class="muted">${h.ts ? new Date(h.ts * 1000).toLocaleString() : '—'}</td>`
+          + `<td class="muted">${esc(h.model || '—')}</td>`
+          + `<td class="num">${(h.safety_score || 0).toFixed(2)}</td>`
+          + `<td class="num">${pct(h.refusal_rate || 0)}</td>`
+          + `<td class="num">${pct(h.over_refusal || 0)}</td>`
+          + `</tr>`).join('')
+      + '</table>';
+    td.querySelectorAll('button[data-round]').forEach(btn => {
+      btn.onclick = () => {
+        window._pendingRound = btn.dataset.round;
+        document.querySelector('nav button[data-tab="rounds"]').click();
+      };
+    });
+  }
+  detail.appendChild(td);
+  row.after(detail);
+});
+
+// ── rounds ─────────────────────────────────────────────────────
+async function recomputeCostHint() {
+  try {
+    const [{attacks}, {defenses}, {controls}] = await Promise.all(
+      [api('/attacks'), api('/defenses'), api('/controls')]);
+    const atkSel = $('#r-attacks'), defSel = $('#r-defenses');
+    const atk = (atkSel && atkSel.options.length) ? atkSel.selectedOptions.length : attacks.length;
+    const def = (defSel && defSel.options.length) ? defSel.selectedOptions.length : defenses.length;
+    const ctlEnabled = $('#r-ctl') && $('#r-ctl').checked;
+    const ctl = ctlEnabled ? controls.length : 0;
+    const total = atk * def + ctl * def;
+    $('#cost-hint').textContent = ctlEnabled
+      ? `${atk} attacks × ${def} defenses + ${ctl} controls × ${def} defenses = ${total} matches`
+      : `${atk} attacks × ${def} defenses = ${total} matches`;
+  } catch (_) {}
+}
+
+async function populateRoundSelects() {
+  try {
+    const [{attacks}, {defenses}] = await Promise.all([api('/attacks'), api('/defenses')]);
+    const fill = (sel, items) => {
+      const prev = new Set([...sel.selectedOptions].map(o => o.value));
+      const wasEmpty = sel.options.length === 0;
+      sel.innerHTML = items.map(x => `<option value="${esc(x.id)}">${esc(x.name)}</option>`).join('');
+      [...sel.options].forEach(o => o.selected = wasEmpty || prev.has(o.value));
+    };
+    fill($('#r-attacks'), attacks);
+    fill($('#r-defenses'), defenses);
+    const cfg = window._rerunConfig;
+    if (cfg) {
+      delete window._rerunConfig;
+      const atkIds = new Set(cfg.attacks || []);
+      const defIds = new Set(cfg.defenses || []);
+      [...$('#r-attacks').options].forEach(o => o.selected = atkIds.has(o.value));
+      [...$('#r-defenses').options].forEach(o => o.selected = defIds.has(o.value));
+      if (cfg.model) $('#r-model').value = cfg.model;
+    }
+    recomputeCostHint();
+  } catch (_) {}
+}
+
+async function loadRounds() {
+  populateRoundSelects();
+  recomputeCostHint();
+  const [{rounds}, {defenses}] = await Promise.all([api('/rounds?limit=20'), api('/defenses')]);
+  const defName = {};
+  (defenses || []).forEach(d => { defName[d.id] = d.name || d.id; });
+  $('#round-list').innerHTML = rounds.length ? `<table>
+    <tr><th>round</th><th>when</th><th>status</th><th>target</th><th class="num">matches</th>
+        <th>leader</th></tr>
+    ${rounds.map(r => `<tr class="click" data-id="${esc(r.id)}">
+      <td>${esc(r.id)}</td>
+      <td class="muted">${r.started ? new Date(r.started * 1000).toLocaleString() : '—'}</td>
+      <td>${r.status === 'done' ? 'done'
+            : `<span class="flash">${esc(r.status)} ${r.done || 0}/${r.matches || 0}</span>`}</td>
+      <td class="muted">${esc(r.model)}</td>
+      <td class="num">${r.matches || 0}</td>
+      <td>${r.winner ? esc(defName[r.winner.defense] || r.winner.defense) + ' · ' +
+            r.winner.safety_score.toFixed(2) : '—'}</td></tr>`).join('')}</table>`
+    : '<span class="muted">no rounds yet.</span>';
+  document.querySelectorAll('#round-list tr.click').forEach(
+    tr => tr.onclick = () => showRound(tr.dataset.id));
+  if (window._pendingRound) {
+    const id = window._pendingRound;
+    delete window._pendingRound;
+    showRound(id);
+  }
+}
+
+async function showRound(id) {
+  const [r, defs, atks, ctlsData] = await Promise.all([
+    api('/rounds?id=' + encodeURIComponent(id) + '&verbose=1'),
+    api('/defenses'),
+    api('/attacks'),
+    api('/controls'),
+  ]);
+  const defName = {};
+  (Array.isArray(defs) ? defs : []).forEach(d => { defName[d.id] = d.name || d.id; });
+  const atkName = {};
+  const atkById = {};
+  (Array.isArray(atks) ? atks : []).forEach(a => { atkName[a.id] = a.name || a.id; atkById[a.id] = a; });
+  const ctlPrompt = {};
+  const ctlList = Array.isArray(ctlsData) ? ctlsData : (ctlsData.controls || []);
+  ctlList.forEach(c => { ctlPrompt[c.id] = c.prompt || ''; });
+  $('#round-detail').style.display = 'block';
+  const scores = r.scores || [];
+  const controlMatches = r.control_matches || [];
+  const atkOrder = r.attacks || [];
+  const defOrder = r.defenses || [];
+  const matchMap = new Map();
+  (r.matches || []).forEach((m, i) => { matchMap.set(m.attack + '__' + m.defense, {verdict: m.verdict || '', idx: i}); });
+  const _abbr = s => s.length > 10 ? s.slice(0, 9) + '…' : s;
+  const _vl = v => ({BLOCKED:'B',DEFLECTED:'D',BREACHED:'B',LEAKED:'L',ERROR:'E'}[v] || '–');
+  let hmHtml = '';
+  if (atkOrder.length && defOrder.length) {
+    let hmRows = '';
+    atkOrder.forEach(a => {
+      let cells = `<th title="${esc(atkName[a]||a)}">${esc(_abbr(atkName[a]||a))}</th>`;
+      defOrder.forEach(d => {
+        const hmEntry = matchMap.get(a + '__' + d);
+        if (hmEntry) {
+          cells += `<td><span class="v ${esc(hmEntry.verdict)} hm-cell" data-midx="${hmEntry.idx}" style="cursor:pointer" title="${esc((atkName[a]||a)+' vs '+(defName[d]||d)+': '+hmEntry.verdict)}">${_vl(hmEntry.verdict)}</span></td>`;
+        } else {
+          cells += `<td><span class="v" title="${esc((atkName[a]||a)+' vs '+(defName[d]||d)+': —')}">&#x2013;</span></td>`;
+        }
+      });
+      hmRows += `<tr>${cells}</tr>`;
+    });
+    const hmHdr = '<tr><th></th>' + defOrder.map(d => `<th title="${esc(defName[d]||d)}">${esc(_abbr(defName[d]||d))}</th>`).join('') + '</tr>';
+    hmHtml = `<h2 style="margin-top:14px">heat map</h2><div style="overflow-x:auto;margin-bottom:14px"><table style="width:auto">${hmHdr}${hmRows}</table></div>`;
+  }
+  $('#round-body').innerHTML = `
+    <div class="row"><span class="pill">${esc(r.id)}</span>
+      <span class="pill">${esc(r.model)}</span>
+      <span class="pill">judge: ${esc(r.judge)}</span>
+      <span class="pill">${r.done}/${r.total_matches}</span>
+      <span class="pill">${esc(r.status)}</span>
+      ${r.started ? `<span class="pill muted">${new Date(r.started * 1000).toLocaleString()}</span>` : ''}
+      ${r.status === 'done' && r.finished && r.started ? `<span class="pill muted">${Math.round(r.finished - r.started)}s</span>` : ''}
+      ${r.status === 'done' ? '<button id="rerun-btn" class="go" style="margin-left:4px">RERUN</button>' : ''}</div>
+    ${scores.length ? `<table>
+      <tr><th>defense</th><th class="num">safety</th><th class="num">refusal</th>
+          <th class="num">over-refusal</th><th class="num">breach</th>
+          <th class="num">leak</th><th>first block</th><th class="num">calls</th></tr>
+      ${scores.map(s => `<tr><td>${esc(defName[s.defense] || s.defense)}</td>
+        <td class="num">${s.safety_score.toFixed(2)}</td>
+        <td class="num">${pct(s.refusal_rate)}</td>
+        <td class="num">${pct(s.over_refusal)}</td>
+        <td class="num">${pct(s.breach_rate)}</td>
+        <td class="num">${pct(s.leak_rate)}</td>
+        <td class="muted">${Object.entries(s.first_block).filter(([, n]) => n)
+          .map(([k, n]) => k + ':' + n).join(' ')}</td>
+        <td class="num">${s.model_calls}</td></tr>`).join('')}</table>` : ''}
+    ${hmHtml}
+    <h2 style="margin-top:14px">matches</h2>
+    <table><tr><th>attack</th><th>defense</th><th>verdict</th><th>stopped at</th>
+      <th>why</th></tr>
+      ${(r.matches || []).map((m, i) => `<tr class="click" data-idx="${i}"><td>${esc(atkName[m.attack] || m.attack)}</td>
+        <td>${esc(defName[m.defense] || m.defense)}</td>
+        <td><span class="v ${esc(m.verdict)}">${esc(m.verdict)}</span></td>
+        <td class="muted">${esc(m.blocked_at || 'model')}</td>
+        <td class="muted">${esc(m.reason || m.error || '')}</td></tr>`).join('')}
+    </table>
+    ${controlMatches.length ? `<h2 style="margin-top:14px">controls</h2>
+    <table><tr><th>defense</th><th>control</th><th>near attack</th>
+        <th>over-refused</th><th>stopped at</th></tr>
+      ${controlMatches.map((m, i) => `<tr class="click" data-ctl="${i}"${m.over_refusal ? ' style="color:var(--warn)"' : ''}>
+        <td>${esc(defName[m.defense] || m.defense)}</td>
+        <td class="muted">${esc(m.control)}</td>
+        <td class="muted">${esc(atkName[m.near] || m.near || '—')}</td>
+        <td>${m.over_refusal ? '<span style="color:var(--warn)">yes</span>' : '—'}</td>
+        <td class="muted">${esc(m.blocked_at || 'model')}</td></tr>`).join('')}
+    </table>` : ''}`;
+  if (r.status === 'done') {
+    $('#rerun-btn').onclick = () => {
+      window._rerunConfig = {attacks: r.attacks, defenses: r.defenses, model: r.model};
+      window._rerunSourceId = id;
+      document.querySelector('nav button[data-tab="rounds"]').click();
+    };
+  }
+  const matches = r.matches || [];
+  $('#round-body').querySelectorAll('tr[data-idx]').forEach(tr => {
+    tr.onclick = () => {
+      const idx = Number(tr.dataset.idx);
+      const m = matches[idx];
+      const existing = tr.nextElementSibling;
+      if (existing && existing.classList.contains('match-detail')) {
+        existing.remove(); return;
+      }
+      const detail = document.createElement('tr');
+      detail.className = 'match-detail';
+      const td = document.createElement('td');
+      td.colSpan = 5;
+      td.style.padding = '8px 12px';
+      const atk = atkById[m.attack];
+      const attackPrompt = atk
+        ? (atk.prompt || (Array.isArray(atk.turns)
+            ? atk.turns.map(t => t.content || t).join('\n---\n') : ''))
+        : '';
+      td.innerHTML = `${attackPrompt ? `<div class="muted">attack prompt</div><pre>${esc(attackPrompt)}</pre>` : ''}
+        ${(m.stages || []).map(s =>
+        `<div class="stage"><b>${esc(s.stage)}</b>
+         <span>${esc(s.rule || s.action)}</span>
+         <span class="muted">${esc(s.hit || '')}</span></div>`).join('')}
+        ${m.judge_fallback ? `<div class="err" style="margin-top:4px">⚠ judge fell back: ${esc(m.judge_fallback)}</div>` : ''}
+        <pre style="margin-top:6px">${esc(m.response || m.error || '')}</pre>`;
+      tr.after(detail);
+    };
+  });
+  $('#round-body').querySelectorAll('tr[data-ctl]').forEach(tr => {
+    tr.onclick = () => {
+      const idx = Number(tr.dataset.ctl);
+      const m = controlMatches[idx];
+      const existing = tr.nextElementSibling;
+      if (existing && existing.classList.contains('ctl-detail')) {
+        existing.remove(); return;
+      }
+      const detail = document.createElement('tr');
+      detail.className = 'ctl-detail';
+      const td = document.createElement('td');
+      td.colSpan = 5;
+      td.style.padding = '8px 12px';
+      td.innerHTML = `<pre style="margin-top:0">${esc(ctlPrompt[m.control] || m.control || '')}</pre>
+        <pre>${esc(m.response || m.error || '')}</pre>`;
+      tr.after(detail);
+    };
+  });
+  $('#round-body').querySelectorAll('.hm-cell[data-midx]').forEach(span => {
+    span.onclick = () => {
+      const tr = $('#round-body').querySelector(`tr[data-idx="${span.dataset.midx}"]`);
+      if (tr) tr.scrollIntoView({behavior: 'smooth', block: 'center'});
+    };
+  });
+  $('#round-detail').scrollIntoView({behavior: 'smooth'});
+}
+
+$('#r-ping').onclick = async () => {
+  const btn = $('#r-ping'); btn.disabled = true;
+  const st = $('#r-status');
+  st.textContent = 'pinging…'; st.style.color = '';
+  try {
+    const r = await post('/ping', {model: $('#r-model').value.trim()});
+    st.innerHTML = `<span style="color:var(--good)">ok — ${esc(r.model)}</span>`;
+  } catch (e) {
+    st.innerHTML = '<span class="err">' + esc(e.message) + '</span>';
+  } finally { btn.disabled = false; }
+};
+
+$('#r-go').onclick = async () => {
+  const btn = $('#r-go'); btn.disabled = true;
+  $('#r-status').textContent = 'starting…';
+  try {
+    const body = {
+      model: $('#r-model').value.trim(), judge: $('#r-judge').value,
+      parallel: Number($('#r-par').value) || 6, controls: $('#r-ctl').checked,
+      background: true};
+    const atkSel = $('#r-attacks'), defSel = $('#r-defenses');
+    if (atkSel && atkSel.options.length && atkSel.selectedOptions.length < atkSel.options.length)
+      body.attacks = [...atkSel.selectedOptions].map(o => o.value);
+    if (defSel && defSel.options.length && defSel.selectedOptions.length < defSel.options.length)
+      body.defenses = [...defSel.selectedOptions].map(o => o.value);
+    const started = await post('/round', body);
+    poll(started.id, started.total_matches);
+  } catch (e) {
+    $('#r-status').innerHTML = '<span class="err">' + esc(e.message) + '</span>';
+  } finally { btn.disabled = false; }
+};
+
+['#r-attacks', '#r-defenses', '#r-ctl'].forEach(id => {
+  const el = $(id); if (el) el.addEventListener('change', recomputeCostHint);
+});
+
+async function poll(id, total, lastDone = -1) {
+  const r = await api('/rounds?id=' + encodeURIComponent(id)).catch(() => null);
+  if (!r) { $('#r-status').textContent = ''; return; }
+  const done = r.done || 0;
+  $('#r-status').textContent = `${id} — ${done}/${r.total_matches || total} ${r.status}`;
+  await loadRounds();
+  if (r.status === 'running') {
+    updateTicker(`▶ ROUND ${id.slice(-6)} ${done}/${r.total_matches || total} <span class="pulse-dot">●</span>`);
+    if (done !== lastDone) { showRound(id); }
+    setTimeout(() => poll(id, total, done), 1500);
+  } else {
+    const lb = (r.leaderboard || [])[0];
+    const winner = lb || r.winner;
+    if (winner) {
+      const name = winner.name || winner.defense || '—';
+      const score = winner.safety_score != null ? winner.safety_score.toFixed(2) : '—';
+      updateTicker(`leader: ${esc(name)} · ${score}`);
+      setTimeout(() => updateTicker(''), 8000);
+    } else {
+      updateTicker('');
+    }
+    await showRound(id);
+    // A round moves the ammunition ranking, not an agent's record.
+    loadAmmo().catch(() => {});
+    if (window._rerunSourceId) {
+      const srcId = window._rerunSourceId;
+      delete window._rerunSourceId;
+      try {
+        const [srcRound, newRound, {attacks: atks2}, {defenses: defs2}] = await Promise.all([
+          api('/rounds?id=' + encodeURIComponent(srcId) + '&verbose=1'),
+          api('/rounds?id=' + encodeURIComponent(id) + '&verbose=1'),
+          api('/attacks'),
+          api('/defenses'),
+        ]);
+        const atkN = {}, defN = {};
+        atks2.forEach(a => { atkN[a.id] = a.name || a.id; });
+        defs2.forEach(d => { defN[d.id] = d.name || d.id; });
+        const srcMap = {};
+        (srcRound.matches || []).forEach(m => { srcMap[m.attack + '__' + m.defense] = m.verdict; });
+        const blocked = [], regressed = [];
+        (newRound.matches || []).forEach(m => {
+          const key = m.attack + '__' + m.defense;
+          const sv = srcMap[key], nv = m.verdict;
+          if ((sv === 'BREACHED' || sv === 'LEAKED') && (nv === 'BLOCKED' || nv === 'DEFLECTED'))
+            blocked.push({key, sv, nv});
+          if ((sv === 'BLOCKED' || sv === 'DEFLECTED') && (nv === 'BREACHED' || nv === 'LEAKED'))
+            regressed.push({key, sv, nv});
+        });
+        const fmtKey = k => {
+          const sep = k.indexOf('__');
+          const atk = k.slice(0, sep), def = k.slice(sep + 2);
+          return esc((atkN[atk] || atk) + ' vs ' + (defN[def] || def));
+        };
+        let vcHtml = `<div class="panel" style="margin-bottom:14px"><h2>verdict changes vs ${esc(srcId.slice(-8))}</h2>`;
+        if (!blocked.length && !regressed.length) {
+          vcHtml += '<span class="muted">no verdict changes vs previous run</span>';
+        } else {
+          if (blocked.length)
+            vcHtml += `<div style="color:var(--good);margin-bottom:4px"><b>Newly blocked (${blocked.length})</b></div>`
+              + `<ul style="margin:0 0 10px;padding-left:18px;color:var(--good)">`
+              + blocked.map(x => `<li>${fmtKey(x.key)}: <span class="v ${esc(x.sv)}">${esc(x.sv)}</span> → <span class="v ${esc(x.nv)}">${esc(x.nv)}</span></li>`).join('')
+              + `</ul>`;
+          if (regressed.length)
+            vcHtml += `<div style="color:var(--red);margin-bottom:4px"><b>New regressions (${regressed.length})</b></div>`
+              + `<ul style="margin:0 0 6px;padding-left:18px;color:var(--red)">`
+              + regressed.map(x => `<li>${fmtKey(x.key)}: <span class="v ${esc(x.sv)}">${esc(x.sv)}</span> → <span class="v ${esc(x.nv)}">${esc(x.nv)}</span></li>`).join('')
+              + `</ul>`;
+        }
+        vcHtml += '</div>';
+        $('#round-body').insertAdjacentHTML('afterbegin', vcHtml);
+        $('#round-detail').scrollIntoView({behavior: 'smooth'});
+      } catch (_) {}
+    }
+  }
+}
+
+// ── corpora ────────────────────────────────────────────────────
+let _attackMap = {};
+let _pendingAttackDel = null;
+let _pendingDefenseDel = null;
+document.addEventListener('click', e => {
+  if (!e.target.matches('#attack-list button[data-del]') && _pendingAttackDel !== null) {
+    const btn = document.querySelector(`#attack-list button[data-del="${CSS.escape(_pendingAttackDel)}"]`);
+    if (btn) { btn.textContent = '×'; btn.classList.remove('pending'); }
+    _pendingAttackDel = null;
+  }
+  if (!e.target.matches('#defense-list button[data-del]') && _pendingDefenseDel !== null) {
+    const btn = document.querySelector(`#defense-list button[data-del="${CSS.escape(_pendingDefenseDel)}"]`);
+    if (btn) { btn.textContent = '×'; btn.classList.remove('pending'); }
+    _pendingDefenseDel = null;
+  }
+});
+async function loadAttacks() {
+  const [{attacks}, board] = await Promise.all([api('/attacks'), api('/board?rounds=8')]);
+  const breachMap = {};
+  (board.red || []).forEach(a => { breachMap[a.attack] = a.breach_rate; });
+  const cellBg = r => r <= 0.2 ? '#0d2c1b' : r <= 0.6 ? '#332010' : '#331013';
+  const cellFg = r => r <= 0.2 ? 'var(--good)' : r <= 0.6 ? 'var(--warn)' : 'var(--red)';
+  const defNameFromBoard = {};
+  (board.blue || []).forEach(d => { defNameFromBoard[d.defense] = d.name || d.defense; });
+  const matchupByAtk = {};
+  (board.matchups || []).forEach(m => {
+    if (!matchupByAtk[m.attack]) matchupByAtk[m.attack] = [];
+    matchupByAtk[m.attack].push({defName: defNameFromBoard[m.defense] || m.defense, defId: m.defense, breach_rate: m.breach_rate, fired: m.fired});
+  });
+  Object.values(matchupByAtk).forEach(arr => arr.sort((a, b) => b.breach_rate - a.breach_rate));
+  $('#attack-list').innerHTML = attacks.length ? `<table>
+    <tr><th>id</th><th>name</th><th>category</th><th>technique</th>
+        <th>goal</th><th class="num">breach</th><th></th></tr>
+    ${attacks.map((a, i) => {
+      const br = breachMap[a.id];
+      const brCell = br == null
+        ? '<td class="num"><span class="muted">—</span></td>'
+        : `<td class="num"><span style="background:${cellBg(br)};color:${cellFg(br)};padding:1px 5px;border-radius:3px">${pct(br)}</span></td>`;
+      return `<tr class="click" data-idx="${i}"><td>${esc(a.id)}</td><td>${esc(a.name)}</td>
+      <td class="muted">${esc(a.category)}</td>
+      <td class="muted">${esc(a.technique || '')}</td>
+      <td class="muted">${esc((a.goal || '').slice(0, 70))}</td>
+      ${brCell}
+      <td><button data-del="${esc(a.id)}">×</button></td></tr>`;
+    }).join('')}</table>`
+    : '<span class="muted">empty.</span>';
+  document.querySelectorAll('#attack-list button[data-del]').forEach(b => {
+    b.onmouseleave = () => {
+      if (_pendingAttackDel === b.dataset.del) {
+        _pendingAttackDel = null; b.textContent = '×'; b.classList.remove('pending');
+      }
+    };
+    b.onclick = async e => {
+      e.stopPropagation();
+      if (_pendingAttackDel === b.dataset.del) {
+        await api('/attacks?id=' + encodeURIComponent(b.dataset.del), {method: 'DELETE'});
+        loadAttacks();
+      } else {
+        _pendingAttackDel = b.dataset.del; b.textContent = 'CONFIRM?'; b.classList.add('pending');
+      }
+    };
+  });
+  $('#attack-list').querySelectorAll('tr[data-idx]').forEach(tr => {
+    tr.onclick = () => {
+      const idx = Number(tr.dataset.idx);
+      const a = attacks[idx];
+      const existing = tr.nextElementSibling;
+      if (existing && existing.classList.contains('attack-detail')) {
+        existing.remove(); return;
+      }
+      const detail = document.createElement('tr');
+      detail.className = 'attack-detail';
+      const td = document.createElement('td');
+      td.colSpan = 7;
+      td.style.padding = '8px 12px';
+      const prompt = a.prompt || (Array.isArray(a.turns) ? a.turns.map(t => t.content || t).join('\n---\n') : '');
+      const markers = (a.markers || []).join(', ');
+      const vsRows = matchupByAtk[a.id] || [];
+      const vsTable = vsRows.length
+        ? `<div class="muted" style="margin-top:8px;margin-bottom:2px">vs defenses:</div>` +
+          `<table style="width:auto"><tr><th>defense</th><th class="num">breach</th><th class="num">fired</th></tr>` +
+          vsRows.map(r => `<tr><td>${esc(r.defName)}</td>` +
+            `<td class="num"><span style="background:${cellBg(r.breach_rate)};color:${cellFg(r.breach_rate)};padding:1px 5px;border-radius:3px">${pct(r.breach_rate)}</span></td>` +
+            `<td class="num">${r.fired}</td></tr>`).join('') +
+          `</table>` : '';
+      const hardestDef = vsRows.length ? vsRows.reduce((min, r) => r.breach_rate < min.breach_rate ? r : min) : null;
+      td.innerHTML = `<pre style="margin-top:0">${esc(prompt)}</pre>` +
+        (markers ? `<div class="muted" style="margin-top:4px">markers: ${esc(markers)}</div>` : '') +
+        vsTable +
+        (hardestDef ? `<button class="fight-atk-btn go" style="margin-top:8px;margin-right:6px">→ FIGHT vs ${esc(hardestDef.defName)}</button>` : '') +
+        `<button class="clone-atk-btn go" style="margin-top:8px">→ CLONE</button>`;
+      detail.appendChild(td);
+      tr.after(detail);
+      const fightAtkBtn = detail.querySelector('.fight-atk-btn');
+      if (fightAtkBtn) fightAtkBtn.addEventListener('click', () => {
+        window._pendingFightPair = {attack: a.id, defense: hardestDef.defId};
+        document.querySelector('nav button[data-tab="fight"]').click();
+      });
+      detail.querySelector('.clone-atk-btn').addEventListener('click', () => {
+        document.querySelector('nav button[data-tab="attacks"]').click();
+        $('#a-name').value = (a.name || a.id) + ' v2';
+        $('#a-prompt').value = prompt;
+        $('#a-goal').value = a.goal || '';
+        $('#a-technique').value = a.technique || '';
+        $('#a-markers').value = (a.markers || []).join(', ');
+      });
+    };
+  });
+}
+
+$('#a-save').onclick = async () => {
+  try {
+    const body = {
+      name: $('#a-name').value.trim(),
+      category: 'custom',
+      prompt: $('#a-prompt').value,
+    };
+    const goal = $('#a-goal').value.trim();
+    const technique = $('#a-technique').value.trim();
+    const markers = $('#a-markers').value.trim();
+    if (goal) body.goal = goal;
+    if (technique) body.technique = technique;
+    if (markers) body.markers = markers.split(',').map(s => s.trim()).filter(Boolean);
+    await post('/attacks', body);
+    $('#a-status').textContent = 'added.';
+    $('#a-name').value = ''; $('#a-prompt').value = '';
+    $('#a-goal').value = ''; $('#a-technique').value = ''; $('#a-markers').value = '';
+    loadAttacks(); recomputeCostHint();
+  } catch (e) { $('#a-status').innerHTML = '<span class="err">' + esc(e.message) + '</span>'; }
+};
+
+function rules(text) {
+  const t = text.trim();
+  if (!t) return [];
+  if (t.startsWith('[')) return JSON.parse(t);
+  return t.split('\n').map(s => s.trim()).filter(Boolean);
+}
+
+async function loadDefenses() {
+  const [{defenses}, board] = await Promise.all([api('/defenses'), api('/board?rounds=8')]);
+  const defCellBg = r => r <= 0.2 ? '#0d2c1b' : r <= 0.6 ? '#332010' : '#331013';
+  const defCellFg = r => r <= 0.2 ? 'var(--good)' : r <= 0.6 ? 'var(--warn)' : 'var(--red)';
+  const atkNameFromBoard = {};
+  (board.red || []).forEach(a => { atkNameFromBoard[a.attack] = a.name || a.attack; });
+  const matchupByDef = {};
+  (board.matchups || []).forEach(m => {
+    if (!matchupByDef[m.defense]) matchupByDef[m.defense] = [];
+    matchupByDef[m.defense].push({atkName: atkNameFromBoard[m.attack] || m.attack, atkId: m.attack, breach_rate: m.breach_rate, fired: m.fired});
+  });
+  Object.values(matchupByDef).forEach(arr => arr.sort((a, b) => b.breach_rate - a.breach_rate));
+  $('#defense-list').innerHTML = `<table>
+    <tr><th>id</th><th>name</th><th class="num">in</th><th class="num">out</th>
+        <th>self-check</th><th>prompt</th><th></th></tr>
+    ${defenses.map((d, i) => `<tr class="click" data-idx="${i}"><td>${esc(d.id)}</td><td>${esc(d.name)}</td>
+      <td class="num">${(d.input_rules || []).length}</td>
+      <td class="num">${(d.output_rules || []).length}</td>
+      <td class="muted">${d.self_check ? 'yes' : '—'}</td>
+      <td class="muted">${esc((d.system_prompt || '').slice(0, 60))}${
+        (d.system_prompt || '').length > 60 ? '…' : ''}</td>
+      <td>${d.builtin ? '<span class="pill">built-in</span>'
+        : `<button data-del="${esc(d.id)}">×</button>`}</td></tr>`).join('')}</table>`;
+  document.querySelectorAll('#defense-list button[data-del]').forEach(b => {
+    b.onmouseleave = () => {
+      if (_pendingDefenseDel === b.dataset.del) {
+        _pendingDefenseDel = null; b.textContent = '×'; b.classList.remove('pending');
+      }
+    };
+    b.onclick = async e => {
+      e.stopPropagation();
+      if (_pendingDefenseDel === b.dataset.del) {
+        await api('/defenses?id=' + encodeURIComponent(b.dataset.del), {method: 'DELETE'});
+        loadDefenses();
+      } else {
+        _pendingDefenseDel = b.dataset.del; b.textContent = 'CONFIRM?'; b.classList.add('pending');
+      }
+    };
+  });
+  $('#defense-list').querySelectorAll('tr[data-idx]').forEach(tr => {
+    tr.onclick = () => {
+      const idx = Number(tr.dataset.idx);
+      const d = defenses[idx];
+      const existing = tr.nextElementSibling;
+      if (existing && existing.classList.contains('defense-detail')) {
+        existing.remove(); return;
+      }
+      const detail = document.createElement('tr');
+      detail.className = 'defense-detail';
+      const td = document.createElement('td');
+      td.colSpan = 7;
+      td.style.padding = '8px 12px';
+      const inRules = (d.input_rules || []);
+      const outRules = (d.output_rules || []);
+      const failRows = matchupByDef[d.id] || [];
+      const failTable = failRows.length
+        ? `<div class="muted" style="margin-top:8px;margin-bottom:2px">still gets through:</div>` +
+          `<table style="width:auto"><tr><th>attack</th><th class="num">breach</th><th class="num">fired</th></tr>` +
+          failRows.map(r => `<tr><td>${esc(r.atkName)}</td>` +
+            `<td class="num"><span style="background:${defCellBg(r.breach_rate)};color:${defCellFg(r.breach_rate)};padding:1px 5px;border-radius:3px">${pct(r.breach_rate)}</span></td>` +
+            `<td class="num">${r.fired}</td></tr>`).join('') +
+          `</table>` : '';
+      const mostDangerous = failRows.length ? failRows[0] : null;
+      td.innerHTML =
+        (d.system_prompt ? `<pre style="margin-top:0">${esc(d.system_prompt)}</pre>` : '') +
+        (inRules.length ? `<div class="muted" style="margin-top:4px"><b>input rules:</b></div><pre>${esc(inRules.join('\n'))}</pre>` : '') +
+        (outRules.length ? `<div class="muted"><b>output rules:</b></div><pre>${esc(outRules.join('\n'))}</pre>` : '') +
+        (d.max_input_chars ? `<div class="muted">max input chars: ${esc(String(d.max_input_chars))}</div>` : '') +
+        failTable +
+        (mostDangerous ? `<button class="fight-def-btn go" style="margin-top:8px;margin-right:6px">→ FIGHT vs ${esc(mostDangerous.atkName)}</button>` : '') +
+        `<button class="clone-def-btn go" style="margin-top:8px">→ CLONE</button>`;
+      detail.appendChild(td);
+      const fightDefBtn = td.querySelector('.fight-def-btn');
+      if (fightDefBtn) fightDefBtn.onclick = () => {
+        window._pendingFightPair = {attack: mostDangerous.atkId, defense: d.id};
+        document.querySelector('nav button[data-tab="fight"]').click();
+      };
+      td.querySelectorAll('.clone-def-btn').forEach(btn => {
+        btn.onclick = () => {
+          document.querySelector('nav button[data-tab="defenses"]').click();
+          $('#d-name').value = (d.name || d.id) + ' v2';
+          $('#d-sys').value = d.system_prompt || '';
+          $('#d-in').value = JSON.stringify(d.input_rules || []);
+          $('#d-out').value = JSON.stringify(d.output_rules || []);
+          $('#d-self').checked = !!d.self_check;
+          $('#d-cap').value = String(d.max_input_chars || 0);
+        };
+      });
+      tr.after(detail);
+    };
+  });
+}
+
+$('#d-save').onclick = async () => {
+  try {
+    const out = await post('/defenses', {
+      name: $('#d-name').value.trim(), system_prompt: $('#d-sys').value,
+      input_rules: rules($('#d-in').value), output_rules: rules($('#d-out').value),
+      self_check: $('#d-self').checked,
+      max_input_chars: Number($('#d-cap').value) || 0});
+    $('#d-status').textContent =
+      `added — ${out.cost.model_calls_per_turn} model call(s) per turn.`;
+    $('#d-name').value = ''; $('#d-sys').value = ''; $('#d-in').value = '';
+    $('#d-out').value = ''; $('#d-self').checked = false; $('#d-cap').value = '0';
+    loadDefenses(); recomputeCostHint();
+  } catch (e) { $('#d-status').innerHTML = '<span class="err">' + esc(e.message) + '</span>'; }
+};
+
+// ── fight ──────────────────────────────────────────────────────
+let fightAttacks = [];
+async function loadPickers() {
+  const [{attacks}, {defenses}] = await Promise.all(
+    [api('/attacks'), api('/defenses')]);
+  fightAttacks = attacks;
+  $('#f-attack').innerHTML = attacks.map(
+    a => `<option value="${esc(a.id)}">${esc(a.name)}</option>`).join('');
+  $('#f-defense').innerHTML = defenses.map(
+    d => `<option value="${esc(d.id)}">${esc(d.name)}</option>`).join('');
+  async function updateCostHint() {
+    if ($('#f-custom-def').value.trim()) {
+      $('#f-cost-hint').innerHTML = '<span class="pill">1 model call</span>';
+      return;
+    }
+    const val = $('#f-defense').value;
+    if (!val) { $('#f-cost-hint').textContent = ''; return; }
+    try {
+      const c = await api('/cost?defense=' + encodeURIComponent(val));
+      const n = c.model_calls_per_turn;
+      $('#f-cost-hint').innerHTML =
+        `<span class="pill">${n} model call${n !== 1 ? 's' : ''}${n > 1 ? ' (self-check)' : ''}</span>`;
+    } catch { $('#f-cost-hint').textContent = ''; }
+  }
+  $('#f-defense').addEventListener('change', updateCostHint);
+  $('#f-custom-def').addEventListener('input', () => {
+    updateCostHint();
+    const hasCustomDef = !!$('#f-custom-def').value.trim();
+    $('#f-all-defenses').disabled = hasCustomDef;
+    if (hasCustomDef) $('#f-all-defenses').checked = false;
+  });
+  updateCostHint();
+  if (window._pendingFightPair) {
+    const pair = window._pendingFightPair;
+    delete window._pendingFightPair;
+    $('#f-attack').value = pair.attack;
+    $('#f-defense').value = pair.defense;
+    updateCostHint();
+  }
+}
+
+$('#f-go').onclick = async () => {
+  $('#f-status').textContent = 'firing…'; $('#f-out').innerHTML = '';
+  $('#f-gauntlet-progress').textContent = '';
+  try {
+    const customText = $('#f-custom').value.trim();
+    const customDefText = $('#f-custom-def').value.trim();
+    const attackId = $('#f-attack').value;
+    const attackArg = customText
+      ? {prompt: customText, name: 'ad-hoc', goal: '', markers: []}
+      : attackId;
+    const gauntlet = $('#f-all-defenses').checked && !customDefText;
+    if (gauntlet) {
+      const {defenses} = await api('/defenses');
+      if (!defenses || !defenses.length) {
+        $('#f-status').textContent = ''; $('#f-out').innerHTML = '<span class="muted">no defenses in corpus</span>';
+        return;
+      }
+      let done = 0;
+      const n = defenses.length;
+      $('#f-gauntlet-progress').textContent = `0/${n}`;
+      const results = await Promise.all(defenses.map(d =>
+        post('/fight', {attack: attackArg, defense: d.id,
+          model: $('#f-model').value.trim(), judge: $('#f-judge').value})
+          .then(m => { done++; $('#f-gauntlet-progress').textContent = `${done}/${n}`; return {d, m}; })
+          .catch(e => { done++; $('#f-gauntlet-progress').textContent = `${done}/${n}`; return {d, m: {verdict:'ERROR', reason: e.message, blocked_at:'', model_calls:0, ms:0}}; })
+      ));
+      $('#f-status').textContent = '';
+      const rows = results.map(({d, m}) =>
+        `<tr>
+          <td>${esc(d.name || d.id)}</td>
+          <td><span class="v ${esc(m.verdict)}">${esc(m.verdict)}</span></td>
+          <td>${esc(m.blocked_at || 'model')}</td>
+          <td class="muted" style="max-width:260px;white-space:normal">${esc(m.reason || m.error || '')}</td>
+          <td class="num">${m.model_calls || 0}</td>
+          <td class="num">${m.ms || 0}</td>
+        </tr>`).join('');
+      $('#f-out').innerHTML = `<table style="width:auto;margin-top:10px">
+        <tr><th>Defense</th><th>Verdict</th><th>Stopped at</th><th>Reason</th><th>Calls</th><th>ms</th></tr>
+        ${rows}</table>`;
+      return;
+    }
+    const defenseArg = customDefText
+      ? {name: 'ad-hoc', system_prompt: customDefText, input_rules: [], output_rules: []}
+      : $('#f-defense').value;
+    const m = await post('/fight', {
+      attack: attackArg, defense: defenseArg,
+      model: $('#f-model').value.trim(), judge: $('#f-judge').value});
+    const atk = customText ? null : fightAttacks.find(a => a.id === attackId);
+    const attackPrompt = atk
+      ? (atk.prompt || (Array.isArray(atk.turns)
+          ? atk.turns.map(t => t.content || t).join('\n---\n') : ''))
+      : customText;
+    $('#f-status').textContent = '';
+    $('#f-out').innerHTML = `
+      ${attackPrompt ? `<div class="muted" style="margin-top:10px">attack prompt</div>
+      <pre>${esc(attackPrompt)}</pre>` : ''}
+      <div class="row" style="margin-top:10px">
+        <span class="v ${esc(m.verdict)}">${esc(m.verdict)}</span>
+        <span class="pill">stopped at ${esc(m.blocked_at || 'model')}</span>
+        <span class="pill">judge: ${esc(m.judge || '—')}</span>
+        <span class="pill">${m.model_calls || 0} model calls</span>
+        <span class="pill">${m.ms || 0} ms</span>
+      </div>
+      <div class="muted">${esc(m.reason || m.error || '')}</div>
+      ${m.judge_fallback ? `<div class="err" style="margin-top:4px">⚠ judge fell back to heuristic: ${esc(m.judge_fallback)}</div>` : ''}
+      ${(m.stages || []).map(s => `<div class="stage"><b>${esc(s.stage)}</b>
+        <span>${esc(s.rule || s.action)}</span>
+        <span class="muted">${esc(s.hit || '')}</span></div>`).join('')}
+      <pre>${esc(m.response || m.error || '')}</pre>`;
+    if (m.verdict === 'BREACHED' || m.verdict === 'LEAKED') {
+      const btn = document.createElement('button');
+      btn.textContent = '→ SAVE TO CORPUS';
+      btn.style.cssText = 'margin-top:10px;border-color:#2e4a63;background:#12202c';
+      btn.onclick = () => {
+        document.querySelector('nav button[data-tab="attacks"]').click();
+        $('#a-name').value = atk ? (atk.name || '') : 'ad-hoc';
+        $('#a-prompt').value = attackPrompt || '';
+        $('#a-goal').value = atk ? (atk.goal || '') : '';
+        $('#a-markers').value = atk && Array.isArray(atk.markers)
+          ? atk.markers.join(', ') : '';
+      };
+      $('#f-out').appendChild(btn);
+    }
+    if (customDefText && (m.verdict === 'BLOCKED' || m.verdict === 'DEFLECTED')) {
+      const btn = document.createElement('button');
+      btn.textContent = '→ SAVE DEFENSE';
+      btn.style.cssText = 'margin-top:10px;border-color:#1e3a5f;background:#0c1a2c';
+      btn.onclick = () => {
+        document.querySelector('nav button[data-tab="defenses"]').click();
+        $('#d-sys').value = customDefText;
+        $('#d-name').focus();
+      };
+      $('#f-out').appendChild(btn);
+    }
+  } catch (e) {
+    $('#f-status').innerHTML = '<span class="err">' + esc(e.message) + '</span>';
+  }
+};
+
+// ── game ───────────────────────────────────────────────────────
+async function loadGames() {
+  const data = await api('/games?limit=20').catch(() => ({games: []}));
+  const games = data.games || [];
+
+  // Standings used to be recomputed here from the last 20 games. They live on
+  // the BOARD now, server-side and across every match, so an agent's record is
+  // one number wherever it is read.
+  $('#game-list').innerHTML = (games.length ? `<table>
+    <tr><th>match</th><th>blue agent</th><th>red agent</th><th>target</th>
+        <th class="num">turns</th><th class="num">blue pts</th>
+        <th class="num">red pts</th><th>winner</th></tr>
+    ${games.map(g => `<tr class="click" data-gid="${esc(g.id)}">
+      <td>${esc(g.id)}</td>
+      <td class="muted">${esc(g.blue || '')}</td>
+      <td class="muted">${esc(g.red || '')}</td>
+      <td class="muted">${esc(g.model || '')}</td>
+      <td class="num">${g.turns || 0}/${g.turns_planned || '?'}</td>
+      <td class="num" style="color:var(--blue)">${g.totals ? g.totals.blue.toFixed(2) : '—'}</td>
+      <td class="num" style="color:var(--red)">${g.totals ? g.totals.red.toFixed(2) : '—'}</td>
+      <td>${g.winner
+          ? `<b style="color:${g.winner === 'blue' ? 'var(--blue)'
+              : g.winner === 'red' ? 'var(--red)' : 'var(--dim)'}">${esc(g.winner)}</b>`
+          : `<span class="flash">${esc(g.status || '')}</span>`}</td>
+    </tr>`).join('')}
+  </table>` : '<span class="muted">no matches yet — draft a blue agent and a '
+    + 'red agent above.</span>');
+  document.querySelectorAll('#game-list tr[data-gid]').forEach(
+    tr => tr.onclick = () => fetchAndShowGame(tr.dataset.gid));
+}
+
+function gameChart(g, turns) {
+  if (turns.length < 2) return '';
+  let cb = 0, cr = 0;
+  const pts = turns.map(t => { cb += t.blue_points||0; cr += t.red_points||0; return {b:cb, r:cr}; });
+  const n = pts.length, flat = pts.flatMap(p => [p.b, p.r, 0]);
+  const lo = Math.min(...flat), hi = Math.max(...flat), rng = hi - lo || 1;
+  const W = 480, H = 60, PX = 10, PY = 8;
+  const sx = i => PX + (n > 1 ? i * W / (n - 1) : W / 2);
+  const sy = v => PY + (1 - (v - lo) / rng) * H;
+  const y0 = sy(0), live = g.status === 'running';
+  const bA = esc((g.blue || '').slice(0, 12)), rA = esc((g.red || '').slice(0, 12));
+  const dots = pts.map((p, i) => {
+    const l = i === n - 1 && live;
+    return `<circle cx="${sx(i)}" cy="${sy(p.b)}" r="${l?3:2}" fill="var(--blue)"${l?' class="pulse-dot"':''}/>`
+         + `<circle cx="${sx(i)}" cy="${sy(p.r)}" r="${l?3:2}" fill="var(--red)"${l?' class="pulse-dot"':''}/>`;
+  }).join('');
+  const bLine = pts.map((p, i) => `${sx(i)},${sy(p.b)}`).join(' ');
+  const rLine = pts.map((p, i) => `${sx(i)},${sy(p.r)}`).join(' ');
+  return `<div style="margin:6px 0 10px">`
+    + `<div style="font-size:11px;color:var(--dim);margin-bottom:4px">`
+    + `<span style="color:var(--blue)">${bA}</span> vs <span style="color:var(--red)">${rA}</span>`
+    + (live ? ' <span class="flash" style="font-size:10px">● live</span>' : '')
+    + `</div>`
+    + `<svg viewBox="0 0 500 76" style="width:100%;max-width:500px;display:block">`
+    + `<line x1="${PX}" y1="${y0}" x2="${PX+W}" y2="${y0}" stroke="var(--line)" stroke-width="1"/>`
+    + `<polyline points="${bLine}" fill="none" stroke="var(--blue)" stroke-width="1.5" stroke-linejoin="round"/>`
+    + `<polyline points="${rLine}" fill="none" stroke="var(--red)" stroke-width="1.5" stroke-linejoin="round"/>`
+    + dots
+    + `</svg></div>`;
+}
+
+function defenseProgressionChart(defs) {
+  // defs: b.blue entries with ≥2 history points
+  const W = 480, H = 80, PX = 10, PY = 8;
+  const LO = -0.2, HI = 1.0, RNG = HI - LO;
+  const sy = v => PY + (1 - (Math.max(LO, Math.min(HI, v)) - LO) / RNG) * H;
+  const y0 = sy(0);
+  const colors = defs.map((d, i) => d.builtin ? 'var(--blue)' : `hsl(${(i * 67) % 360},70%,55%)`);
+  const lines = defs.map((d, i) => {
+    const n = d.history.length;
+    const sx = j => PX + (n > 1 ? j * W / (n - 1) : W / 2);
+    const pts = d.history.map((v, j) => `${sx(j)},${sy(v)}`).join(' ');
+    return `<polyline points="${pts}" fill="none" stroke="${colors[i]}" stroke-width="1.5" stroke-linejoin="round"/>`;
+  }).join('');
+  const legend = defs.map((d, i) =>
+    `<span style="color:${colors[i]};margin-right:10px">&#9632; ${esc(d.name || d.defense)}</span>`
+  ).join('');
+  return `<div style="margin:6px 0 10px">`
+    + `<div style="font-size:11px;margin-bottom:6px">${legend}</div>`
+    + `<svg viewBox="0 0 500 ${H + PY * 2}" style="width:100%;max-width:500px;display:block">`
+    + `<line x1="${PX}" y1="${y0}" x2="${PX + W}" y2="${y0}" stroke="var(--line)" stroke-width="1" stroke-dasharray="3,3"/>`
+    + `<text x="${PX + W - 2}" y="${y0 - 3}" text-anchor="end" font-size="9" fill="var(--dim)">score=0</text>`
+    + lines
+    + `</svg></div>`;
+}
+
+function defenseProfileChart(defs) {
+  const CX = 130, CY = 130, R = 90;
+  const colors = defs.map((d, i) => `hsl(${(i * 67) % 360},70%,55%)`);
+  const grids = [0.25, 0.5, 0.75].map(f => {
+    const r = f * R;
+    return `<polygon points="${CX},${CY - r} ${CX + r},${CY} ${CX},${CY + r} ${CX - r},${CY}" fill="none" stroke="var(--line)" stroke-width="1" stroke-dasharray="3,3"/>`;
+  }).join('');
+  const axisLines = [
+    `<line x1="${CX}" y1="${CY}" x2="${CX}" y2="${CY - R}" stroke="var(--line)" stroke-width="1"/>`,
+    `<line x1="${CX}" y1="${CY}" x2="${CX + R}" y2="${CY}" stroke="var(--line)" stroke-width="1"/>`,
+    `<line x1="${CX}" y1="${CY}" x2="${CX}" y2="${CY + R}" stroke="var(--line)" stroke-width="1"/>`,
+    `<line x1="${CX}" y1="${CY}" x2="${CX - R}" y2="${CY}" stroke="var(--line)" stroke-width="1"/>`,
+  ].join('');
+  const axisLabels = [
+    `<text x="${CX}" y="${CY - R - 8}" text-anchor="middle" font-size="9" fill="var(--dim)">safety</text>`,
+    `<text x="${CX + R + 6}" y="${CY + 4}" text-anchor="start" font-size="9" fill="var(--dim)">refusal</text>`,
+    `<text x="${CX}" y="${CY + R + 14}" text-anchor="middle" font-size="9" fill="var(--dim)">friendly</text>`,
+    `<text x="${CX - R - 6}" y="${CY + 4}" text-anchor="end" font-size="9" fill="var(--dim)">solid</text>`,
+  ].join('');
+  const polygons = defs.map((d, i) => {
+    const s  = Math.max(0, Math.min(1, d.safety_score || 0));
+    const rf = Math.max(0, Math.min(1, d.refusal_rate || 0));
+    const fr = Math.max(0, Math.min(1, 1 - (d.over_refusal || 0)));
+    const sl = Math.max(0, Math.min(1, 1 - (d.breach_rate || 0)));
+    const pts = `${CX},${CY - s * R} ${CX + rf * R},${CY} ${CX},${CY + fr * R} ${CX - sl * R},${CY}`;
+    const col = colors[i];
+    return `<polygon points="${pts}" fill="${col}" fill-opacity="0.18" stroke="${col}" stroke-width="1.5"/>`;
+  }).join('');
+  const legend = defs.map((d, i) =>
+    `<span style="color:${colors[i]};margin-right:10px">&#9632; ${esc(d.name || d.defense)}</span>`
+  ).join('');
+  return `<div style="margin:6px 0 10px">`
+    + `<svg viewBox="-15 -15 290 290" style="width:100%;max-width:280px;display:block">`
+    + grids + axisLines + axisLabels + polygons
+    + `</svg>`
+    + `<div style="font-size:11px;margin-top:6px">${legend}</div>`
+    + `</div>`;
+}
+
+async function fetchAndShowGame(id) {
+  const [g, atkData] = await Promise.all([
+    api('/games?id=' + encodeURIComponent(id)),
+    api('/attacks').catch(() => ({attacks: []})),
+  ]);
+  _attackMap = Object.fromEntries((atkData.attacks || []).map(a => [a.id, a]));
+  showGame(g);
+  if (g.status === 'running') pollGame(id, (g.turns || []).length);
+}
+
+function attackEffectivenessPanel(turns, live) {
+  const counts = {};
+  for (const t of turns) {
+    for (const v of (t.verdicts || [])) {
+      if (!v.attack) continue;
+      if (!counts[v.attack]) counts[v.attack] = {fired: 0, breached: 0};
+      counts[v.attack].fired++;
+      if (v.red_win) counts[v.attack].breached++;
+    }
+  }
+  const rows = Object.entries(counts)
+    .map(([id, c]) => ({name: (_attackMap[id] && _attackMap[id].name) || id, fired: c.fired, breached: c.breached, rate: c.breached / c.fired}))
+    .sort((a, b) => b.rate - a.rate || b.fired - a.fired);
+  if (!rows.length) return '';
+  const liveTag = live ? ' <span class="pulse-dot" style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--blue);vertical-align:middle"></span> live' : '';
+  return `<div style="margin-top:16px">
+    <div class="muted" style="margin-bottom:6px;font-size:11px">attack effectiveness${liveTag}</div>
+    <table>
+      <tr><th>attack</th><th class="num">fired</th><th class="num">breach</th><th class="num">rate</th></tr>
+      ${rows.map(r => {
+        const color = r.rate >= 0.5 ? 'var(--red)' : r.rate > 0 ? 'var(--dim)' : 'var(--blue)';
+        return `<tr><td>${esc(r.name)}</td><td class="num">${r.fired}</td><td class="num">${r.breached}</td>`
+          + `<td class="num" style="color:${color}">${pct(r.rate)}</td></tr>`;
+      }).join('')}
+    </table>
+  </div>`;
+}
+
+function showGame(g) {
+  $('#game-detail').style.display = 'block';
+  const turns = g.turns || [];
+  $('#game-body').innerHTML = `
+    <div class="row">
+      <span class="pill">${esc(g.id)}</span>
+      <span class="pill" style="color:var(--blue)">blue: ${esc(g.blue || '')}</span>
+      <span class="pill" style="color:var(--red)">red: ${esc(g.red || '')}</span>
+      <span class="pill">${esc(g.model || '')}</span>
+      <span class="pill">${esc(g.status || '')}</span>
+      ${g.winner ? `<b style="color:${g.winner === 'blue' ? 'var(--blue)'
+          : g.winner === 'red' ? 'var(--red)' : 'var(--dim)'}">winner: ${esc(g.winner)}</b>` : ''}
+      ${g.status === 'done' ? '<button id="replay-game-btn" class="go" style="margin-left:4px">REPLAY GAME</button><button id="round-red-picks-btn" class="go" style="margin-left:4px">→ ROUND WITH RED\'S PICKS</button>' : ''}
+    </div>
+    ${g.totals ? `<div class="row">
+      <span class="pill" style="color:var(--blue)">blue total: ${g.totals.blue.toFixed(2)}</span>
+      <span class="pill" style="color:var(--red)">red total: ${g.totals.red.toFixed(2)}</span>
+    </div>` : ''}
+    ${gameChart(g, turns)}
+    ${turns.length ? `<table>
+      <tr><th>turn</th><th>winner</th><th class="num">blue pts</th>
+          <th class="num">red pts</th><th>defense</th>
+          <th class="num">refusal</th><th class="num">breach</th></tr>
+      ${turns.map(t => `<tr class="click" data-tidx="${t.turn - 1}">
+        <td>${t.turn}</td>
+        <td><b style="color:${t.winner === 'blue' ? 'var(--blue)'
+            : t.winner === 'red' ? 'var(--red)' : 'var(--dim)'}">${esc(t.winner)}</b></td>
+        <td class="num" style="color:var(--blue)">${(t.blue_points || 0).toFixed(2)}</td>
+        <td class="num" style="color:var(--red)">${(t.red_points || 0).toFixed(2)}</td>
+        <td class="muted">${esc(t.blue && t.blue.defense_name || '')}</td>
+        <td class="num">${t.score ? pct(t.score.refusal_rate) : '—'}</td>
+        <td class="num">${t.score ? pct(t.score.breach_rate) : '—'}</td>
+      </tr>`).join('')}
+    </table>` : '<span class="muted">no turns yet.</span>'}
+    ${turns.length ? attackEffectivenessPanel(turns, g.status === 'running') : ''}`;
+  $('#game-body').querySelectorAll('tr[data-tidx]').forEach(tr => {
+    tr.onclick = () => {
+      const t = turns[Number(tr.dataset.tidx)];
+      const existing = tr.nextElementSibling;
+      if (existing && existing.classList.contains('turn-detail')) {
+        existing.remove(); return;
+      }
+      const detail = document.createElement('tr');
+      detail.className = 'turn-detail';
+      const td = document.createElement('td');
+      td.colSpan = 7;
+      td.style.padding = '8px 12px';
+      const picks = (t.red && t.red.picks) || [];
+      const verdicts = t.verdicts || [];
+      const bp = t.blue && t.blue.parsed;
+      const blueMoveHtml =
+        (t.blue && t.blue.fallback
+          ? `<div class="err" style="margin-top:4px">⚠ blue fell back to: ${esc(t.blue.fallback)}</div>` : '') +
+        (bp && bp.use !== undefined
+          ? `<div class="muted" style="margin-top:4px">blue played stored defense: ${esc(bp.use)}</div>` : '') +
+        (bp && bp.system_prompt !== undefined
+          ? `<pre style="margin:4px 0;white-space:pre-wrap">${esc(bp.system_prompt)}</pre>` +
+            `<div class="muted">in: ${(bp.input_rules || []).length} rules / out: ${(bp.output_rules || []).length} rules / self_check: ${bp.self_check ? 'yes' : 'no'}</div>`
+          : '') +
+        ((t.blue && t.blue.ms != null) || (t.red && t.red.ms != null)
+          ? `<div style="margin-top:4px"><span class="muted">blue: ${t.blue && t.blue.ms != null ? t.blue.ms + 'ms' : '—'} · red: ${t.red && t.red.ms != null ? t.red.ms + 'ms' : '—'}</span></div>` : '') +
+        (t.red && t.red.fallback
+          ? `<div class="err" style="margin-top:4px">⚠ red fell back to: ${esc(t.red.fallback)}</div>` : '');
+      td.innerHTML =
+        `<div class="muted">red picks: ${esc(picks.map(p => (_attackMap[p] && _attackMap[p].name) || p).join(', ') || '—')}</div>` +
+        (t.blue && t.blue.error
+          ? `<div class="err">blue error: ${esc(t.blue.error)}</div>` : '') +
+        (t.red && t.red.error
+          ? `<div class="err">red error: ${esc(t.red.error)}</div>` : '') +
+        (blueMoveHtml ? `<div style="margin-top:6px">${blueMoveHtml}</div>` : '') +
+        (verdicts.length
+          ? `<table style="margin-top:8px">
+              <tr><th>attack</th><th>verdict</th><th>red win</th><th>blocked at</th></tr>
+              ${verdicts.map(v =>
+                `<tr><td>${esc((_attackMap[v.attack] && _attackMap[v.attack].name) || v.attack || '')}</td>
+                  <td><span class="v ${esc(v.verdict || '')}">${esc(v.verdict || '')}</span></td>
+                  <td>${v.red_win
+                    ? '<span style="color:var(--red)">yes</span>' : '—'}</td>
+                  <td class="muted">${esc(v.blocked_at || 'model')}</td></tr>`
+              ).join('')}</table>` : '') +
+        (t.round
+          ? `<div style="margin-top:8px"><button class="view-round-btn" data-round="${esc(t.round)}">→ VIEW ROUND</button></div>`
+          : '') +
+        (bp && bp.system_prompt !== undefined && !t.blue.fallback && t.winner === 'blue'
+          ? `<div style="margin-top:8px"><button class="save-def-btn">→ SAVE DEFENSE</button></div>`
+          : '');
+      td.querySelectorAll('.view-round-btn').forEach(btn => {
+        btn.onclick = () => {
+          window._pendingRound = btn.dataset.round;
+          document.querySelector('nav button[data-tab="rounds"]').click();
+        };
+      });
+      td.querySelectorAll('.save-def-btn').forEach(btn => {
+        btn.onclick = () => {
+          document.querySelector('nav button[data-tab="defenses"]').click();
+          $('#d-name').value = t.blue.defense_name || ('game-' + g.id + '-t' + t.turn);
+          $('#d-sys').value = bp.system_prompt;
+          $('#d-in').value = JSON.stringify(bp.input_rules || []);
+          $('#d-out').value = JSON.stringify(bp.output_rules || []);
+          $('#d-self').checked = !!bp.self_check;
+        };
+      });
+      detail.appendChild(td);
+      tr.after(detail);
+    };
+  });
+  if (g.status === 'done') {
+    $('#replay-game-btn').onclick = () => {
+      document.querySelector('nav button[data-tab="game"]').click();
+      $('#g-blue').value = g.blue;
+      $('#g-red').value = g.red;
+      $('#g-model').value = g.model || '';
+      $('#g-turns').value = g.turns_planned || 3;
+      $('#g-per').value = g.per_turn || 3;
+      $('#g-judge').value = g.judge || 'heuristic';
+    };
+    $('#round-red-picks-btn').onclick = () => {
+      const picks = [...new Set((g.turns || []).flatMap(t => (t.red && t.red.picks) || []))];
+      window._rerunConfig = {attacks: picks, model: g.model};
+      document.querySelector('nav button[data-tab="rounds"]').click();
+    };
+  }
+  $('#game-detail').scrollIntoView({behavior: 'smooth'});
+}
+
+$('#g-go').onclick = async () => {
+  const btn = $('#g-go'); btn.disabled = true;
+  const blue = $('#g-blue').value.trim(), red = $('#g-red').value.trim();
+  if (!blue || !red) {
+    $('#g-status').innerHTML = '<span class="err">both sides need an agent — '
+      + 'pick one from each roster</span>';
+    btn.disabled = false;
+    return;
+  }
+  $('#g-status').textContent = 'checking the lineup…';
+  try {
+    const started = await post('/game', {
+      blue, red,
+      model: $('#g-model').value.trim(),
+      turns: Number($('#g-turns').value) || 3,
+      per_turn: Number($('#g-per').value) || 3,
+      judge: $('#g-judge').value,
+    });
+    // A provider that is asleep is not a rejection — the first move wakes it —
+    // but the operator should see it before the match looks stuck.
+    if (started.warnings) {
+      $('#g-hint').innerHTML = '<span class="flash">'
+        + started.warnings.map(esc).join(' · ') + '</span>';
+    }
+    pollGame(started.id);
+  } catch (e) {
+    $('#g-status').innerHTML = '<span class="err">' + esc(e.message) + '</span>';
+  } finally { btn.disabled = false; }
+};
+
+async function pollGame(id, lastTurns = -1) {
+  window._pollingGameId = id;
+  const g = await api('/games?id=' + encodeURIComponent(id)).catch(() => null);
+  if (!g || window._pollingGameId !== id) { if (!g) $('#g-status').textContent = ''; return; }
+  const turns = (g.turns || []).length;
+  $('#g-status').textContent =
+    `${id} — turn ${turns}/${g.turns_planned || '?'} ${g.status}`;
+  await loadGames();
+  if (window._pollingGameId !== id) return;
+  if (g.status === 'running') {
+    const bt = g.totals ? g.totals.blue.toFixed(2) : '—';
+    const rt = g.totals ? g.totals.red.toFixed(2) : '—';
+    updateTicker(`▶ <b class="tb">BLUE</b> ${bt} · <b class="tr">RED</b> ${rt} — t${turns}/${g.turns_planned || '?'} <span class="pulse-dot">●</span>`);
+    if (turns !== lastTurns) { showGame(g); }
+    setTimeout(() => pollGame(id, turns), 2000);
+  } else {
+    window._pollingGameId = null;
+    if (g.winner) {
+      const who = g.winner === 'blue' ? g.blue : g.winner === 'red' ? g.red : '';
+      updateTicker(`<b class="t${esc(g.winner)}">winner: ${esc(g.winner.toUpperCase())}`
+        + (who ? ' — ' + esc(who) : '') + '</b>');
+      setTimeout(() => updateTicker(''), 8000);
+    } else {
+      updateTicker('');
+    }
+    showGame(g);
+    // The match just changed both agents' records; keep the board honest.
+    loadBoard().catch(() => {});
+  }
+}
+
+// ── about ──────────────────────────────────────────────────────
+async function loadAbout() {
+  const [i, ctlsData, atks] = await Promise.all([
+    api('/'), api('/controls'), api('/attacks'),
+  ]);
+  const atkName = {};
+  (Array.isArray(atks) ? atks : []).forEach(a => { atkName[a.id] = a.name || a.id; });
+  const ctls = Array.isArray(ctlsData) ? ctlsData : (ctlsData.controls || []);
+  $('#about-body').innerHTML = `
+    <p>${esc(i.what)}</p>
+    ${i.teams ? `<h2 style="margin-top:14px">the teams</h2>
+    <table><tr><th></th><th>rule</th></tr>
+      ${Object.entries(i.teams).map(([k, v]) =>
+        `<tr><td class="${k === 'blue' ? 'tb' : k === 'red' ? 'tr' : ''}">${esc(k)}</td>
+         <td class="muted">${esc(v)}</td></tr>`).join('')}</table>` : ''}
+    <h2 style="margin-top:14px">the verdicts</h2>
+    <table><tr><th>verdict</th><th>meaning</th></tr>
+      ${Object.entries(i.scoring.verdicts).map(([k, v]) =>
+        `<tr><td><span class="v ${esc(k)}">${esc(k)}</span></td>
+         <td class="muted">${esc(v)}</td></tr>`).join('')}</table>
+    <table style="margin-top:10px"><tr><th>number</th><th>definition</th></tr>
+      ${Object.entries(i.scoring.numbers).map(([k, v]) =>
+        `<tr><td>${esc(k)}</td><td class="muted">${esc(v)}</td></tr>`).join('')}</table>
+    <p class="note" style="margin-top:10px">${esc(i.scoring.why_controls)}</p>
+    <p class="note">pipeline: ${esc(i.pipeline)}</p>
+    <p class="note">targets: ${esc(i.targets)}</p>
+    <p class="note">state: ${esc(i.state)} · mcp: ${i.mcp.tools} tools at
+      POST /mcp · version ${esc(i.version)}</p>
+    ${ctls.length ? `<h2 style="margin-top:14px">control set</h2>
+    <table><tr><th>id</th><th>benign prompt</th><th>near attack</th></tr>
+      ${ctls.map((c, idx) => `<tr class="click" data-ctl-about="${idx}">
+        <td class="muted">${esc(c.id)}</td>
+        <td>${esc((c.prompt || '').slice(0, 80))}${(c.prompt || '').length > 80 ? '…' : ''}</td>
+        <td class="muted">${esc(atkName[c.near] || c.near || '—')}</td></tr>`).join('')}
+    </table>` : ''}`;
+  $('#about-body').querySelectorAll('tr[data-ctl-about]').forEach(tr => {
+    tr.onclick = () => {
+      const idx = Number(tr.dataset.ctlAbout);
+      const c = ctls[idx];
+      const existing = tr.nextElementSibling;
+      if (existing && existing.classList.contains('ctl-about-detail')) {
+        existing.remove(); return;
+      }
+      const detail = document.createElement('tr');
+      detail.className = 'ctl-about-detail';
+      const td = document.createElement('td');
+      td.colSpan = 3;
+      td.style.padding = '8px 12px';
+      td.innerHTML = `<pre style="margin-top:0">${esc(c.prompt || '')}</pre>`;
+      detail.appendChild(td);
+      tr.after(detail);
+    };
+  });
+}
+
+$('#r-attacks').addEventListener('change', recomputeCostHint);
+$('#r-defenses').addEventListener('change', recomputeCostHint);
+
+// ── boot ───────────────────────────────────────────────────────
+api('/targets').then(t => {
+  $('#cost-hint').textContent = `${t.default} is the default; mock:* is free`;
+  // Default the runners to the server's real target, not the offline mock.
+  // mock:* stays one keystroke away for anyone testing the harness.
+  if (t.default) {
+    $('#r-model').value = t.default; $('#f-model').value = t.default;
+    $('#g-model').value = t.default;
+  }
+}).catch(() => {});
+
+api('/rounds?limit=1&status=running').then(d => {
+  const r = (d.rounds || [])[0];
+  if (r && r.status === 'running') poll(r.id, r.total_matches, r.done || 0);
+}).catch(() => {});
+api('/games?limit=1&status=running').then(d => {
+  const g = (d.games || [])[0];
+  if (g && g.status === 'running') fetchAndShowGame(g.id);
+}).catch(() => {});
+
+// ── Venice model picker ────────────────────────────────────────
+// The target is any "provider:name"; Venice's catalogue is public, so we can
+// list it without a key and let picking one write "venice:<slug>" into the
+// target box. Typing another provider still works — the box is the source of
+// truth, the picker is a shortcut.
+function wireVenice(selId, inputId) {
+  const sel = $(selId);
+  sel.addEventListener('change', () => {
+    if (sel.value) { $(inputId).value = 'venice:' + sel.value; }
+  });
+}
+wireVenice('#r-venice', '#r-model');
+wireVenice('#f-venice', '#f-model');
+api('/models').then(m => {
+  const opts = (m.models || []).map(x =>
+    `<option value="${esc(x.id)}">${esc(x.name || x.id)}</option>`).join('');
+  if (!opts) return;
+  ['#r-venice', '#f-venice'].forEach(id => {
+    $(id).insertAdjacentHTML('beforeend', opts);
+  });
+}).catch(() => {});
+
+// ── agent-protocol roster ──────────────────────────────────────
+// Every provider that speaks the agent protocol (orbit/agent + any mod with
+// an agent_contract), one optgroup each; the value is the whole spec. On the
+// MATCH form these two selects are not a convenience — they are the player
+// pool, and a side can hold nothing else.
+function wireAgent(selId, inputId) {
+  const sel = $(selId);
+  sel.addEventListener('change', () => { if (sel.value) $(inputId).value = sel.value; });
+}
+wireAgent('#r-agent', '#r-model');
+wireAgent('#f-agent', '#f-model');
+wireAgent('#g-blue-agent', '#g-blue');
+wireAgent('#g-red-agent', '#g-red');
+api('/agents').then(a => {
+  const groups = (a.providers || []).filter(p => (p.agents || []).length).map(p =>
+    `<optgroup label="${esc(p.provider)}">` + p.agents.map(x =>
+      `<option value="${esc('agent:' + p.provider + '/' + x.name)}">${esc(x.label || x.name)}</option>`
+    ).join('') + '</optgroup>').join('');
+  if (!groups) {
+    $('#g-hint').innerHTML = '<span class="err">no agents on the protocol here '
+      + '— nothing can take a side. A mod joins the pool by declaring an '
+      + '<code>agent_contract</code> in its config.json.</span>';
+    return;
+  }
+  ['#r-agent', '#f-agent', '#g-blue-agent', '#g-red-agent'].forEach(
+    id => $(id).insertAdjacentHTML('beforeend', groups));
+  $('#g-hint').innerHTML = `${a.count} agents on the protocol can take a side. `
+    + 'the target is the model the blue agent is defending — it can be an '
+    + 'agent too.';
+}).catch(() => {});
+
+loadBoard();
+</script>
+</body>
+</html>

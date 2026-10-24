@@ -1,0 +1,1 @@
+{"title": "Factors", "blurb": "Prove you know a, b (neither 1) with a * b = c for a public c. One PLONKish gate, MockProver tests, and the zkworld runner in main().", "order": 0, "statement": "factors"}

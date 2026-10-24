@@ -1,0 +1,149 @@
+{
+  "netuid": 118,
+  "name": "Ditto",
+  "symbol": "ⲁ",
+  "owner": "5HGXqHbQjEmwnQsnnMa8pm13VUv9PP2jB4Vuv9nw7NwUYiAN",
+  "description": "Open-Source Claude Cowork",
+  "github": "https://github.com/orgs/ditto-assistant/repositories",
+  "url": "https://heyditto.ai",
+  "discord": "https://discord.gg/qNKYZEMpkD",
+  "logo": "https://f005.backblazeb2.com/file/ditto-assets/ditto-logo.png",
+  "registered_at": 5724794,
+  "tempo": 360,
+  "active": true,
+  "block": 9322663,
+  "related": [],
+  "market": {
+    "price": 0.004492605,
+    "moving_price": 0.00458684959448874,
+    "market_cap": 14820.502623232403,
+    "tao_in": 5027.477218404,
+    "alpha_in": 1119056.242815864,
+    "alpha_out": 2179809.92129881,
+    "volume": 810269.662579809,
+    "vol_24h": 704.2396746309241,
+    "emission": 0.0,
+    "change_1h": -1.5657957844195436,
+    "change_24h": -3.8052408377837743,
+    "change_7d": -31.504465255623014
+  },
+  "spark_24h": [
+    0.004670322,
+    0.004679546,
+    0.004497392,
+    0.004598701,
+    0.004571609,
+    0.004581469,
+    0.004685081,
+    0.004700029,
+    0.004700029,
+    0.004700021,
+    0.004699978,
+    0.004699978,
+    0.004528126,
+    0.004524782,
+    0.004536129,
+    0.004536099,
+    0.004536099,
+    0.004536099,
+    0.004536099,
+    0.004471218,
+    0.004471218,
+    0.00453374,
+    0.004569555,
+    0.004569555,
+    0.004576662,
+    0.004576537,
+    0.004550084,
+    0.004550084,
+    0.004586109,
+    0.004550084,
+    0.004550826,
+    0.004565072,
+    0.004565072,
+    0.004583097,
+    0.004584226,
+    0.004584185,
+    0.004584185,
+    0.004584185,
+    0.00458418,
+    0.00458418,
+    0.00458418,
+    0.004564083,
+    0.004564083,
+    0.004564081,
+    0.004564069,
+    0.004564069,
+    0.004564069,
+    0.004492605
+  ],
+  "trades_24h": {
+    "trades": 97,
+    "buys": 42,
+    "sells": 55,
+    "buy_tao": 302.945311378,
+    "sell_tao": 399.124054513,
+    "net_tao": -96.17874313499999,
+    "traders": 50
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5GCcH9R6SS7xtobP3EvrgSBXuowAtpjgMBP6FVTLWfqGbZ9g",
+      "net_tao": -0.22794796900000058,
+      "gross_tao": 70.227947969,
+      "trades": 4
+    },
+    {
+      "coldkey": "5CpmaDdviHiLRy9y89k74xe9jZEfuEJNxCYBTJsEVLXKNHJt",
+      "net_tao": -14.592657056,
+      "gross_tao": 54.472657056,
+      "trades": 4
+    },
+    {
+      "coldkey": "5F7BkPL3EVjKTYMbBkEmPAtTZQSGeyNzFPaf1DtebPFmJsJ7",
+      "net_tao": -40.947356737,
+      "gross_tao": 40.947356737,
+      "trades": 1
+    },
+    {
+      "coldkey": "5D2MW8D89hZa1CmTt2ZomiSemjC7VVzMRHPM497mbXBB9hZy",
+      "net_tao": -0.2307726069999987,
+      "gross_tao": 40.230772607,
+      "trades": 3
+    },
+    {
+      "coldkey": "5D31yczGiq9tVJwGgX87sWBks1g6RST5Tju5aajGycvvrijb",
+      "net_tao": -0.22925291700000017,
+      "gross_tao": 40.229252917,
+      "trades": 3
+    }
+  ],
+  "news": [
+    {
+      "ts": 1792368000,
+      "kind": "blog",
+      "source": "site",
+      "title": "Your AI should understand its own bill",
+      "url": "https://heyditto.ai/blog/predict-ai-credit-usage-with-ephemeris",
+      "publisher": "heyditto.ai"
+    },
+    {
+      "ts": 1791936000,
+      "kind": "blog",
+      "source": "site",
+      "title": "How Ditto uses Jev to choose a model and a home for your memories",
+      "url": "https://heyditto.ai/blog/jev-auto-model-routing-and-mcp-memory",
+      "publisher": "heyditto.ai"
+    },
+    {
+      "ts": 1791734424,
+      "kind": "news",
+      "source": "gnews",
+      "title": "AI Has IQ But Amnesia. Ditto (SN118) Is Fixing It | Founder Interview #TAO",
+      "url": "https://news.google.com/rss/articles/CBMiXEFVX3lxTFBHb2Nkb1RjMGtjV0ktUmpVaVIwQnF4WHRhazF4dVQtbmk3SHVUQXVmblZrUk95VEdsT3J4cEJPNGN4OFlOcUtNOHBOeUEyMWhTdFRZOWs5bk10c3Ey?oc=5",
+      "publisher": "YouTube"
+    }
+  ],
+  "updated": 1792474861,
+  "updated_day": "2026-10-20"
+}

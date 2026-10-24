@@ -24,7 +24,7 @@ done
 # ── Start Next.js (production) ──
 cd /app/src/app
 POLYMARKET_API_URL="http://localhost:$API_PORT" \
-NEXT_PUBLIC_API_URL="/api/polymarket" \
+NEXT_PUBLIC_API_URL="/polymarket/api" \
 NEXT_PUBLIC_BASE_PATH="/polymarket" \
 PORT=$APP_PORT \
 npx next start -p $APP_PORT &

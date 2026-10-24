@@ -1,0 +1,10 @@
+{
+  "name": "bot-ttt",
+  "description": "Perfect tic-tac-toe by full minimax. The reference opponent \u2014 it never loses.",
+  "author": "modarena",
+  "tags": [
+    "example",
+    "player",
+    "baseline"
+  ]
+}

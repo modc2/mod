@@ -1,0 +1,97 @@
+{
+    "name": "gemfinder",
+    "title": "gemfinder \u00b7 narrative gems, crypto + stocks",
+    "description": "Scans keyless public feeds (CoinGecko trending + category momentum, DexScreener boosts and new tokens, reddit mentions via ApeWisdom, Yahoo Finance trending and small-cap/day-gainer screens, Hacker News buzz) for crypto tokens and stocks a hot narrative is starting to carry. Merges per ticker, heats 13 narratives, and scores candidates by attention (attention, velocity, narrative, momentum, size) with reasons and risk flags. Type anything (\"quantum\", \"frog\", \"nuclear drones\") and it becomes a live theme matched by words AND by meaning: semantic search (MiniLM embeddings via the modsearch module, words-only fallback) gives every gem a fit 0-1, the nearest built-in narrative lends its seed stocks and categories, and CoinGecko/DexScreener/Yahoo search pull in more. Every gem gets an upside = score x fit x room-to-run (hard flags cut it); results sort by upside and the scan names one pick, the gem most likely to go up. /review prices past picks now vs then. Scans cached 10 min and warmed in the background. Also an MCP server (POST /mcp or stdio), 7 read-only tools, with agent docs at GET /docs. Stdlib-only, one SQLite cache. Attention, not a forecast. Sign-in is the mod protocol's: a browser wallet's personal_sign token or GET /auth/local (loopback) as Authorization: Bearer; scans stay public, DELETE /cache is box/owner.",
+    "version": "0.4.0",
+    "anchor": "mod.py",
+    "network": "local",
+    "port": 51320,
+    "route": false,
+    "deps": [],
+    "urls": {
+        "app": "http://localhost:51320/",
+        "api": "http://localhost:51320"
+    },
+    "state": "~/.mod/gemfinder/cache.db (raw HTTP bodies by url) \u00b7 ~/.mod/gemfinder/scans.jsonl (every scan's picks + price) \u00b7 in-process scan cache (SCAN_TTL 600s, GEMFINDER_SCAN_TTL to change; GEMFINDER_WARM=0 disables the warmer) \u00b7 semantic: modsearch :51090 /embed (GEMFINDER_SEMANTIC=url|0, GEMFINDER_SEMANTIC_FLOOR 0.32), vectors cached in-process",
+    "endpoints": {
+        "app": {
+            "method": "GET",
+            "auth": false,
+            "docs": "/ -> the app: feeds, narrative heat, ranked gems with score breakdown, past scans"
+        },
+        "health": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Liveness + cache size + narrative ids + semantic encoder state"
+        },
+        "scan": {
+            "method": "GET",
+            "auth": false,
+            "docs": "?asset=all|crypto|stock&k=20&narrative=&q=<anything dope>&sort=upside|score&min_score=&sources=a,b&hn=1&fresh=0&save=1 -> {cached, age_s, ttl_s, sort, pick:{asset,symbol,name,upside,score,fit,risk,why,flags,urls}|null, theme?:{label,keywords,categories,near,semantic,word_matches,semantic_matches,crypto,stock,matches}, sources (incl. semantic), narratives:[{id,label,crypto,stock}], gems:[{asset,symbol,name,score,upside,fit,risk,parts,narratives,why,flags,metrics,urls}]}. Sorted by upside (most likely to go up) unless sort=score. Served from the scan cache unless fresh=1."
+        },
+        "narratives": {
+            "method": "GET",
+            "auth": false,
+            "docs": "?asset= -> heat 0-100 per narrative for crypto and stocks, with raw drivers"
+        },
+        "history": {
+            "method": "GET",
+            "auth": false,
+            "docs": "?n=10 -> past scans, newest first"
+        },
+        "sources": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Candidate sources and what each contributes"
+        },
+        "cache": {
+            "method": "GET",
+            "auth": false,
+            "docs": "scan-cache state (base scans + results with ages). DELETE /cache drops it (box or owner token only); GET /cache/clear is the open local form"
+        },
+        "whoami": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Authorization: Bearer <mod-protocol token> -> {address, signed, owner, auth:{token_max_age, protocol, box}}. No token -> address null. Bad token -> 401."
+        },
+        "auth/local": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Loopback only (no proxy header): mints a mod-protocol token with the box's own key -> {token, address, owner:true}. Remote callers get 403; they sign in with a browser wallet instead."
+        },
+        "docs": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Docs for agents: how to read a gem (score/upside/fit/flags), every MCP tool with schema, every REST route, connect commands"
+        },
+        "mcp": {
+            "method": "POST",
+            "auth": false,
+            "docs": "MCP streamable HTTP (JSON responses, no SSE): initialize, tools/list, tools/call. Tools (all read-only): gem_scan, gem_find, gem_review, gem_narratives, gem_history, gem_sources, gem_status. stdio twin: python3 -m gemscan.mcp_server (cwd = module dir). claude mcp add --transport http gemfinder http://localhost:51320/mcp"
+        },
+        "review": {
+            "method": "GET",
+            "auth": false,
+            "docs": "?n=12&fresh=0 -> every gem listed in the last n scans priced now vs when first listed: {picks:[{asset,symbol,ts,age_h,then,now,ret_pct,score,upside,picked,q}], summary:{listed,priced,up,down,median_ret_pct,mean_ret_pct,hit_rate,top_picks}}. Cached 5 min."
+        }
+    },
+    "fns": [
+        "forward",
+        "scan",
+        "find",
+        "top",
+        "narratives",
+        "narrative_list",
+        "review",
+        "history",
+        "sources",
+        "docs",
+        "cache",
+        "clear_cache",
+        "serve",
+        "kill",
+        "status",
+        "test"
+    ],
+    "schema": "QmNhnZ6LAMwjxdHXtBJLc161s1DGKz1TcT3hQSEPnp7p7H"
+}

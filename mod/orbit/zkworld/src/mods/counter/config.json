@@ -1,0 +1,28 @@
+{
+    "name": "counter",
+    "title": "Counter",
+    "description": "Counter \u2014 a felt252 get/set example contract.",
+    "version": "0.1.0",
+    "submod_of": "zkworld",
+    "kind": "cairo-contract",
+    "edition": "2024_07",
+    "anchor": "mod.py",
+    "fns": [
+        "forward",
+        "info",
+        "build",
+        "test",
+        "vibe",
+        "abi",
+        "tree",
+        "read",
+        "write",
+        "clean",
+        "app",
+        "deploy",
+        "call",
+        "events"
+    ],
+    "framework": "cairo",
+    "schema": "QmPBkc4rYZm38RSpqHrQxdJUMebPVswhAQcRL7tzDrNYvv"
+}

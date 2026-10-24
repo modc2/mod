@@ -1,0 +1,22 @@
+{
+  "name": "ztensor-app",
+  "version": "0.2.0",
+  "private": true,
+  "scripts": {
+    "dev": "NEXT_DIST_DIR=.next-dev next dev -p 51181",
+    "build": "next build",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "crosstest": "node scripts/crosstest.mjs"
+  },
+  "dependencies": {
+    "next": "14.2.35",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "typescript": "^5"
+  }
+}

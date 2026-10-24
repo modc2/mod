@@ -78,6 +78,40 @@ pub struct AskReq {
     /// Opt in to write tools (orders, transfers, follows). Needs a token.
     #[serde(default)]
     pub act: bool,
+    /// "chat" = the general chatbot: any question, read-only toolbox,
+    /// multi-turn. "strats" = the strat copilot: multi-turn, strat-fluent,
+    /// and `act` is honored so it can create and manage invest positions.
+    /// Anything else (or absent) is the desk-analyst default.
+    #[serde(default)]
+    pub mode: Option<String>,
+    /// Claude session id from a prior turn's `start`/`done` event — resumes
+    /// that conversation so the thread keeps context.
+    #[serde(default)]
+    pub session: Option<String>,
+}
+
+/// The mode the child runs in: only the named modes pass; anything else
+/// degrades to the desk-analyst default.
+fn child_mode(mode: &Option<String>) -> &'static str {
+    match mode.as_deref() {
+        Some("chat") => "chat",
+        Some("strats") => "strats",
+        _ => "ask",
+    }
+}
+
+/// Session ids ride into the child as an env var; accept only the UUID
+/// alphabet so a hostile value can't smuggle anything else along.
+fn clean_session(s: &Option<String>) -> String {
+    let s = s.as_deref().unwrap_or("");
+    if !s.is_empty()
+        && s.len() <= 64
+        && s.chars().all(|c| c.is_ascii_hexdigit() || c == '-')
+    {
+        s.to_string()
+    } else {
+        String::new()
+    }
 }
 
 /// POST /ask → SSE stream of `{type: ready|start|text|tool|tool_done|done|error}`.
@@ -95,6 +129,8 @@ pub async fn ask(
         .env("HL_API_URL", s.self_url.as_str())
         .env("HYPERLIQUID_TOKEN", bearer(&headers))
         .env("HL_AGENT_ACT", if req.act { "1" } else { "0" })
+        .env("HL_AGENT_MODE", child_mode(&req.mode))
+        .env("HL_AGENT_SESSION", clean_session(&req.session))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -186,6 +222,37 @@ mod tests {
         assert!(crate::auth::is_public(&Method::GET, "/ask/status"));
         assert!(!crate::auth::is_public(&Method::POST, "/ask"));
         assert!(!crate::auth::is_public(&Method::GET, "/ask"));
+    }
+
+    /// A resumed session id goes into the child's env verbatim, so only the
+    /// UUID alphabet may pass; anything else degrades to a fresh session.
+    #[test]
+    fn session_ids_are_uuid_shaped_or_dropped() {
+        let ok = Some("3f2a1b4c-0d9e-4f00-8a11-22b3c4d5e6f7".to_string());
+        assert_eq!(clean_session(&ok), ok.clone().unwrap());
+        assert_eq!(clean_session(&None), "");
+        assert_eq!(clean_session(&Some("rm -rf /".into())), "");
+        assert_eq!(clean_session(&Some("x".repeat(65))), "");
+    }
+
+    #[test]
+    fn chat_mode_deserializes_and_defaults_off() {
+        let plain: AskReq = serde_json::from_str(r#"{"question":"hi"}"#).unwrap();
+        assert!(plain.mode.is_none() && plain.session.is_none() && !plain.act);
+        let chat: AskReq =
+            serde_json::from_str(r#"{"question":"hi","mode":"chat","session":"abc-1"}"#).unwrap();
+        assert_eq!(chat.mode.as_deref(), Some("chat"));
+        assert_eq!(clean_session(&chat.session), "abc-1");
+    }
+
+    /// The strat copilot is a first-class mode: it must reach the child as
+    /// "strats", and an unknown mode must degrade to the desk default.
+    #[test]
+    fn strats_mode_passes_and_unknown_degrades() {
+        assert_eq!(child_mode(&Some("strats".into())), "strats");
+        assert_eq!(child_mode(&Some("chat".into())), "chat");
+        assert_eq!(child_mode(&Some("yolo".into())), "ask");
+        assert_eq!(child_mode(&None), "ask");
     }
 
     #[test]

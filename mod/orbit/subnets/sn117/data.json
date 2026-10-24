@@ -1,0 +1,189 @@
+{
+  "netuid": 117,
+  "name": "everyframe.studio",
+  "symbol": "Ⲁ",
+  "owner": "5FFDV7LGKVsVvyVbzSduzxQDPfBuJYHBM2QJPia5ikDivsXd",
+  "description": "Every frame gets craft",
+  "github": "https://github.com/everyframe-studios/everyframe-miner",
+  "url": "https://everyframe.studio/",
+  "discord": "https://discord.com/channels/799672011265015819/1544011415692644444",
+  "logo": "https://avatars.githubusercontent.com/u/327085870?s=200&v=4",
+  "registered_at": 5710859,
+  "tempo": 360,
+  "active": true,
+  "block": 9322663,
+  "related": [],
+  "market": {
+    "price": 0.002179545,
+    "moving_price": 0.00218909396789968,
+    "market_cap": 6725.499568570958,
+    "tao_in": 2669.193647382,
+    "alpha_in": 1224656.283314776,
+    "alpha_out": 1861079.303044284,
+    "volume": 240484.864534245,
+    "vol_24h": 22.745264550991124,
+    "emission": 0.0,
+    "change_1h": 0.002844711337512962,
+    "change_24h": -1.6591045681211392,
+    "change_7d": -18.7088797386206
+  },
+  "spark_24h": [
+    0.002216316,
+    0.002216316,
+    0.002201088,
+    0.002201033,
+    0.002201033,
+    0.002201033,
+    0.002201033,
+    0.002201033,
+    0.002201033,
+    0.00220103,
+    0.002201015,
+    0.002201015,
+    0.002184708,
+    0.002183613,
+    0.002183613,
+    0.002183607,
+    0.002183607,
+    0.00218072,
+    0.002179704,
+    0.002179546,
+    0.002179546,
+    0.002179546,
+    0.002179546,
+    0.002179546,
+    0.002179546,
+    0.002179491,
+    0.002179491,
+    0.002179491,
+    0.002179491,
+    0.002179491,
+    0.002179491,
+    0.002179491,
+    0.002179491,
+    0.002179491,
+    0.002179491,
+    0.002179489,
+    0.002179489,
+    0.002179489,
+    0.002179489,
+    0.002179488,
+    0.002179488,
+    0.002179488,
+    0.002179488,
+    0.002179487,
+    0.002179483,
+    0.002179483,
+    0.002179483,
+    0.002179545
+  ],
+  "trades_24h": {
+    "trades": 7,
+    "buys": 1,
+    "sells": 6,
+    "buy_tao": 0.10967,
+    "sell_tao": 21.091211813,
+    "net_tao": -20.981541813,
+    "traders": 7
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5EtTJc8Z26EaysT9EEeJL54wkDvWW2jveHzuWnxm3yRY6Bxu",
+      "net_tao": -10.019844008,
+      "gross_tao": 10.019844008,
+      "trades": 1
+    },
+    {
+      "coldkey": "5EKqJmGPtkNQ2ij92mcWkPEFpjhpVwaM7fSW1gQiswndTjrQ",
+      "net_tao": -9.007200186,
+      "gross_tao": 9.007200186,
+      "trades": 1
+    },
+    {
+      "coldkey": "5GvJUjvQkFcrTzxebEEXYwgfx79LbrbFHJ1RgTL8gHfC31Xb",
+      "net_tao": -1.765557569,
+      "gross_tao": 1.765557569,
+      "trades": 1
+    },
+    {
+      "coldkey": "5GTF4f2FhDFrhtzzn8FnmucHQMtKB6rwzHE8duVHbDLkjzEd",
+      "net_tao": -0.277104415,
+      "gross_tao": 0.277104415,
+      "trades": 1
+    },
+    {
+      "coldkey": "5Hn7c4opfxTqKrDYWGpa5PpfEWgJG7S54LgPa9nm7KiBuFaB",
+      "net_tao": 0.10967,
+      "gross_tao": 0.10967,
+      "trades": 1
+    }
+  ],
+  "news": [
+    {
+      "ts": 1792384359,
+      "kind": "release",
+      "source": "github",
+      "title": "everycli v0.5.8",
+      "url": "https://github.com/everyframe-studio/everyframe-miner/releases/tag/v0.5.8",
+      "publisher": "everyframe-studios/everyframe-miner"
+    },
+    {
+      "ts": 1792383366,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #37 from everyframe-studio/fix/provider-catalog-av…",
+      "url": "https://github.com/everyframe-studio/everyframe-miner/commit/b1c20c77f4bbdbab8574d5faaa5d44dfd58b7f7b",
+      "publisher": "everyframe-studios/everyframe-miner"
+    },
+    {
+      "ts": 1792382537,
+      "kind": "commit",
+      "source": "github",
+      "title": "release: prepare everycli v0.5.8 provider availability fixes",
+      "url": "https://github.com/everyframe-studio/everyframe-miner/commit/9ffd78aed252dab03d3a736a54e0960224a52ae6",
+      "publisher": "everyframe-studios/everyframe-miner"
+    },
+    {
+      "ts": 1792381916,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix: classify catalog refusals as safe pre-submit rejections",
+      "url": "https://github.com/everyframe-studio/everyframe-miner/commit/ea6910d79af8e556ac7cbd041e93495989953551",
+      "publisher": "everyframe-studios/everyframe-miner"
+    },
+    {
+      "ts": 1792381665,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix: validate provider model availability and clarify catalog IDs",
+      "url": "https://github.com/everyframe-studio/everyframe-miner/commit/8a2ee9f55349334481b35297caae3063aae27333",
+      "publisher": "everyframe-studios/everyframe-miner"
+    },
+    {
+      "ts": 1792101765,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #36 from everyframe-studio/fix/report-provider-fai…",
+      "url": "https://github.com/everyframe-studio/everyframe-miner/commit/9addfdba9182aaaaebed2b363f1e4fa6f6cf027f",
+      "publisher": "everyframe-studios/everyframe-miner"
+    },
+    {
+      "ts": 1792101765,
+      "kind": "release",
+      "source": "github",
+      "title": "v0.5.7",
+      "url": "https://github.com/everyframe-studio/everyframe-miner/releases/tag/v0.5.7",
+      "publisher": "everyframe-studios/everyframe-miner"
+    },
+    {
+      "ts": 1792101160,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix: preserve provider failure categories and prepare v0.5.7",
+      "url": "https://github.com/everyframe-studio/everyframe-miner/commit/39d431a19d857f20e779d15a58748d682b47f51a",
+      "publisher": "everyframe-studios/everyframe-miner"
+    }
+  ],
+  "updated": 1792474861,
+  "updated_day": "2026-10-20"
+}

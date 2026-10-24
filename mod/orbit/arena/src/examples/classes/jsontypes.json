@@ -1,0 +1,6 @@
+{
+  "name": "jsontypes",
+  "description": "A drill: six questions about the shape of one JSON document — the type at a path, an array's length, an object's key count — aimed at the near misses: a \"42\" that is a string, an empty object, a one-element array.",
+  "author": "arena",
+  "tags": ["example", "game", "class", "python", "drill", "json"]
+}

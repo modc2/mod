@@ -1,5 +1,5 @@
 """task - spawn a sub-agent for complex work"""
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 
 class Tool:
     description = "Spawn a sub-agent to handle a complex task"

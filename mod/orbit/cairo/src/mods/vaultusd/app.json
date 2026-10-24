@@ -1,0 +1,64 @@
+{
+  "title": "Vaultusd: borrow dollars against crypto",
+  "intro": "Lock up some (pretend) ETH, borrow digital dollars against it. Every dollar has at least $1.50 of ETH behind it, so the dollar stays a dollar.",
+  "steps": [
+    "Start it: pick who sets the ETH price (the 'oracle'; you is fine) and today's price, e.g. 3000.",
+    "\"Lock up ETH\": put in 1 ETH. It's pretend ETH, just for learning.",
+    "\"How much more can I borrow?\" now says 2000: two thirds of $3000.",
+    "\"Borrow dollars\" 2000. Your \"Safety level\" is now 150%: right at the edge.",
+    "As the oracle, \"Set the ETH price\" to 2500. Now your loan is unsafe.",
+    "Switch to bob, lock up 10 ETH, borrow 2000, then \"Close an unsafe loan\" for alice. Bob pays her debt and gets her ETH."
+  ],
+  "fns": {
+    "balance_of": { "label": "My dollars", "show": "big", "unit": "$", "decimals": 18,
+                    "inputs": { "account": { "hide": true } } },
+    "collateral_of": { "label": "My locked ETH", "show": "big", "unit": "ETH", "decimals": 18,
+                       "inputs": { "user": { "hide": true } } },
+    "debt_of": { "label": "What I owe", "show": "big", "unit": "$", "decimals": 18,
+                 "inputs": { "user": { "hide": true } } },
+    "ratio_of": { "label": "Safety level", "show": "meter", "max": 300, "unit": "%",
+                  "help": "Must stay at 150% or more. 0 means no loan.",
+                  "inputs": { "user": { "hide": true } } },
+    "is_safe": { "label": "Is my loan safe?", "yes": "Safe", "no": "UNSAFE: can be closed",
+                 "inputs": { "user": { "hide": true } } },
+    "max_mint": { "label": "How much more can I borrow?", "show": "number", "unit": "$", "decimals": 18,
+                  "inputs": { "user": { "hide": true } } },
+    "price": { "label": "ETH price", "show": "chart", "unit": "$" },
+    "total_supply": { "label": "Dollars in existence", "show": "chart", "unit": "$", "decimals": 18 },
+    "deposit": { "label": "Lock up ETH", "button": "Lock", "decimals": 18,
+                 "inputs": { "amount": { "label": "How much ETH", "default": "1" } } },
+    "withdraw": { "label": "Take ETH back", "button": "Unlock", "decimals": 18,
+                  "help": "Only what isn't needed to back your loan.",
+                  "inputs": { "amount": { "label": "How much ETH" } } },
+    "mint": { "label": "Borrow dollars", "button": "Borrow", "decimals": 18,
+              "inputs": { "amount": { "label": "How many dollars", "placeholder": "e.g. 1000" } } },
+    "repay": { "label": "Pay back", "button": "Pay back", "decimals": 18,
+               "inputs": { "amount": { "label": "How many dollars" } } },
+    "transfer": { "label": "Send dollars", "button": "Send", "decimals": 18,
+                  "inputs": { "to": { "label": "Send to" }, "amount": { "label": "How many dollars" } } },
+    "liquidate": { "label": "Close an unsafe loan", "button": "Close it",
+                   "help": "You pay their whole debt and get all their ETH. Only works on unsafe loans.",
+                   "inputs": { "user": { "label": "Whose loan" } } },
+    "set_price": { "label": "Set the ETH price (oracle only)", "button": "Set price",
+                   "inputs": { "price": { "label": "Dollars per ETH", "placeholder": "e.g. 2500" } } },
+    "name": { "hide": true }, "symbol": { "hide": true }, "decimals": { "hide": true }
+  },
+  "constructor": {
+    "help": "Name your dollar, pick who reports the ETH price and what it is today.",
+    "inputs": {
+      "name": { "label": "Coin name", "default": "'Vault Dollar'" },
+      "symbol": { "label": "Short symbol", "default": "'VUSD'" },
+      "oracle": { "label": "Who sets the price", "default": "me" },
+      "price": { "label": "ETH price today ($)", "default": "3000" }
+    }
+  },
+  "events": {
+    "Transfer": { "hide": true },
+    "Deposited": { "say": "{who} locked up {amount} ETH", "decimals": 18 },
+    "Withdrew": { "say": "{who} took back {amount} ETH", "decimals": 18 },
+    "Minted": { "say": "{who} borrowed {amount} dollars", "decimals": 18 },
+    "Repaid": { "say": "{who} paid back {amount} dollars", "decimals": 18 },
+    "Liquidated": { "say": "{by} closed {user}'s unsafe loan: paid {debt} dollars, got {collateral} ETH", "decimals": 18 },
+    "PriceSet": { "say": "ETH price is now ${price}" }
+  }
+}

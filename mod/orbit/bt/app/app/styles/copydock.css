@@ -1,0 +1,93 @@
+/* ------------------------------------------------------------ copy dock
+ * components/CopyDock: copy trading + strats as a right-hand sidebar the
+ * user toggles (top-bar .cbtn, rail Copy). Sits left of the chat sidebar when
+ * both are open; the page pads for both. Reuses .dock-head/.dock-acts/.dock-grip
+ * from dock.css. */
+.cdock {
+  position: fixed; top: 0; right: 0; bottom: 0; z-index: 109;
+  display: flex; flex-direction: column; min-height: 0;
+  background: var(--card); border-left: 1px solid var(--line2);
+  animation: dock-slide .18s ease-out both;
+}
+html[data-dock="side"] .cdock { right: var(--dock); }
+.cdock .dock-head { gap: 8px; padding-left: 10px; }
+.cdock .grow { flex: 1; }
+.cdock-body { flex: 1; min-height: 0; overflow: auto; padding: 12px 14px 18px; }
+
+@media (min-width: 900px) {
+  html[data-cdock] body { padding-right: var(--cdock); }
+  html[data-cdock][data-dock="side"] body { padding-right: calc(var(--dock) + var(--cdock)); }
+  html[data-cdock] .ovl { right: var(--cdock); }
+  html[data-cdock][data-dock="side"] .ovl { right: calc(var(--dock) + var(--cdock)); }
+  /* the chat launcher / corner window move out from under the sidebar */
+  html[data-cdock] .dock-fab, html[data-cdock] .dock.float { right: calc(var(--cdock) + 20px); }
+}
+
+/* the panel squeezed into a sidebar */
+.copy-panel.compact .stats { margin: 0; grid-template-columns: repeat(2, 1fr); }
+.copy-panel.compact .stat { padding: 12px 14px; border-bottom: 1px solid var(--line); }
+.copy-panel.compact .stat b { font-size: 16px; }
+.copy-panel.compact .card { padding: 14px; margin-top: 12px !important; }
+.copy-panel.compact .row { flex-wrap: wrap; gap: 8px; }
+.copy-panel.compact .row > div { flex: 1 1 100% !important; }
+.copy-panel.compact .row > div:has(> button) { flex: 0 0 auto !important; }
+.copy-panel.compact table { font-size: 12.5px; }
+.copy-panel.compact th, .copy-panel.compact td { padding-left: 6px; padding-right: 6px; }
+
+/* strats list */
+.strats-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+.strats-bar a { font-size: 12.5px; }
+.strat { border: 1px solid var(--line); border-radius: 10px; margin-top: 8px; background: var(--card); overflow: hidden; }
+.strat.open { border-color: var(--line2); }
+.strat-head {
+  width: 100%; display: flex; align-items: center; gap: 8px; padding: 10px 12px;
+  border: none; background: none; color: var(--ink); cursor: pointer; text-align: left; font: inherit;
+}
+.strat-head:hover { background: var(--raise); }
+.strat-n { flex: 1; min-width: 0; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.strat-m { color: var(--ink3); font-size: 12px; white-space: nowrap; }
+.strat-head .caret { color: var(--ink3); font-size: 10px; }
+.strat-body { display: flex; flex-direction: column; gap: 6px; padding: 4px 12px 12px; border-top: 1px solid var(--line); }
+.strat-body > .muted, .strat-body > p { margin: 6px 0 2px; font-size: 12.5px; }
+.strat-tr { display: flex; align-items: center; gap: 9px; padding: 4px 0; }
+.strat-tn { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.strat-w { color: var(--ink2); font-size: 12px; font-variant-numeric: tabular-nums; }
+
+/* top-bar toggle */
+.cbtn {
+  display: inline-flex; align-items: center; gap: 7px; height: 34px; padding: 0 12px 0 10px; margin-right: 4px;
+  border-radius: 10px; border: 1px solid var(--line2); background: var(--card); color: var(--ink2);
+  cursor: pointer; font-size: 13px; font-weight: 500; flex: none; transition: color .15s, border-color .15s, background .15s;
+}
+.cbtn svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.45; stroke-linecap: round; stroke-linejoin: round; }
+.cbtn:hover { color: var(--ink); }
+.cbtn.on { color: var(--ink); border-color: color-mix(in srgb, var(--accent) 45%, var(--line2));
+  background: color-mix(in srgb, var(--accent) 8%, var(--card)); }
+.cbtn.on svg { color: var(--accent); }
+
+/* rail Copy entry is a toggle button dressed as a rail link */
+.rail .rail-tog {
+  position: relative; display: flex; align-items: center; gap: 11px; white-space: nowrap; width: 100%;
+  padding: 7px 10px; border: none; border-radius: 8px; background: none; cursor: pointer; text-align: left;
+  font: inherit; font-size: 13.5px; font-weight: 450; color: var(--ink2); transition: color .15s, background .15s;
+}
+.rail .rail-tog:hover { color: var(--ink); background: var(--raise); }
+.rail .rail-tog.active { color: var(--ink); font-weight: 500; background: color-mix(in srgb, var(--accent) 8%, var(--raise)); }
+.rail .rail-tog svg.ri {
+  width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.45;
+  stroke-linecap: round; stroke-linejoin: round; color: var(--ink3); transition: color .15s;
+}
+.rail .rail-tog:hover svg.ri { color: var(--ink2); }
+.rail .rail-tog.active svg.ri { color: var(--accent); }
+@media (max-width: 899px) { .rail .rail-tog { width: auto; } }
+
+/* phones: a bottom sheet, like the chat */
+@media (max-width: 699px) {
+  .cdock, html[data-dock="side"] .cdock {
+    left: 0; right: 0; top: auto; height: 82vh; width: auto !important;
+    border-radius: 16px 16px 0 0; border-left: none; border-top: 1px solid var(--line2); box-shadow: var(--shadow-lg);
+  }
+  .cdock .dock-grip { display: none; }
+  .cbtn { padding: 0 9px; font-size: 0; gap: 0; }
+  .cbtn svg { width: 16px; height: 16px; }
+}

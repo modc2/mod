@@ -1,0 +1,126 @@
+{
+ "block": "staking",
+ "contract": "ModStaking",
+ "file": "staking.sol",
+ "audited_at": "2026-08-30",
+ "auditor": "claude-fable-5 agent audit",
+ "risk": "high",
+ "summary": "ModStaking is a Synthetix/MasterChef-style single pool: stake one ERC20, accrue a second ERC20 at rewardPerSecond via accRewardPerShare, with an optional emission window (periodFinish) that anyone can set through fund(). Principal handling is sound for well-behaved, distinct tokens: unstake() never depends on the reward balance and follows checks-effects-interactions. The reward side is not: fund() is permissionless and never checkpoints, so after a window closes anyone can flash-stake, call fund(0,1) and claim the entire leftover reward balance as retroactive 'gap' emissions in one transaction (STAKING-2); the same function lets anyone halt or extend emissions for free (STAKING-4); emissions are never tied to funding, so claims are a race (STAKING-5); stake() pulls tokens before refreshing rewardDebt, so a hook-bearing stake token can drain the reward pool by re-entering claim() (STAKING-3); and a malicious owner can permanently brick withdrawals with an overflowing rate that setRewardRate() itself can then no longer undo (STAKING-7). The single worst outcome is a composition one: because claim() pays from rewardToken.balanceOf(this) with no principal/reward separation, wiring the same token to both ports turns every unfunded or phantom reward into a withdrawal of other stakers' principal (STAKING-1, critical under that wiring). The overall verdict is high rather than critical because the principal-theft path needs the same-token wiring, which the safe_use guidance forbids; with distinct, hook-free, non-fee tokens the exposure is the loss of the reward budget and griefing of emissions. Not safe to deploy as-is for any pool holding meaningful value; the fixes (checkpoint + gate fund(), CEI in stake(), reserve accounting, rate bound) are each a few lines.",
+ "counts": {
+  "critical": 1,
+  "high": 2,
+  "medium": 4,
+  "low": 2,
+  "info": 2
+ },
+ "findings": [
+  {
+   "id": "STAKING-1",
+   "severity": "critical",
+   "title": "Same token on both ports lets claim() pay rewards out of other stakers' principal",
+   "where": "claim() L94-L106 (available = rewardToken.balanceOf L101-L102); no principal/reward separation anywhere",
+   "detail": "The contract never tracks how much of its balance is staked principal versus funded rewards. claim() pays min(pending, rewardToken.balanceOf(this)). If the deployer wires the same ERC20 into the stakeToken and rewardToken ports (the classic single-token 'stake X, earn X' setup, which the composer allows and nothing in the constructor forbids), that balance is principal + rewards, so any reward liability that is not backed by funding is silently paid from other users' stakes. Emissions are never tied to funding (see STAKING-5): rewardPerSecond runs from deploy, defaults to 0.001/s, and with periodFinish==0 runs forever, so an under-backed liability is the steady state, not an edge case. The phantom-emission path in STAKING-2 makes it worse: even a fully funded single-token pool can be drained of principal by a stranger after its window closes. The last stakers to unstake hit PUSH_FAILED and lose their deposit.",
+   "exploit": "1) Deploy ModStaking(TOKEN, TOKEN, 1e15, owner) and fund(1_000e18, 30 days). 2) Alice stakes 10_000e18, Bob stakes 10_000e18. 3) 60 days pass; total accrued 'earned' = 1e15 * 5_184_000s = 5_184e18 but only 1_000e18 was ever funded. 4) Alice claim(): amount = ~2_592e18, available = 21_000e18 → she is paid 2_592e18 of which 1_592e18 is Bob's and her own principal. 5) Bob claim() takes another ~2_592e18. 6) Bob unstake(10_000e18) → contract holds ~15_816e18 → Bob is fine; Alice unstake(10_000e18) → 5_816e18 left → PUSH_FAILED: Alice has lost ~4_184e18 of principal. With periodFinish set, the same drain is triggerable by anyone in one transaction via STAKING-2.",
+   "recommendation": "Track principal explicitly: keep totalStaked as the principal ledger and compute available = rewardToken.balanceOf(this) - (rewardToken == stakeToken ? totalStaked : 0) in claim(). Better, keep a rewardReserve counter that fund() increases and claim() decreases, and pay only from it. Optionally require(stakeToken_ != rewardToken_) in the constructor if single-token pools are not intended."
+  },
+  {
+   "id": "STAKING-2",
+   "severity": "high",
+   "title": "Permissionless fund() never checkpoints: anyone can re-open a closed window and be paid retroactively for the dead gap",
+   "where": "fund() L116-L119, _update() L51-L58, _effectiveNow() L46-L49",
+   "detail": "fund() has no access control and does not call _update() before moving periodFinish. Once periodFinish has passed, _effectiveNow() pins accrual at periodFinish and lastUpdate stops there. When anyone later calls fund(anything, duration) (amount 0 is accepted; transferFrom(0) succeeds on ERC20Base and every OpenZeppelin token), periodFinish jumps to now+duration and the very next _update() accrues (block.timestamp - lastUpdate) * rewardPerSecond across the whole idle gap as if emissions had never stopped. Because stake(), fund() and claim() can be chained in one transaction and stake() itself checkpoints at the old periodFinish (no-op), an attacker can flash-stake to own ~100% of totalStaked, reopen the window, collect the phantom gap emission up to the contract's entire reward balance, and unstake — all atomically. The same bug also silently over-pays honest stakers whenever the owner legitimately funds a second round after a pause, blowing round-two's budget before it starts.",
+   "exploit": "Pool: rewardPerSecond=1e15, window ended at T with 1_000e18 reward tokens left unclaimed, honest stakers hold 100e18 total. At T+30d, in ONE transaction: 1) flash-borrow 1_000_000e18 stakeToken, approve, stake() → _update() sees nowT=periodFinish<=lastUpdate and returns; rewardDebt = amount*acc. 2) fund(0, 1) → periodFinish = now+1. 3) claim() → _update(): nowT=now, accRewardPerShare += 2_592_000s * 1e15 * 1e18 / 1_000_100e18 → attacker earned ≈ 2_591e18, capped to available 1_000e18 → paid the entire leftover reward balance. 4) unstake(1_000_000e18), repay flash loan. If stakeToken==rewardToken (STAKING-1) the cap is principal+rewards and honest stakers' principal is taken instead.",
+   "recommendation": "Call _update() at the top of fund() and, if block.timestamp > periodFinish (window already closed), set lastUpdate = block.timestamp before extending it so the gap is never emitted. Gate fund() (onlyOwner, or allow anyone to add tokens but only the owner to change periodFinish). Consider Synthetix's notifyRewardAmount pattern: derive rewardPerSecond from amount/duration so emissions can never exceed what was funded."
+  },
+  {
+   "id": "STAKING-3",
+   "severity": "high",
+   "title": "stake() pulls tokens before refreshing rewardDebt: a hook-bearing stake token lets a re-entrant claim() double-credit rewards",
+   "where": "stake() L70-L80 — pending credited L74, external pull L75, rewardDebt refreshed only at L78",
+   "detail": "stake() settles the user's accrued delta into p.pending at L74, then makes the external call stakeToken.transferFrom() at L75, and only afterwards resets p.rewardDebt at L78. Between L74 and L78 the position is in an inconsistent state: the delta has been credited but rewardDebt still points at the old checkpoint. If the stake token calls back into msg.sender during transferFrom (ERC777 tokensToSend hook, ERC1363-style hooks, any upgradeable/malicious token, or a token deliberately designed for this), the attacker re-enters claim() (L97), which computes the SAME delta again from the stale rewardDebt, so pending = 2x delta, and pays it. Nesting further stake() calls inside the hook multiplies the delta N times before the innermost claim() pays it all. Nothing in the contract is nonReentrant. Catalog-native stake tokens (vault shares, AMM LP from ERC20Base) have no hooks, so this needs a hook token on the stake port; the reward pool is fully drainable when one is wired.",
+   "exploit": "stakeToken is an ERC777 (or any token with a from-side hook). 1) Attacker stakes 1_000e18 and waits until earned() = R (say 100e18). 2) Attacker calls stake(1) from a contract that implements tokensToSend. 3) L74: p.pending = R; L75: transferFrom fires the hook; hook calls claim(): L97 adds the same delta again (rewardDebt unchanged) → p.pending = 2R; L98 refreshes rewardDebt; pays 2R. 4) Outer stake() resumes at L76-L78 with a consistent state, so nothing reverts. Repeat with k nested stake(1) calls inside the hook to collect (k+1)R; loop until the reward balance is empty.",
+   "recommendation": "Follow checks-effects-interactions: update p.amount, totalStaked and p.rewardDebt before calling stakeToken.pull(), or add a reentrancy guard on stake()/unstake()/claim(). Both are one-line changes."
+  },
+  {
+   "id": "STAKING-4",
+   "severity": "medium",
+   "title": "Anyone can move the emission window (shorten or extend) for free via fund(0, duration)",
+   "where": "fund() L116-L119",
+   "detail": "periodFinish is the only control over when emissions stop, and fund() lets any address overwrite it with block.timestamp + duration with zero tokens attached. An attacker can halt emissions (duration = 1 → periodFinish = now+1) and re-do it any time the owner restarts them, or extend a carefully budgeted 30-day window to years so the pool keeps promising rewards it no longer has (turning it into the first-come-first-served race in STAKING-5). The owner cannot pin the window; the only owner-side defence is setRewardRate(0), which also halts rewards for everyone.",
+   "exploit": "Owner funds 30 days of rewards with fund(2_592e18, 30 days). Attacker calls fund(0, 1) immediately → periodFinish = now+1 → after one second every _update() returns early and no one accrues anything. Whenever the owner calls fund(0, 30 days) to reopen, attacker front-runs/back-runs with fund(0, 1) again. Alternatively attacker calls fund(0, 10 years) so emissions continue after the funded amount is exhausted (see STAKING-2 for the retroactive variant).",
+   "recommendation": "Make changing periodFinish owner-only (or only allow extending it, and only in proportion to the amount funded at the current rate). Reject amount == 0. Prefer the notifyRewardAmount model where the funded amount determines both rate and finish."
+  },
+  {
+   "id": "STAKING-5",
+   "severity": "medium",
+   "title": "Emission rate is independent of funding: earned() over-promises and claims are a first-come-first-served race",
+   "where": "constructor L42, setRewardRate() L110-L113, claim() L99-L104, earned() L60-L68",
+   "detail": "rewardPerSecond is set in the constructor (catalog default 0.001/s from the first stake, forever when periodFinish==0) with no funding requirement, and fund() never checks amount against rate*duration. The liability sum(earned) therefore grows without bound relative to the reward balance. claim() handles this by capping to the balance and leaving the rest in pending, so whoever claims first is paid in full and later claimants get zero (or a Claimed(0) event) until someone tops the pool up. Bots watching fund() will sweep each top-up instantly. This is not theft with distinct tokens, but it makes the advertised APR meaningless and is the precondition that turns STAKING-1 into principal loss.",
+   "exploit": "1) Deploy with default rewardPerSecond=1e15 and no fund() call (the catalog has no post-deploy funding wire). 2) Alice and Bob each stake 100e18; after 1 day earned() shows 43.2e18 each. 3) Owner funds 50e18. 4) Alice claims 43.2e18; Bob claims → available=6.8e18 → Bob receives 6.8e18, 36.4e18 remains pending against an empty pool. 5) Each future fund() is raced the same way.",
+   "recommendation": "Derive rewardPerSecond from funded amount and duration (notifyRewardAmount), or require that rewardPerSecond * (periodFinish - block.timestamp) <= unreserved reward balance whenever the rate or window changes. Have earned() report min(pending, payable) or expose a solvency view. Never leave periodFinish==0 with a non-zero rate."
+  },
+  {
+   "id": "STAKING-6",
+   "severity": "medium",
+   "title": "Fee-on-transfer or rebasing stake tokens leave the pool short: last unstakers cannot withdraw",
+   "where": "stake() L75-L77 (credits the requested amount, not the received amount); unstake() L90",
+   "detail": "stake() credits p.amount and totalStaked with the requested amount, not the balance delta. A stake token that burns a transfer fee (STA, PAXG-style, some tax tokens) or rebases downward (stETH-like negative rebase, AMPL contraction) leaves the contract holding less than totalStaked; unstake() pushes the credited amount, so the shortfall lands entirely on whoever exits last (PUSH_FAILED, funds stuck). Positive rebases are stranded in the contract with no sweep. Catalog blocks (vault shares, LP tokens) are plain ERC20Base and are safe; only externally wired tokens are affected.",
+   "exploit": "stakeToken charges 1% on transfer. Alice stakes 100e18 (contract receives 99e18, credited 100e18); Bob stakes 100e18 (contract 198e18, totalStaked 200e18). Alice unstake(100e18) → contract 98e18. Bob unstake(100e18) → PUSH_FAILED; Bob can only recover 98e18 and 2e18 is permanently lost.",
+   "recommendation": "Measure balanceOf before/after the pull and credit the difference, or document that fee-on-transfer and rebasing tokens are unsupported on the stake port and validate in the composer."
+  },
+  {
+   "id": "STAKING-7",
+   "severity": "medium",
+   "title": "Owner can irreversibly brick every entry point (all principal locked) by setting an overflowing reward rate; rate changes are instant and unbounded",
+   "where": "setRewardRate() L110-L113, _update() L55 (checked multiplication)",
+   "detail": "_update() computes (nowT - lastUpdate) * rewardPerSecond * 1e18 with checked arithmetic. setRewardRate() calls _update() BEFORE storing the new rate, so any value is accepted; one second later every call that reaches _update() — stake(), unstake(), claim() and setRewardRate() itself — reverts with an overflow panic. Because setRewardRate() also reverts, the owner cannot undo it and setOwner() does not help: all staked principal is frozen forever. Rates above ~1e59 raw units (dt = 1s) trigger it. Short of that, the owner can also set the rate to 0 or to anything at any time with no timelock, silently changing what stakers earn. Wiring a timelock/multisig governor block into the governor port reduces but does not remove this.",
+   "exploit": "1) Users stake 1_000_000e18. 2) Owner calls setRewardRate(type(uint256).max / 1e18) — succeeds because _update() ran before the assignment. 3) Next block: unstake() → _update() → (1 * rps * 1e18) overflows → revert. claim(), stake(), setRewardRate(0) all revert the same way. Funds are unrecoverable.",
+   "recommendation": "Bound rewardPerSecond (e.g. require(rewardPerSecond_ <= MAX_RATE) with MAX_RATE such that MAX_RATE * 1e18 * 10 years cannot overflow), and make the accrual in _update() unable to block withdrawals (compute accrual in a try-style helper or let unstake() proceed without settling rewards on failure). Consider a timelock on rate changes via the governor port."
+  },
+  {
+   "id": "STAKING-8",
+   "severity": "low",
+   "title": "Reward tokens that are never emitted are permanently locked (no owner recovery)",
+   "where": "whole contract — no sweep/recover function; claim() L101 is the only outbound reward path",
+   "detail": "Tokens funded but not emitted (window ended early, rate set to 0, over-funding, tokens sent directly, positive rebases) cannot be withdrawn by anyone through a legitimate path. Ironically, STAKING-2 currently provides an illegitimate path for anyone to extract them. Once STAKING-2 is fixed, leftover rewards are stuck unless a recovery function exists.",
+   "exploit": "Owner funds 10_000e18 for 30 days at 1e15/s (only 2_592e18 can be emitted). After periodFinish, 7_408e18 sit in the contract with no function able to return them.",
+   "recommendation": "Add an owner-only recoverERC20(token, amount) that refuses to touch stakeToken beyond balance - totalStaked (and refuses rewardToken beyond the unemitted reserve), or a sweep of the unemitted reserve after periodFinish."
+  },
+  {
+   "id": "STAKING-9",
+   "severity": "low",
+   "title": "accRewardPerShare accrual truncates to zero when totalStaked is large relative to rewardPerSecond*1e18; frequent updates lose rewards",
+   "where": "_update() L55, earned() L65",
+   "detail": "Each _update() adds floor(dt * rps * 1e18 / totalStaked). If totalStaked > dt * rps * 1e18 the increment is 0 and that interval's rewards are never distributed (they stay in the balance, see STAKING-8). This bites with low-decimal reward tokens (6-decimal USDC at a few wei/second) against 18-decimal stakes, or with very large TVL. Any address can grief by calling unstake(0) (allowed: amount 0 passes L84) every block to force short intervals and maximise truncation.",
+   "exploit": "rewardToken = USDC (6 dec), rewardPerSecond = 100 (0.0001 USDC/s), totalStaked = 5e24 (5M tokens at 18 dec). Per 12-second block: 12*100*1e18 / 5e24 = 0.00024 → 0. An attacker calls unstake(0) every block; no rewards ever accrue for anyone.",
+   "recommendation": "Use a larger precision constant (1e27/1e36) or scale by the stake token's decimals, and require(amount > 0) in unstake() so checkpoints cannot be forced for free."
+  },
+  {
+   "id": "STAKING-10",
+   "severity": "info",
+   "title": "earned() ignores the balance cap applied in claim(), and claim() can emit Claimed(0)",
+   "where": "earned() L60-L68, claim() L99-L105",
+   "detail": "Front-ends and other blocks reading earned() see the accounting liability, not what claim() will actually pay; when the pool is dry, claim() passes the NOTHING check, caps to 0, transfers 0 and emits Claimed(user, 0). Tokens that revert on zero-value transfer make claim() revert with the token's error instead. Pending is preserved in both cases, so nothing is lost, but integrators should not treat earned() as payable.",
+   "exploit": "Pool with 0 reward balance and a staker with pending 10e18: earned() returns 10e18; claim() returns 0 and emits Claimed(user, 0).",
+   "recommendation": "Expose payable(user) = min(earned(user), rewardToken.balanceOf(this)) (minus principal if same token) and revert claim() when the capped amount is 0."
+  },
+  {
+   "id": "STAKING-11",
+   "severity": "info",
+   "title": "Non-bool-returning ERC20s (USDT, BNB) cannot be used on either port",
+   "where": "SafeTransfer.pull/push common.sol L120-L128, used at L75, L90, L104, L117",
+   "detail": "IERC20 declares transfer/transferFrom as returning bool and SafeTransfer requires the decoded bool. Tokens that return nothing revert on ABI decoding, so stake(), fund() and claim() all revert. Nothing is lost via fund() since it reverts too, but reward tokens sent by direct transfer to a USDT-reward pool are unclaimable and stakes on a USDT stake port are impossible. This is a compatibility limitation deployers should know before wiring.",
+   "exploit": "Deploy with rewardToken = USDT; fund() reverts; someone transfers USDT directly; every claim() reverts on decode → tokens stranded (see STAKING-8).",
+   "recommendation": "Use a low-level-call SafeERC20 implementation that accepts empty return data, or validate token compatibility in the composer."
+  }
+ ],
+ "safe_use": [
+  "Never wire the same ERC20 to both stakeToken and rewardToken (STAKING-1). If you need single-token staking, use a different block or patch claim() to subtract totalStaked from the payable balance first.",
+  "Only use plain ERC20s on the stake port: no fee-on-transfer, no rebasing, no ERC777/ERC1363 hooks (STAKING-3, STAKING-6). Catalog vault shares and AMM LP tokens (ERC20Base) are fine; USDT-style non-bool tokens do not work on either port (STAKING-11).",
+  "Treat the reward balance as at-risk: after periodFinish anyone can extract whatever is left (STAKING-2), and anyone can pause or stretch emissions with fund(0, d) (STAKING-4). Fund only what one window needs, and call setRewardRate(0) as soon as the window ends.",
+  "Always set a window: call fund(amount, duration) with amount >= rewardPerSecond * duration right after deploy (the catalog has no funding wire, so a fresh deploy emits a 0.001/s liability against an empty pool, STAKING-5). Do not leave periodFinish == 0 with a non-zero rate.",
+  "Put a timelock or multisig governor block on the governor port; the owner can change the rate instantly and can freeze all principal irreversibly with an out-of-range rate (STAKING-7). Keep rewardPerSecond far below 1e50 raw units.",
+  "For 6-decimal reward tokens or very large TVL check that rewardPerSecond * 1e18 * 12 > totalStaked, otherwise per-block accrual truncates to zero (STAKING-9).",
+  "Read earned() as an accounting figure, not a payable one; claim() pays min(earned, balance) and may pay 0 (STAKING-10)."
+ ]
+}

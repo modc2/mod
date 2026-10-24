@@ -3,17 +3,38 @@
 import { useEffect, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { analyzeTrader, fmtPnl, fmtUsd, fmtPct, shortAddr, ago } from "../../lib/api";
+import {
+  analyzeTrader, fmtPnl, fmtUsd, fmtPct, shortAddr, ago,
+  sharpeMeasured, MIN_SHARPE_DAYS, fetchCandles,
+  liveStatus, liveStart, fetchScoreMarket,
+} from "../../lib/api";
+import type { Candle, ScoreMarket } from "../../lib/api";
+import { formatScore } from "../../lib/scoreFormula";
+import { useSession } from "../../lib/auth";
 import { buildRoundTrips, fmtDuration } from "../../lib/trips";
 import PnlChart from "../../components/PnlChart";
+import CoinChart from "../../components/CoinChart";
+import BacktestPanel from "../../components/BacktestPanel";
+import AskConsole from "../../components/AskConsole";
+import OrderbookPanel from "../../components/OrderbookPanel";
+import { fmtDay } from "../../components/TraderCard";
+
+const BOARD_CAP_KEY = "hl.board.capital";
 
 export default function TraderPage() {
   const { addr } = useParams<{ addr: string }>();
   const sp = useSearchParams();
   const days = Number(sp.get("days") || 7);
+  const { me } = useSession();
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  const [liveStatusData, setLiveStatusData] = useState<any>(null);
+  const [addBusy, setAddBusy] = useState(false);
+  const [addFeedback, setAddFeedback] = useState<string | null>(null);
+  const [capital, setCapital] = useState(1000);
+  const [capText, setCapText] = useState("1000");
+  const [scoreMarket, setScoreMarket] = useState<ScoreMarket | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -25,52 +46,346 @@ export default function TraderPage() {
     return () => { alive = false; };
   }, [addr, days]);
 
+  useEffect(() => {
+    const c = Number(localStorage.getItem(BOARD_CAP_KEY));
+    if (c > 0) { setCapital(c); setCapText(String(c)); }
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    fetchScoreMarket({ days, limit: 200 })
+      .then((m) => { if (alive) setScoreMarket(m); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [addr, days]);
+
+  useEffect(() => {
+    if (!me) return;
+    let alive = true;
+    liveStatus(me)
+      .then((r) => { if (alive) setLiveStatusData(r); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [me]);
+
+  const liveRunning = liveStatusData?.state?.status === "running";
+  const liveConfig = liveStatusData?.config ?? null;
+  const alreadyInSession = liveConfig?.traders?.some(
+    (t: any) => t.address.toLowerCase() === addr.toLowerCase()
+  ) ?? false;
+
+  const onAddToLive = async () => {
+    if (!me || !liveConfig) return;
+    setAddBusy(true);
+    setAddFeedback(null);
+    try {
+      const merged = [
+        ...(liveConfig.traders ?? []),
+        { address: addr, weight: 1, enabled: true },
+      ];
+      await liveStart({
+        eoa: me,
+        traders: merged,
+        ...(liveConfig.intervalMs != null && { interval_ms: liveConfig.intervalMs }),
+        ...(liveConfig.sizePct != null && { size_pct: liveConfig.sizePct }),
+        ...(liveConfig.maxPerTradeUsd != null && { max_per_trade_usd: liveConfig.maxPerTradeUsd }),
+        ...(liveConfig.minOrderSizeUsd != null && { min_order_size_usd: liveConfig.minOrderSizeUsd }),
+        ...(liveConfig.maxSlippageBps != null && { max_slippage_bps: liveConfig.maxSlippageBps }),
+        ...(Array.isArray(liveConfig.coinsAllow) && liveConfig.coinsAllow.length && { coins_allow: liveConfig.coinsAllow }),
+        ...(Array.isArray(liveConfig.coinsDeny) && liveConfig.coinsDeny.length && { coins_deny: liveConfig.coinsDeny }),
+        ...(liveConfig.vaultAddress != null && { vault_address: liveConfig.vaultAddress }),
+        ...(liveConfig.capital != null && { capital: liveConfig.capital }),
+        ...(liveConfig.strategyId != null && { strategy_id: liveConfig.strategyId }),
+      });
+      setAddFeedback(`added — engine restarted with ${merged.length} leaders`);
+      setLiveStatusData((prev: any) => prev
+        ? { ...prev, config: { ...prev.config, traders: merged } }
+        : prev);
+    } catch (e: any) {
+      setAddFeedback(e?.message ?? String(e));
+    } finally {
+      setAddBusy(false);
+    }
+  };
+
+  const setBoardCap = (v: number) => {
+    setCapital(v);
+    setCapText(String(v));
+    try { localStorage.setItem(BOARD_CAP_KEY, String(v)); } catch {}
+  };
+
   if (loading) return <div className="text-xs text-muted">loading {shortAddr(addr)}…</div>;
   if (err) return <div className="text-xs text-loss">{err}</div>;
   if (!data) return null;
 
   const s = data.summary;
+  const ext = data.extended;
   const fills = Array.isArray(data.fills) ? data.fills : [];
   const positions = (data.state?.assetPositions ?? []) as any[];
-  const trips = buildRoundTrips(fills);
+
+  // The fills payload is ~31 days regardless of the window, because the client
+  // caches that much per address. Everything below is labelled "(Nd)", so it
+  // has to be scoped to N days or the tables quietly contradict the tiles.
+  const cutoff = Number(data.cutoff_ms ?? 0);
+  const inWindow = (t: number) => Number(t) >= cutoff;
+
+  // Trips are built from ALL fills and filtered afterwards, never before: a
+  // position opened before the window still needs its earlier legs to compute a
+  // real entry price. Filtering first would silently reprice every open trade.
+  const trips = buildRoundTrips(fills).filter(
+    (t) => t.closeTime == null || inWindow(t.closeTime)
+  );
   const closedTripPnl = trips
     .filter((t) => t.closeTime != null)
     .reduce((a, t) => a + t.closedPnl, 0);
-  const fillsDesc = [...fills].sort((a: any, b: any) => Number(b.time) - Number(a.time));
-  const fillsClosedPnl = fills.reduce((a: number, f: any) => a + (Number(f.closedPnl) || 0), 0);
+
+  const windowFills = fills.filter((f: any) => inWindow(f.time));
+  const fillsDesc = [...windowFills].sort((a: any, b: any) => Number(b.time) - Number(a.time));
+  const fillsClosedPnl = windowFills.reduce((a: number, f: any) => a + (Number(f.closedPnl) || 0), 0);
+
+  const coinMap = new Map<string, { pnl: number; closes: number; fills: number }>();
+  for (const f of windowFills) {
+    const pnl = Number(f.closedPnl) || 0;
+    const entry = coinMap.get(f.coin) ?? { pnl: 0, closes: 0, fills: 0 };
+    entry.pnl += pnl;
+    if (pnl !== 0) entry.closes++;
+    entry.fills++;
+    coinMap.set(f.coin, entry);
+  }
+  const coinBreakdown = [...coinMap.entries()]
+    .map(([coin, v]) => ({ coin, ...v }))
+    .sort((a, b) => Math.abs(b.pnl) - Math.abs(a.pnl));
+  const coinAbsTotal = coinBreakdown.reduce((s, e) => s + Math.abs(e.pnl), 0);
+
+  const capK = capital / 1000;
+  const expPerDay = s.expected?.per_1k != null ? s.expected.per_1k * capK : null;
+  const feePerDay = s.expected?.copy_fee_1k != null ? s.expected.copy_fee_1k * capK : null;
+  const capLabel = capital >= 1000 ? `$${Math.round(capital / 1000)}k` : `$${capital}`;
+
+  const myRow = scoreMarket?.rows.find((r) => r.address.toLowerCase() === addr.toLowerCase());
+  const smRank = myRow ? scoreMarket!.rows.indexOf(myRow) + 1 : null;
 
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
         <div>
           <Link href="/" className="text-[11px] text-muted hover:text-ink">← traders</Link>
-          <h1 className="text-xl text-ink mt-1">{shortAddr(addr)}</h1>
+          <h1 className="text-gradient text-[24px] font-bold tracking-tight leading-tight mt-1">{shortAddr(addr)}</h1>
           <a href={`https://app.hyperliquid.xyz/explorer/address/${addr}`} target="_blank" rel="noreferrer"
             className="text-[11px] text-muted hover:text-accent2">view on hyperliquid →</a>
         </div>
-        <div className="flex gap-2">
-          <Link href={`/follows/new?leader=${addr}`} className="btn-primary">copy this trader</Link>
+        <div className="flex flex-col items-end gap-1">
+          <div className="flex gap-2">
+            {liveRunning && !alreadyInSession && (
+              <button
+                className="btn-primary"
+                onClick={onAddToLive}
+                disabled={addBusy}
+              >
+                {addBusy ? "adding…" : "add to live session"}
+              </button>
+            )}
+            <Link href={`/live?traders=${addr}`} className="btn-primary">start live copy</Link>
+          </div>
+          {addFeedback && (
+            <div className="text-[11px] text-win">{addFeedback}</div>
+          )}
         </div>
       </div>
 
-      {/* Summary tiles */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-        <Tile label={`pnl (${days}d)`} value={fmtPnl(s.pnl)} tone={s.pnl >= 0 ? "win" : "loss"} />
-        <Tile label="volume" value={fmtUsd(s.volume)} />
-        <Tile label="win rate" value={s.win_rate < 0 ? "—" : fmtPct(s.win_rate, 0)} />
-        <Tile label="trades" value={`${s.trades}`} />
-        <Tile label="sharpe" value={s.sharpe.toFixed(2)} />
+      {/* Capital scaler — shared key with board and market page so the value persists. */}
+      <div className="flex items-center gap-2 text-[11px] text-muted">
+        <span>capital</span>
+        <div className="flex items-center gap-0.5 border border-border rounded px-1.5 py-0.5">
+          <span className="text-dim">$</span>
+          <input
+            value={capText}
+            inputMode="numeric"
+            aria-label="capital copied"
+            className="w-16 bg-transparent text-ink text-right text-[11px] outline-none"
+            onChange={(e) => setCapText(e.target.value)}
+            onBlur={() => {
+              const n = Number(capText.replace(/,/g, ""));
+              if (Number.isFinite(n) && n > 0) setBoardCap(n);
+              else setCapText(String(capital));
+            }}
+          />
+        </div>
       </div>
 
-      {/* PnL over time */}
+      {/* Summary tiles.
+          Every ratio here carries the count it was computed from. A win rate
+          without its denominator is how "100% · 16 trades" ended up meaning
+          "8 of 8 closes, and the other 8 fills were opens". */}
+      <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
+        <Tile
+          label={`pnl (${days}d)`}
+          value={fmtPnl(s.pnl)}
+          tone={s.pnl >= 0 ? "win" : "loss"}
+          sub={s.fees > 0 ? `after ${fmtUsd(s.fees)} fees` : undefined}
+        />
+        <Tile label="volume" value={fmtUsd(s.volume)} sub={`${s.trades} fills`} />
+        <Tile
+          label="win rate"
+          value={s.win_rate < 0 ? "—" : fmtPct(s.win_rate, 0)}
+          // Below MIN_CLOSES the percent is an anecdote. Say so on the tile
+          // rather than trusting anyone to notice the denominator.
+          tone={s.win_rate >= 0 && s.confidence !== "measured" ? "warn" : undefined}
+          sub={
+            s.win_rate < 0
+              ? "nothing closed yet"
+              : `${s.wins} of ${s.closes} closes` +
+                (s.confidence === "measured" ? "" : " · thin sample")
+          }
+          title={
+            s.win_rate < 0
+              ? "No fill in this window realised PnL, so there is no ratio to take."
+              : `${s.wins} win / ${s.losses} loss over ${s.closes} closes, net of fees. ` +
+                `The other ${s.trades - s.closes} fills were opens, which can neither win nor lose. ` +
+                `At this sample size the defensible rate is ${fmtPct(s.win_rate_lo, 0)} (Wilson 95% lower bound).`
+          }
+        />
+        <Tile
+          label="closes"
+          value={`${s.closes}`}
+          sub={`of ${s.trades} fills`}
+          title="Fills that realised PnL — the denominator the win rate is actually over. The rest are opens."
+        />
+        <Tile
+          label="sharpe"
+          // A ratio built from two days of history is not a Sharpe ratio, and
+          // printing it to two decimals only makes it more convincing.
+          value={sharpeMeasured(s) ? s.sharpe.toFixed(2) : "—"}
+          sub={`${s.sharpe_days} ${s.sharpe_days === 1 ? "day" : "days"} of history`}
+          tone={sharpeMeasured(s) ? undefined : "warn"}
+          title={
+            sharpeMeasured(s)
+              ? "Annualised Sharpe of daily net PnL. Idle days inside the window count as 0-return days."
+              : `Needs at least ${MIN_SHARPE_DAYS} days of history; this wallet has ${s.sharpe_days}. ` +
+                `Over so few days the standard deviation describes the sample, not the strategy.`
+          }
+        />
+        <Tile
+          label="exp/day"
+          value={expPerDay != null ? fmtDay(expPerDay) : "—"}
+          tone={expPerDay != null ? (expPerDay >= 0 ? "win" : "loss") : "warn"}
+          sub={
+            expPerDay != null
+              ? `at ${capLabel} · fees ${feePerDay != null ? fmtDay(-feePerDay) : "—"}/day`
+              : "no expected data"
+          }
+          title={
+            expPerDay != null
+              ? `Expected net USD/day copying ${capLabel}. Based on ${s.closes} closes; per_1k haircut applied.`
+              : "Not enough closes to compute expected value."
+          }
+        />
+        {scoreMarket && (
+          myRow && smRank != null ? (
+            <Tile
+              label="score market"
+              value={formatScore(myRow.score)}
+              tone="win"
+              sub={`rank #${smRank} of ${scoreMarket.matched} · ${days}d`}
+            />
+          ) : (
+            <Tile
+              label="score market"
+              value="—"
+              tone="warn"
+              sub={scoreGateFailSub(s, scoreMarket.gate)}
+            />
+          )
+        )}
+      </div>
+
+      <TradeStyle trips={trips} days={days} closes={s.closes} />
+
+      <TradeCalendar fills={fills} />
+
+      <TraderCopilot addr={addr} />
+
+      {/* The longer view, free: the fills call already caches ~31 days, so the
+          wider window costs no extra request. It is also the only thing on this
+          page that can contradict the tiles above — which is exactly why it is
+          here and not behind a toggle. */}
+      {ext && ext.trades > s.trades && <WiderView days={days} s={s} ext={ext} />}
+
+      {/* PnL over time.
+          `windowPnl` is handed down so the chart can reconcile its endpoint
+          against the tile above rather than quietly disagreeing with it: the
+          curve is equity marked to market, the tile is realised fills, and
+          those are different numbers on any wallet holding risk overnight. */}
       <Panel title={`pnl over time (${days}d)`}>
-        <PnlChart portfolio={data.pnl_history} days={days} />
+        <PnlChart portfolio={data.pnl_history} days={days} windowPnl={s.pnl} />
       </Panel>
 
-      {/* Open positions */}
-      <Panel title="open positions">
+      {/* PnL by coin — answers "where did the money actually come from?" without
+          any extra request. One outsized BTC day is a very different copy risk
+          than steady gains spread across six coins. */}
+      {coinBreakdown.length > 0 && (
+        <Panel title={`pnl by coin (${days}d)`}>
+          <div className="grid grid-cols-[1fr_1fr_2fr_0.6fr] gap-2 px-4 py-2 text-[10px] uppercase tracking-wider text-muted border-b border-border">
+            <div>coin</div><div className="text-right">pnl</div><div /><div className="text-right">fills</div>
+          </div>
+          {coinBreakdown.map((e) => {
+            const pct = coinAbsTotal > 0 ? Math.abs(e.pnl) / coinAbsTotal : 0;
+            const win = e.pnl >= 0;
+            const barPct = `${(pct * 100).toFixed(1)}%`;
+            return (
+              <div key={e.coin} className="grid grid-cols-[1fr_1fr_2fr_0.6fr] gap-2 px-4 py-1.5 table-row items-center">
+                <div className="text-ink">{e.coin}</div>
+                <div className={`num text-right ${win ? "text-win" : "text-loss"}`}>
+                  {e.pnl === 0 ? "—" : fmtPnl(e.pnl)}
+                </div>
+                <div className="flex items-center h-4 relative">
+                  <div className="absolute left-1/2 top-0 bottom-0 w-px bg-border" />
+                  <div className="w-1/2 flex justify-end pr-px">
+                    {!win && <div className="h-2.5 rounded-sm bg-loss/60" style={{ width: barPct }} />}
+                  </div>
+                  <div className="w-1/2 pl-px">
+                    {win && <div className="h-2.5 rounded-sm bg-win/60" style={{ width: barPct }} />}
+                  </div>
+                </div>
+                <div className="num text-right text-[11px] text-muted">{e.fills}</div>
+              </div>
+            );
+          })}
+        </Panel>
+      )}
+
+      {/* Price chart for the trader's most-active coin, with buy/sell dots at
+          actual fill prices. Green cluster near lows, red near highs = good
+          timing; the opposite tells you they were chasing. */}
+      {coinBreakdown.length > 0 && (
+        <CoinChartPanel
+          coin={coinBreakdown[0].coin}
+          hours={days * 24}
+          fills={windowFills.filter((f: any) => f.coin === coinBreakdown[0].coin)}
+        />
+      )}
+
+      {coinBreakdown.length > 0 && (
+        <Panel title={`${coinBreakdown[0].coin} depth · live`}>
+          <OrderbookPanel coin={coinBreakdown[0].coin} />
+        </Panel>
+      )}
+
+      {/* "$N on this trader" — server-side replay with its data checks
+          attached. Renders its own panel chrome so the header can carry the
+          checks verdict. */}
+      <BacktestPanel addr={addr} days={days} />
+      <div className="-mt-3 text-right">
+        <Link href={`/invest/split?add=${addr}`} className="text-[11px] text-accent2 hover:text-accent">
+          add to my $-per-trader plan →
+        </Link>
+      </div>
+
+      {/* Open positions — perps only. `clearinghouseState` does not carry spot
+          balances, so "none" here means no perp exposure, not a flat account. */}
+      <Panel title="open positions · perps">
         {positions.length === 0 ? (
-          <Empty>no open positions</Empty>
+          <Empty>no open perp positions — spot balances are not in this table</Empty>
         ) : (
           <div className="grid grid-cols-[1fr_1fr_1fr_1fr_1fr] gap-2 px-4 py-2 text-[10px] uppercase tracking-wider text-muted border-b border-border">
             <div>coin</div><div className="text-right">size</div>
@@ -150,13 +465,13 @@ export default function TraderPage() {
       {/* Recent fills */}
       <Panel
         title={`recent fills (${days}d)`}
-        right={fills.length > 0 ? (
+        right={windowFills.length > 0 ? (
           <span className={`num ${fillsClosedPnl >= 0 ? "text-win" : "text-loss"}`}>
             Σ closed pnl {fmtPnl(fillsClosedPnl)}
           </span>
         ) : undefined}
       >
-        {fills.length === 0 ? (
+        {windowFills.length === 0 ? (
           <Empty>no fills in window</Empty>
         ) : (
           <div className="grid grid-cols-[1.4fr_1fr_1fr_1fr_1fr_1.4fr] gap-2 px-4 py-2 text-[10px] uppercase tracking-wider text-muted border-b border-border">
@@ -182,14 +497,370 @@ export default function TraderPage() {
   );
 }
 
-function Tile({ label, value, tone }: { label: string; value: string; tone?: "win" | "loss" }) {
+function TradeCalendar({ fills }: { fills: any[] }) {
+  if (fills.length === 0) return null;
+
+  type DayData = { count: number; notional: number };
+  const dayMap = new Map<number, DayData>();
+  for (const f of fills) {
+    const dayKey = Math.floor(Number(f.time) / 86400000);
+    const entry = dayMap.get(dayKey) ?? { count: 0, notional: 0 };
+    entry.count++;
+    entry.notional += Number(f.px || 0) * Math.abs(Number(f.sz || 0));
+    dayMap.set(dayKey, entry);
+  }
+  if (dayMap.size === 0) return null;
+
+  const maxTs = fills.reduce((m, f) => Math.max(m, Number(f.time)), 0);
+  const latestDay = Math.floor(maxTs / 86400000);
+  const WINDOW = 31;
+  const earliestDay = latestDay - WINDOW + 1;
+
+  // find Monday on or before earliestDay (getUTCDay: 0=Sun, 1=Mon…6=Sat)
+  const firstDow = new Date(earliestDay * 86400000).getUTCDay();
+  const backToMonday = firstDow === 0 ? 6 : firstDow - 1;
+  const gridStart = earliestDay - backToMonday;
+
+  const COLS = 5;
+  const ROWS = 7;
+
+  // col-major: col 0 = week 0 (Mon…Sun), col 1 = week 1, …
+  const cells: { dayKey: number; date: Date; data: DayData | null; inWindow: boolean }[] = [];
+  for (let col = 0; col < COLS; col++) {
+    for (let row = 0; row < ROWS; row++) {
+      const dayKey = gridStart + col * 7 + row;
+      cells.push({
+        dayKey,
+        date: new Date(dayKey * 86400000),
+        data: dayMap.get(dayKey) ?? null,
+        inWindow: dayKey >= earliestDay && dayKey <= latestDay,
+      });
+    }
+  }
+
+  const activeCells = cells.filter((c) => c.inWindow && c.data && c.data.count > 0);
+  const maxNotional = activeCells.reduce((m, c) => Math.max(m, c.data!.notional), 0);
+
+  const DOW_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const DOW_NAMES  = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+  const busiest = activeCells.reduce(
+    (best: typeof activeCells[0] | undefined, c) =>
+      c.data!.notional > (best?.data?.notional ?? 0) ? c : best,
+    undefined
+  );
+  const busiestDow = busiest ? DOW_NAMES[busiest.date.getUTCDay()] : "—";
+
+  const intensity = (notional: number) => {
+    if (notional === 0 || maxNotional === 0) return 0;
+    return Math.log1p(notional) / Math.log1p(maxNotional);
+  };
+
+  const fmtDate = (d: Date) =>
+    `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+
   return (
-    <div className="panel p-3">
-      <div className="stat">{label}</div>
-      <div className={`text-lg num mt-1 ${tone === "win" ? "text-win" : tone === "loss" ? "text-loss" : ""}`}>
-        {value}
+    <Panel title="activity calendar · 31d">
+      <div className="px-4 py-3">
+        <div className="flex gap-2 items-start">
+          <div className="flex flex-col gap-[3px] shrink-0 pt-px">
+            {DOW_LABELS.map((label) => (
+              <div key={label} className="text-[9px] text-muted/60" style={{ height: 14, lineHeight: "14px" }}>
+                {label}
+              </div>
+            ))}
+          </div>
+          <div
+            className="grid gap-[3px]"
+            style={{
+              gridTemplateColumns: `repeat(${COLS}, 14px)`,
+              gridTemplateRows: `repeat(${ROWS}, 14px)`,
+            }}
+          >
+            {cells.map((cell, i) => {
+              const col = Math.floor(i / ROWS) + 1;
+              const row = (i % ROWS) + 1;
+              const inten = cell.inWindow && cell.data ? intensity(cell.data.notional) : 0;
+              const tipText = cell.inWindow
+                ? cell.data && cell.data.count > 0
+                  ? `${fmtDate(cell.date)}\n${cell.data.count} fill${cell.data.count !== 1 ? "s" : ""} · ${fmtUsd(cell.data.notional)} notional`
+                  : fmtDate(cell.date)
+                : undefined;
+              return (
+                <div
+                  key={i}
+                  title={tipText}
+                  style={{
+                    gridColumn: col,
+                    gridRow: row,
+                    width: 14,
+                    height: 14,
+                    opacity: cell.inWindow ? 1 : 0,
+                    backgroundColor: inten > 0
+                      ? `rgb(var(--c-accent2) / ${(0.18 + inten * 0.82).toFixed(2)})`
+                      : undefined,
+                  }}
+                  className={`rounded-sm ${inten > 0 ? "" : "bg-border/25"}`}
+                />
+              );
+            })}
+          </div>
+        </div>
+        <div className="mt-2 text-[10px] text-muted">
+          active on <span className="text-ink">{activeCells.length}</span> of {WINDOW} days
+          {busiest ? <> · busiest on <span className="text-ink">{busiestDow}</span></> : null}
+        </div>
       </div>
+    </Panel>
+  );
+}
+
+function TraderCopilot({ addr }: { addr: string }) {
+  const [open, setOpen] = useState(false);
+  const [ever, setEver] = useState(false);
+  const lsKey = `hl.trader.${addr}.copilotOpen`;
+  useEffect(() => {
+    if (localStorage.getItem(lsKey) !== "0") { setOpen(true); setEver(true); }
+  }, [lsKey]);
+  const toggle = () => {
+    setOpen((v) => {
+      try { localStorage.setItem(lsKey, v ? "0" : "1"); } catch {}
+      if (!v) setEver(true);
+      return !v;
+    });
+  };
+  const examples = [
+    `analyze ${addr} — is this wallet worth copying?`,
+    `backtest $1,000 on ${addr} for 30 days and tell me the risk`,
+  ];
+  return (
+    <div className="panel">
+      <button className="w-full flex items-center justify-between gap-3 p-3 text-left"
+        onClick={toggle} aria-expanded={open}>
+        <span className="flex items-baseline gap-3 min-w-0">
+          <span className="eyebrow">trader copilot</span>
+          <span className="text-[11px] text-muted truncate">
+            analyze this wallet, backtest copy-trades, check the risk
+          </span>
+        </span>
+        <span className="text-dim text-xs shrink-0">{open ? "fold ▴" : "open ▾"}</span>
+      </button>
+      {ever && (
+        <div className={open ? "px-3 pb-3" : "hidden"}>
+          <AskConsole mode="desk" examples={examples} />
+        </div>
+      )}
     </div>
+  );
+}
+
+function scoreGateFailSub(s: any, gate: ScoreMarket["gate"]): string {
+  if (s.closes < gate.min_closes) return `${s.closes} of ${gate.min_closes} closes needed`;
+  if (gate.factors_positive.includes("sharpe") && s.sharpe <= 0) return "sharpe must be > 0";
+  if (gate.factors_positive.includes("win_rate") && s.win_rate <= 0) return "win rate must be > 0";
+  return "not in score market";
+}
+
+/**
+ * A stat and the evidence under it.
+ *
+ * `sub` is not decoration. A ratio shown alone invites the reader to supply a
+ * denominator from whatever number is nearest, and on this page the nearest
+ * number was the fill count — twice the real one. The sub-line removes the
+ * guess.
+ */
+function Tile({ label, value, tone, sub, title }: {
+  label: string;
+  value: string;
+  tone?: "win" | "loss" | "warn";
+  sub?: string;
+  title?: string;
+}) {
+  const toneClass =
+    tone === "win" ? "text-win" : tone === "loss" ? "text-loss" : tone === "warn" ? "text-warn" : "";
+  return (
+    <div className="panel p-3" title={title}>
+      <div className="stat">{label}</div>
+      <div className={`text-lg num mt-1 ${toneClass}`}>{value}</div>
+      {sub && (
+        <div className={`text-[10px] mt-0.5 num ${tone === "warn" ? "text-warn/70" : "text-muted"}`}>
+          {sub}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The same wallet over every day of history on hand, next to the window the
+ * tiles describe.
+ *
+ * This exists because a short window is the easiest way to launder a losing
+ * book into a perfect one: crop to the last few days and any trader who has
+ * not lost recently reads as flawless. The fills request already returns ~31
+ * days regardless of the window, so showing the longer view costs nothing and
+ * is the single most useful number on the page for someone deciding whether to
+ * mirror this wallet with real money.
+ */
+function WiderView({ days, s, ext }: { days: number; s: any; ext: any }) {
+  const rows: { label: string; win: string; wide: string; flip: boolean }[] = [];
+
+  const winOf = (x: any) => (x.win_rate < 0 ? "—" : fmtPct(x.win_rate, 0));
+  rows.push({
+    label: "win rate",
+    win: `${winOf(s)}  (${s.wins}/${s.closes})`,
+    wide: `${winOf(ext)}  (${ext.wins}/${ext.closes})`,
+    // Flag it when the short window flatters the wallet by 10 points or more.
+    flip: s.win_rate >= 0 && ext.win_rate >= 0 && s.win_rate - ext.win_rate >= 10,
+  });
+  rows.push({
+    label: "net pnl",
+    win: fmtPnl(s.pnl),
+    wide: fmtPnl(ext.pnl),
+    flip: s.pnl >= 0 && ext.pnl < 0,
+  });
+  rows.push({
+    label: "sharpe",
+    win: sharpeMeasured(s) ? s.sharpe.toFixed(2) : `— (${s.sharpe_days}d)`,
+    wide: sharpeMeasured(ext) ? ext.sharpe.toFixed(2) : `— (${ext.sharpe_days}d)`,
+    flip: sharpeMeasured(ext) && ext.sharpe < 0 && s.sharpe > 0,
+  });
+  rows.push({
+    label: "worst close",
+    win: s.worst_close < 0 ? fmtPnl(s.worst_close) : "—",
+    wide: ext.worst_close < 0 ? fmtPnl(ext.worst_close) : "—",
+    flip: ext.worst_close < s.worst_close * 2 && ext.worst_close < 0,
+  });
+
+  const misleading = rows.some((r) => r.flip);
+
+  return (
+    <Panel
+      title={`the same wallet over ${ext.span_days}d`}
+      right={
+        misleading ? (
+          <span className="text-warn text-[11px]">the {days}d window flatters this book</span>
+        ) : undefined
+      }
+    >
+      <div className="grid grid-cols-[1.2fr_1fr_1fr] gap-2 px-4 py-2 text-[10px] uppercase tracking-wider text-muted border-b border-border">
+        <div />
+        <div className="text-right">{days}d window</div>
+        <div className="text-right">{ext.span_days}d, all history</div>
+      </div>
+      {rows.map((r) => (
+        <div key={r.label} className="grid grid-cols-[1.2fr_1fr_1fr] gap-2 px-4 py-1.5 table-row">
+          <div className="text-[11px] text-muted uppercase tracking-wider">{r.label}</div>
+          <div className={`num text-right ${r.flip ? "text-warn" : "text-ink/90"}`}>{r.win}</div>
+          <div className="num text-right text-ink/90">{r.wide}</div>
+        </div>
+      ))}
+      <div className="px-4 py-2 text-[10px] text-muted border-t border-border">
+        Both columns come from the same cached fills — the wider view costs no extra request.
+      </div>
+    </Panel>
+  );
+}
+
+function TradeStyle({ trips, days, closes }: { trips: any[]; days: number; closes: number }) {
+  const closed = trips.filter((t) => t.closeTime != null);
+  if (closed.length === 0) return null;
+
+  const MS_5MIN = 5 * 60 * 1000;
+  const MS_4H = 4 * 60 * 60 * 1000;
+  const MS_5D = 5 * 24 * 60 * 60 * 1000;
+
+  const holdTimes = closed.map((t) => t.closeTime - t.openTime);
+  let scalp = 0, intraday = 0, swing = 0, position = 0;
+  for (const ms of holdTimes) {
+    if (ms < MS_5MIN) scalp++;
+    else if (ms < MS_4H) intraday++;
+    else if (ms < MS_5D) swing++;
+    else position++;
+  }
+
+  const total = closed.length;
+  const pct = (n: number) => total > 0 ? (n / total) * 100 : 0;
+
+  const sorted = [...holdTimes].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  const median =
+    sorted.length % 2 === 0
+      ? (sorted[mid - 1] + sorted[mid]) / 2
+      : sorted[mid];
+
+  const closesPerDay = days > 0 ? closes / days : 0;
+  let copyText: string;
+  let copyTone: "win" | "warn" | "neutral";
+  if (closesPerDay > 50) {
+    copyText = `${closesPerDay.toFixed(0)} closes/day — high-frequency, live engine may miss rapid position changes`;
+    copyTone = "warn";
+  } else if (closesPerDay < 2) {
+    copyText = `${closesPerDay.toFixed(1)} closes/day — patient swing trader, easy to copy ✓`;
+    copyTone = "win";
+  } else {
+    copyText = `${closesPerDay.toFixed(1)} closes/day — moderate frequency`;
+    copyTone = "neutral";
+  }
+
+  const bars: { label: string; count: number; color: string }[] = [
+    { label: "scalp <5m",    count: scalp,    color: "bg-loss/60" },
+    { label: "intraday <4h", count: intraday, color: "bg-warn/60" },
+    { label: "swing <5d",    count: swing,    color: "bg-accent2/60" },
+    { label: "position 5d+", count: position, color: "bg-win/60" },
+  ].filter((b) => b.count > 0);
+
+  return (
+    <Panel title="trade style">
+      <div className="px-4 py-3 space-y-2">
+        {bars.map((b) => {
+          const barPct = pct(b.count);
+          return (
+            <div key={b.label} className="grid grid-cols-[6.5rem_3rem_1fr] gap-2 items-center">
+              <div className="text-[11px] text-muted">{b.label}</div>
+              <div className="num text-right text-[11px] text-ink/80">{barPct.toFixed(0)}%</div>
+              <div className="h-2.5 rounded-sm overflow-hidden bg-border/30">
+                <div className={`h-full rounded-sm ${b.color}`} style={{ width: `${barPct}%` }} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="px-4 py-2 border-t border-border flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+        <div className="text-[11px] text-muted">
+          median hold{" "}
+          <span className="text-ink num">{fmtDuration(median)}</span>
+          <span className="ml-1 text-muted/60">({total} closed trades)</span>
+        </div>
+        <div
+          className={`text-[11px] ${
+            copyTone === "win" ? "text-win" : copyTone === "warn" ? "text-warn" : "text-muted"
+          }`}
+        >
+          {copyText}
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
+function CoinChartPanel({ coin, hours, fills }: { coin: string; hours: number; fills: any[] }) {
+  const [candles, setCandles] = useState<Candle[] | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    fetchCandles(coin, hours)
+      .then((c) => { if (alive) setCandles(c); })
+      .catch(() => { if (alive) setCandles([]); });
+    return () => { alive = false; };
+  }, [coin, hours]);
+
+  if (candles === null) return null;
+
+  return (
+    <Panel title={`${coin} price · fills marked`}>
+      <CoinChart candles={candles} fills={fills} />
+    </Panel>
   );
 }
 

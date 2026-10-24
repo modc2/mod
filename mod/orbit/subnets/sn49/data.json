@@ -1,0 +1,157 @@
+{
+  "netuid": 49,
+  "name": "Nepher Robotics",
+  "symbol": "ר",
+  "owner": "5FL781vfkLNnYBUi58JnhZ3r2waHDMiehxRhzcMaMWvKDfXf",
+  "description": "Pioneering Simulation-First Robotics Development",
+  "github": "https://github.com/nepher-ai/nepher-subnet",
+  "url": "https://www.nepher.ai/",
+  "discord": "https://discord.gg/qZUc3vdjVq",
+  "logo": "https://avatars.githubusercontent.com/u/243286101?s=200&v=4",
+  "registered_at": 6783158,
+  "tempo": 360,
+  "active": true,
+  "block": 9322663,
+  "related": [],
+  "market": {
+    "price": 0.007213847,
+    "moving_price": 0.007218655431643128,
+    "market_cap": 22582.454901215096,
+    "tao_in": 4446.587843221,
+    "alpha_in": 616396.324396814,
+    "alpha_out": 2514035.316475954,
+    "volume": 222704.017293339,
+    "vol_24h": 2200.6923420100065,
+    "emission": 0.0,
+    "change_1h": 0.0018298477275635605,
+    "change_24h": -1.0791161710141717,
+    "change_7d": -9.39956155691879
+  },
+  "spark_24h": [
+    0.007292542,
+    0.007312348,
+    0.00738939,
+    0.007389682,
+    0.007389762,
+    0.007389798,
+    0.007406578,
+    0.007407254,
+    0.0074073,
+    0.007341093,
+    0.007305248,
+    0.007302473,
+    0.007278262,
+    0.007221164,
+    0.007221207,
+    0.007221243,
+    0.007220078,
+    0.007204192,
+    0.007204253,
+    0.007168556,
+    0.007168621,
+    0.00715339,
+    0.007159884,
+    0.007159951,
+    0.00716327,
+    0.007164043,
+    0.007164228,
+    0.007164265,
+    0.007164328,
+    0.007164405,
+    0.007164502,
+    0.007171017,
+    0.007206701,
+    0.007206775,
+    0.007230786,
+    0.007230835,
+    0.007230869,
+    0.007228631,
+    0.007213333,
+    0.007213389,
+    0.007213476,
+    0.007213521,
+    0.007213573,
+    0.0072136,
+    0.007213652,
+    0.007213715,
+    0.007213763,
+    0.007213847
+  ],
+  "trades_24h": {
+    "trades": 226,
+    "buys": 122,
+    "sells": 104,
+    "buy_tao": 1085.982524343,
+    "sell_tao": 1106.94057318,
+    "net_tao": -20.95804883699998,
+    "traders": 68
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5Cw2qFy2tZy9ZLt4LsJc9b68nffQndZDHF1KZynmVbA4Z3pC",
+      "net_tao": -0.5887885509999968,
+      "gross_tao": 340.588788551,
+      "trades": 16
+    },
+    {
+      "coldkey": "5DQZ144mQ3a1Wjvq4TntnFcNJuA9GKbDiGQiUuGJSNBog1ZF",
+      "net_tao": -68.03430443300002,
+      "gross_tao": 330.187322015,
+      "trades": 6
+    },
+    {
+      "coldkey": "5GHfXPxrFpyPDVM7tUdqa7oeVpFfdH9CWiHyDMnsjjvd4pjR",
+      "net_tao": -0.8556021899999973,
+      "gross_tao": 100.85560219,
+      "trades": 10
+    },
+    {
+      "coldkey": "5H39Eeei4xAj51e3aUqXhiZoGAZZwDDGJXFeJRnDdBUbiVMk",
+      "net_tao": 100.0,
+      "gross_tao": 100.0,
+      "trades": 2
+    },
+    {
+      "coldkey": "5CBAS9Vj87CTB46gXT7buv4BymG2s1igKrYnyMoyGcbvAxjk",
+      "net_tao": 0.6563735910000013,
+      "gross_tao": 99.343626409,
+      "trades": 7
+    }
+  ],
+  "news": [
+    {
+      "ts": 1791189456,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #11 from nepher-ai/feat/isaacsim-6.1-isaaclab-3.0",
+      "url": "https://github.com/nepher-ai/nepher-subnet/commit/dfbd06a5dc1e2fa996c5925a9e7a96c19adfb1ea",
+      "publisher": "nepher-ai/nepher-subnet"
+    },
+    {
+      "ts": 1790778101,
+      "kind": "commit",
+      "source": "github",
+      "title": "Fix issue: IsaacLab 3.0.0 rejects --headless",
+      "url": "https://github.com/nepher-ai/nepher-subnet/commit/8d01570718f988296575e2aaa688cdd6cf16c3b0",
+      "publisher": "nepher-ai/nepher-subnet"
+    },
+    {
+      "ts": 1790729053,
+      "kind": "commit",
+      "source": "github",
+      "title": "Upgrade validator sandbox to Isaac Sim 6.1 / Isaac Lab 3.0.0",
+      "url": "https://github.com/nepher-ai/nepher-subnet/commit/1e23cf0664621ece7696cf0375e205d911595892",
+      "publisher": "nepher-ai/nepher-subnet"
+    },
+    {
+      "ts": 1790728304,
+      "kind": "release",
+      "source": "github",
+      "title": "v1.0.0",
+      "url": "https://github.com/nepher-ai/nepher-subnet/releases/tag/v1.0.0",
+      "publisher": "nepher-ai/nepher-subnet"
+    }
+  ],
+  "updated": 1792474861,
+  "updated_day": "2026-10-20"
+}
