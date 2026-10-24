@@ -110,7 +110,7 @@
             "docs": "List all archived epochs with lightweight summaries (epoch, type, challenge, miners, top score)"
         }
     },
-    "schema": "QmTPeRUp7JC9HxW238vq1FyzV7BjpKcGBbt8GjD9dXZsGA",
+    "schema": "QmcCkcPWsWGoQVP1iwKh2SguH3Jx67325FKNRB8sqN4BcP",
     "gateway_port": 51461,
     "protocol": {
         "name": "zuma",

@@ -91,7 +91,7 @@
         "preflight",
         "anonymity"
     ],
-    "schema": "QmWT6XMQUZ8sKxKoUcxa2r6y95JsxHtdruzM1eHbztdhxs",
+    "schema": "QmUBnmrX7ERKzUJJfL1TgDzpF3qrcq9szuuycXFaXens5J",
     "urls": {
         "app": "http://localhost:50122/ztao/",
         "api": "http://localhost:50122/ztao/api",
