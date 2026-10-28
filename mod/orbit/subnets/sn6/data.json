@@ -1,0 +1,141 @@
+{
+  "netuid": 6,
+  "name": "Numinous",
+  "symbol": "ζ",
+  "owner": "5CfSg4e23Z3aTXvc2XZie8ZE1xkqRPoyVRFdWUuyyjGxJrMA",
+  "description": "Numinous is a forecasting protocol whose goal is to aggregate agents into superhuman LLM forecasters.",
+  "github": "https://github.com/numinouslabs/numinous",
+  "url": "https://numinouslabs.io/",
+  "discord": "amedeo_ma",
+  "logo": "https://numinouslabs.io/numinous-logo.svg",
+  "registered_at": 3219949,
+  "tempo": 360,
+  "active": true,
+  "block": 9322663,
+  "related": [],
+  "market": {
+    "price": 0.00222066,
+    "moving_price": 0.00222002319060266,
+    "market_cap": 13390.850368184501,
+    "tao_in": 7328.59789099,
+    "alpha_in": 3300188.764697477,
+    "alpha_out": 2729933.076640008,
+    "volume": 706824.906302449,
+    "vol_24h": 65.0701330389129,
+    "emission": 0.0,
+    "change_1h": -0.05927154061450279,
+    "change_24h": -0.07730458094887815,
+    "change_7d": -3.0306576584759215
+  },
+  "spark_24h": [
+    0.002222378,
+    0.002222378,
+    0.00222081,
+    0.002220047,
+    0.002220046,
+    0.002220046,
+    0.002220046,
+    0.002220046,
+    0.002220046,
+    0.002220046,
+    0.002220042,
+    0.002220034,
+    0.00221995,
+    0.002219869,
+    0.002219506,
+    0.002219505,
+    0.002219505,
+    0.002219505,
+    0.002219505,
+    0.002219223,
+    0.002219531,
+    0.002218157,
+    0.002218157,
+    0.002218157,
+    0.002218157,
+    0.002218147,
+    0.002218163,
+    0.002218163,
+    0.002218163,
+    0.00221709,
+    0.002217281,
+    0.002217281,
+    0.002217281,
+    0.002217281,
+    0.002217281,
+    0.002223337,
+    0.002223337,
+    0.002221978,
+    0.002221978,
+    0.002221978,
+    0.002221978,
+    0.002221978,
+    0.002221978,
+    0.002221978,
+    0.002221977,
+    0.002221977,
+    0.002221977,
+    0.00222066
+  ],
+  "trades_24h": {
+    "trades": 29,
+    "buys": 7,
+    "sells": 22,
+    "buy_tao": 31.124279364,
+    "sell_tao": 33.010377353,
+    "net_tao": -1.8860979890000031,
+    "traders": 19
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5HGgoL7fAfy3JFUMLpUPYtrUGPyPFUFfk2FkGUH1bigWo8No",
+      "net_tao": 0.015111499999999722,
+      "gross_tao": 29.9848885,
+      "trades": 2
+    },
+    {
+      "coldkey": "5FepfkX5sJS3W78exvr5qpuAHBVTmBSDdiF4ziHpb87G3FSM",
+      "net_tao": 0.00519878500000015,
+      "gross_tao": 10.325350317000002,
+      "trades": 2
+    },
+    {
+      "coldkey": "5HLAW7BHTBb98Gw3Thm5a6URU2udsuFYA5hiLRMGJbgb8qfA",
+      "net_tao": 10.0,
+      "gross_tao": 10.0,
+      "trades": 1
+    },
+    {
+      "coldkey": "5HN1FinG9Y7QhjjyereD3BXTqhj6WDKXkDPzwgp4VRL6uBN6",
+      "net_tao": -1.758983455,
+      "gross_tao": 2.773824877,
+      "trades": 2
+    },
+    {
+      "coldkey": "5E7uVNnNE44mG3mc5fv8a1av6rb6RXqXamdQyPGnC9u5a8Ug",
+      "net_tao": -2.241582429,
+      "gross_tao": 2.241582429,
+      "trades": 3
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790100477,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #55 from numinouslabs/sync-main-2026-09-22-17-30",
+      "url": "https://github.com/numinouslabs/numinous/commit/e32cf9dfa0e3f3cb627e262b9f4547e490e08b76",
+      "publisher": "numinouslabs/numinous"
+    },
+    {
+      "ts": 1790098251,
+      "kind": "commit",
+      "source": "github",
+      "title": "Release 2026-09-22-17-30 from main",
+      "url": "https://github.com/numinouslabs/numinous/commit/316a0e4c27187f85453c4ed3721581e4e0771e01",
+      "publisher": "numinouslabs/numinous"
+    }
+  ],
+  "updated": 1792474861,
+  "updated_day": "2026-10-20"
+}

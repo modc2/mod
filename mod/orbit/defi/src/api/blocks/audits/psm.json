@@ -1,0 +1,99 @@
+{
+ "block": "psm",
+ "contract": "ModPSM",
+ "file": "psm.sol",
+ "audited_at": "2026-08-30",
+ "auditor": "claude-fable-5 agent audit",
+ "risk": "medium",
+ "summary": "ModPSM is a Maker-style peg stability module that swaps a reserve asset for the protocol stablecoin at par minus a fee, in both directions, out of inventory that anyone can fill and only the owner can withdraw. It never mints; par is derived from both tokens' decimals() at deploy, so the USDC-6 vs stable-18 conversion is correct in the whole-unit case and the fee math is consistent between the quote functions and the fee counters. The worst finding is a composition one: because pricing is oracle-less par and both ports accept any ERC20, wiring an owner-mintable ModToken as either the stable or the reserve lets that key mint one side and take the entire real inventory of the other side (PSM-1). Against real USDC and a collateral-bounded ModCDP stable that path is closed and what remains is the inherent PSM exposure to a reserve depeg with no pause and fees capped at 10% (PSM-2), a fully custodial owner withdraw that also desynchronises fee accounting (PSM-3), and low-severity dust/decimals/token-compat edges. Safe to deploy as-is only with standard non-mintable-by-one-key tokens, a governor-held owner key, and inventory sized to what the filler is willing to convert in a crisis.",
+ "counts": {
+  "critical": 0,
+  "high": 1,
+  "medium": 2,
+  "low": 4,
+  "info": 1
+ },
+ "findings": [
+  {
+   "id": "PSM-1",
+   "severity": "high",
+   "title": "A single-key minter on either port drains the other side's inventory at par",
+   "where": "buyGem() L80-L88, sellGem() L68-L77, constructor L33-L54",
+   "detail": "The PSM prices stateless par with no oracle, so it trusts that one unit of `stable` is worth one unit of `gem`. Both ports are plain `erc20` inputs, and the composer's default asset is ModToken (token.sol L26-L29), whose owner can mint without bound when `mintable` is true. Whoever holds that mint key can conjure the input side and swap it for the whole real-asset inventory the PSM holds; the only brake is `toutBps`/`tinBps`, capped at 10%. The same applies in the other direction if the reserve `gem` is a mintable ModToken rather than USDC (bounded only by `gemCap`, which is 0 = unlimited by default). A ModCDP stable is collateral-bounded (cdp.sol L129-L136) so it is not affected on its own, but `drawSurplus` (L172-L178) still mints fee-sized amounts to the CDP owner.",
+   "exploit": "stable = ModToken(mintable=true, owner=X); gem = real USDC; the PSM has been filled with 5,000,000 USDC by sellGem users. X calls stable.mint(X, 5_050_000e18), stable.approve(psm, max), then psm.buyGem(5_050_000e18) -> gemOutFor = 5,050,000e6 minus 10 bps = 5,044,950 USDC pushed to X. The PSM's reserve is now zero and every user who sold USDC into it holds a stable with nothing behind it. If X also owns the PSM, feesGem is theirs too. Mirror: gem = mintable ModToken -> gem owner mints, sellGem, takes every stable in inventory.",
+   "recommendation": "Only wire tokens whose issuance is collateral- or reserve-bounded (a ModCDP, real USDC). If a ModToken must be used, deploy it with mintable=false or move its owner to a multisig/timelock/governor before filling the PSM. Deployers who want the block itself to enforce this should add a per-side inventory ceiling on the stable side (mirror of gemCap) and a pause."
+  },
+  {
+   "id": "PSM-2",
+   "severity": "medium",
+   "title": "No oracle and no pause: a depegging reserve is absorbed at par until the stable inventory is gone",
+   "where": "sellGem() L68-L77, buyGem() L80-L88, setFees() L112-L117",
+   "detail": "Par is fixed at deploy (`gemUnit`/`stableUnit`, L49-L50). If the reserve trades below $1 (USDC, March 2023) arbitrageurs sell it into the PSM for full-value stable until `stable.balanceOf` is exhausted, leaving the filler holding the depegged asset. If instead the stable breaks (e.g. the CDP behind it becomes under-collateralised) the same happens to the gem reserve via buyGem. This is what a PSM does, but Maker's version can be halted; here the only levers are fees capped at 1,000 bps (L43, L113), which is less than a real depeg, and an owner `withdraw` that competes in the mempool with the arbitrageurs.",
+   "exploit": "tinBps = 10, PSM holds 4,000,000e18 stable. USDC prints $0.88 on Curve. Arber buys 1,000,000 USDC for $880k, calls sellGem(1_000_000e6) -> 999,000e18 stable, sells the stable on the protocol AMM at ~$1 -> $999k; $119k profit per loop. Four loops later the PSM's stable side is empty and it holds 4,000,000 USDC worth $3.52M. The owner's setFees(1000,1000,cap) only narrows the profit to ~$19k per million; withdraw() has to win the race against every arber block by block.",
+   "recommendation": "Add an owner-settable `halted` flag checked in sellGem/buyGem (or per-direction halts, like Maker's `tin`/`tout` set to 100% - which this contract's 10% cap forbids). Optionally accept an IOracle for gem and refuse swaps when |price - 1e18| exceeds a bound. Keep filled inventory to what the deployer is willing to convert into the other asset in a crisis."
+  },
+  {
+   "id": "PSM-3",
+   "severity": "medium",
+   "title": "withdraw() is unlimited and ignores fee accounting; fill() is an irrevocable donation to the owner",
+   "where": "withdraw() L119-L122, fill() L90-L94, collectFees() L96-L104, sellGem() L72",
+   "detail": "Anyone may `fill` either side, but only the owner may take anything out, with no cap, no timelock, and no restriction to the two tokens. `withdraw` does not reduce `feesGem`/`feesStable`, so after the owner pulls inventory those counters describe tokens that no longer exist: `collectFees` reverts on the first push that cannot be covered (and because both pushes sit in one function, one dead side blocks the other), and `sellGem`'s L72 check reserves phantom `feesStable`, making the module refuse swaps it could actually fill. The code comment says the reserve is 'not locked in here' - deployers and anyone else filling must read that as 'custodial'.",
+   "exploit": "Alice, not the owner, calls fill(stable, 100_000e18) to help defend the peg. Owner calls withdraw(stable, stable.balanceOf(psm), owner). Alice has no recourse. Separately: feesStable = 500e18 accrued, feesGem = 300e6. Owner withdraw()s all stable. collectFees() now pushes 300 USDC, then reverts on stable.push (ERC20Base 'BALANCE' / PUSH_FAILED), so the gem fees are stuck too until someone refills at least 500e18 stable.",
+   "recommendation": "Restrict withdraw to `gem`/`stable` plus a separate `rescue(token)` for foreign tokens; make it clamp to `balanceOf - fees` (or zero the fee counters proportionally); route withdraw through the governor with a timelock if third parties are expected to fill. Document that fill() is not a deposit."
+  },
+  {
+   "id": "PSM-4",
+   "severity": "low",
+   "title": "Cross-decimal truncation: buyGem accepts stable and can return zero gem; sub-unit dust is absorbed untracked",
+   "where": "gemOutFor() L61-L64, buyGem() L80-L88, stableOutFor() L56-L59",
+   "detail": "With an 18-decimal stable and a 6-decimal gem, `par = stableIn * 1e6 / 1e18` floors to 1e-6 granularity. There is no `require(gemOut > 0)` and no check that `stableIn` is a whole gem unit, so up to 1e12 - 1 wei of stable per call is pulled, credited to nobody (not to `feesGem`, not to `feesStable`) and simply becomes contract balance the owner can withdraw. When gem has more decimals than stable the same hole is in sellGem. Not attacker-profitable, but a wallet or integrator passing an unrounded amount pays for nothing.",
+   "exploit": "gem = USDC (6), stable 18. User calls buyGem(999_999_999_999): gemOutFor -> par = 0, gemOut = 0. L83 passes (balance >= 0 + feesGem), L84 pulls ~1e-6 stable, L85 adds 0 to feesGem, L86 pushes 0 gem, BoughtGem(user, 999999999999, 0) is emitted. buyGem(1_500_000_000_000) likewise pays 1.5e-6 stable for 1 wei of USDC (1e-6) - a third of the input vanishes.",
+   "recommendation": "require(gemOut > 0, 'DUST') and require(stableOut > 0, 'DUST'); either refuse amounts that are not multiples of `stableUnit / gemUnit` or only pull the amount that actually converts (`par * stableUnit / gemUnit`)."
+  },
+  {
+   "id": "PSM-5",
+   "severity": "low",
+   "title": "gemCap is scaled by a UI parameter that is never checked against gem.decimals(); 0 means unlimited",
+   "where": "constructor L38, L53; sellGem() L70; catalog params gemCap_ / gemDecimals",
+   "detail": "The catalog scales the typed cap by a separate `gemDecimals` param (default 6) and passes the raw integer to the constructor; the contract reads the real decimals at L49 but never compares. Picking the wrong value either bricks the sell side (cap far below one token) or silently removes the cap. And `gemCap_ == 0` is treated as no cap at L70, which reads as 'accept nothing' to most deployers.",
+   "exploit": "Deployer wires gem = an 18-decimal ModToken but leaves gemDecimals = 6 and the default cap 5,000,000 -> gemCap = 5e12 wei = 0.000005 gem. Every sellGem(>= 5e12) reverts GEM_CAP; the PSM can only ever absorb five millionths of a token until setFees() is called with a corrected cap. Conversely gemDecimals = 18 with USDC gives a cap of 5e24 = 5,000,000,000,000,000,000 USDC, i.e. none.",
+   "recommendation": "Have the composer read `decimals()` from the wired gem instead of asking for it, or add `require(gemCap_ == 0 || gemCap_ >= gemUnit)` in the constructor as a sanity floor. Use type(uint256).max, not 0, for 'no cap'."
+  },
+  {
+   "id": "PSM-6",
+   "severity": "low",
+   "title": "Fee-on-transfer or downward-rebasing reserve leaks value per swap and breaks fee accounting",
+   "where": "sellGem() L71-L74, buyGem() L83-L86, collectFees() L96-L104",
+   "detail": "`stableOut` is computed from the nominal `gemIn` before the pull, so a gem that takes a transfer fee delivers less than it is paid for on every sellGem. A gem whose balances rebase downward makes `feesGem` a claim on tokens that are no longer there: `collectFees` reverts on the gem push (taking the stable fees down with it) and `buyGem`'s L83 over-reserves. The block is written for USDC, which is neither, but the port accepts anything.",
+   "exploit": "gem = token with a 1% transfer fee. sellGem(1_000_000e6): PSM receives 990,000 gem, pushes 999,000e18 stable (only tinBps = 10 was deducted). The filler is short 10,000 gem per million swapped, forever. Rebasing case: feesGem = 1,000e6, balance rebases from 1,000e6 to 990e6; collectFees() -> gem.push(1,000e6) fails -> revert; stable fees are also unreachable until someone donates 10 gem.",
+   "recommendation": "Measure received amount as balanceOf-after minus balanceOf-before in sellGem and price on that; or document 'standard, non-rebasing, no-fee ERC20 only' on the gem port. Make collectFees clamp each side to available balance."
+  },
+  {
+   "id": "PSM-7",
+   "severity": "low",
+   "title": "SafeTransfer requires a bool return, so USDT-style reserves revert on every path and tokens sent directly are unrecoverable",
+   "where": "common.sol SafeTransfer L120-L128; fill() L93, withdraw() L121",
+   "detail": "`require(token.transferFrom(...))` ABI-decodes a bool. Tokens that return nothing (USDT mainnet, BNB, OMG) revert on decode, so fill/sellGem/buyGem/collectFees/withdraw all fail. No funds are lost via the API - fill() reverts before anything moves - but anyone who `transfer`s such a token straight to the contract (the usual way a reserve is seeded) has stranded it, because withdraw() reverts too.",
+   "exploit": "Deployer wires gem = USDT and seeds the reserve with usdt.transfer(psm, 1_000_000e6) directly. buyGem() -> gem.push -> transfer() returns no data -> abi decode reverts. withdraw(USDT, ...) reverts for the same reason. 1,000,000 USDT is locked in the contract permanently.",
+   "recommendation": "Use a real safe-transfer (low-level call + `returndata.length == 0 || abi.decode(...)`) in common.sol, or refuse non-standard tokens at deploy by test-calling them in the constructor."
+  },
+  {
+   "id": "PSM-8",
+   "severity": "info",
+   "title": "Reentrancy through hooked tokens cannot extract value, only overshoot gemCap by one swap",
+   "where": "sellGem() L70-L75, buyGem() L83-L86",
+   "detail": "Checks precede the external pull and state (`feesStable`/`feesGem`) is written between pull and push, so an ERC777-style gem could reenter sellGem from its tokensToSend hook. Because pricing is stateless par with no pool balance in the formula, a nested swap is priced identically and settles independently; the only observable effect is that L70 in the inner call sees a balance that does not yet include the outer pull, so the cap can be exceeded by at most one swap's size. There is no reentrancy guard, but there is no state to profit from either.",
+   "exploit": "gem = ERC777 with a sender hook, gemCap = 1,000,000e6, balance 900,000e6. Attacker calls sellGem(100,000e6); inside the hook calls sellGem(100,000e6) again - both cap checks pass against the stale 900,000 balance and the PSM ends at 1,100,000e6 gem. Both swaps paid par minus fee; nothing was gained beyond 100,000 of extra absorbed reserve.",
+   "recommendation": "Add a nonReentrant modifier if hooked tokens are ever wired; otherwise no change is required."
+  }
+ ],
+ "safe_use": [
+  "Never wire a ModToken with mintable=true on either port unless its owner is a governor/multisig you trust with the PSM's whole inventory; prefer a ModCDP stable (collateral-bounded mint) and a real reserve like USDC.",
+  "Size fill() amounts to what you are willing to hold in the other asset after a depeg; there is no pause, and the 10% fee ceiling will not stop arbitrage against a >10% depeg. Keep a withdraw() transaction ready and expect to race arbitrageurs.",
+  "Treat fill() as a donation to the owner: only the owner can take inventory back, without limit or delay. Do not solicit third-party fills unless the owner is a timelocked governor.",
+  "After any owner withdraw(), top the withdrawn side back up to at least feesGem/feesStable before calling collectFees(), or it will revert and block both sides' fees.",
+  "Set gemDecimals in the composer to the real decimals() of the reserve token you wired (6 for USDC, 18 for canvas ModTokens) or the cap will be 1e12x off; remember gemCap_ = 0 means unlimited.",
+  "Only use standard ERC20s: no fee-on-transfer, no rebasing, and none that omit the bool return (USDT) - the latter reverts every path including withdraw, stranding anything sent directly to the contract.",
+  "Integrators should round stable amounts to whole gem units (multiples of 1e12 wei for USDC/18-dec stable) before calling buyGem, and revert client-side if gemOutFor()/stableOutFor() returns 0."
+ ]
+}

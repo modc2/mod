@@ -1,0 +1,160 @@
+{
+    "name": "youtube",
+    "title": "youtube \u00b7 in a frame, under any account",
+    "description": "YouTube in a frame, signed in as any Google account, with an MCP server that acts as the user (search, subscriptions feed, like, subscribe, comment, playlists) and as the creator (my channel, my videos, resumable upload, metadata, thumbnails, Analytics, comment moderation). The first page is YouTube: a full-width embed playing the home feed with a search bar and a grid that loads anything into the frame. youtube.com refuses framing (X-Frame-Options), so every address is rewritten to its /embed/ form; keyless reads come from public RSS, keyed reads from the Data API v3. Stdlib only. Accounts live in ~/.mod/youtube/, never here.",
+    "version": "0.1.0",
+    "anchor": "mod.py",
+    "network": "local",
+    "port": 51400,
+    "app_port": 51400,
+    "route": false,
+    "deps": [],
+    "urls": {
+        "app": "http://localhost:51400/",
+        "api": "http://localhost:51400",
+        "mcp": "http://localhost:51400/mcp"
+    },
+    "mcp": {
+        "http": "http://localhost:51400/mcp",
+        "stdio": {
+            "command": "python3",
+            "args": [
+                "-m",
+                "ytmod.mcp_server"
+            ],
+            "cwd": "."
+        }
+    },
+    "state": "~/.mod/youtube/client.json (Google OAuth client + optional Data API key) \u00b7 ~/.mod/youtube/accounts.json (every signed-in account's tokens, 0600) \u00b7 ~/.mod/youtube/home.json (keyless home channels)",
+    "auth": "open tools (resolve, rss, home, search/video/channel/playlist/trending via api key) need nothing; everything that acts as a Google account is for the box (loopback) or its owner (mod-protocol token as Authorization: Bearer whose address is the box key)",
+    "endpoints": {
+        "app": {
+            "method": "GET",
+            "auth": false,
+            "docs": "/ (Accept: text/html) or /app -> web/index.html: frame, search, home grid, subscriptions, studio, accounts, api"
+        },
+        "health": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Liveness, client/api-key status, account count, active account"
+        },
+        "open": {
+            "method": "GET",
+            "auth": false,
+            "docs": "?target=<url|id|@handle> -> {kind,id,embed,watch}"
+        },
+        "go": {
+            "method": "GET",
+            "auth": false,
+            "docs": "?target= -> 302 to the framable embed"
+        },
+        "home": {
+            "method": "GET",
+            "auth": false,
+            "docs": "?n= -> home feed items + one queue embed (subscriptions as owner, trending with api key, keyless channels otherwise)"
+        },
+        "rss": {
+            "method": "GET",
+            "auth": false,
+            "docs": "?channel=UC..|@handle&n= -> newest uploads, keyless"
+        },
+        "search": {
+            "method": "GET",
+            "auth": false,
+            "docs": "?q=&kind=video|channel|playlist|any&n=&order= (Data API: api key or owner account)"
+        },
+        "video|channel|playlist|trending|comments": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Data API reads"
+        },
+        "accounts": {
+            "method": "GET|DELETE",
+            "auth": "owner",
+            "docs": "signed-in accounts; POST /accounts/use {account}; DELETE ?account="
+        },
+        "auth/start": {
+            "method": "GET",
+            "auth": "owner",
+            "docs": "{url} to Google consent (?go=1 redirects); callback lands on /auth/callback"
+        },
+        "client": {
+            "method": "GET|POST",
+            "auth": "owner",
+            "docs": "{client_id, client_secret, api_key, redirect_uri}"
+        },
+        "subscriptions|feed|playlists|rate|subscribe|unsubscribe|comment|reply": {
+            "method": "GET|POST",
+            "auth": "owner",
+            "docs": "as the active (or ?account=) Google account"
+        },
+        "me|my/videos|upload|video/update|video/thumbnail|video/delete|analytics|my/comments|moderate": {
+            "method": "GET|POST|DELETE",
+            "auth": "owner",
+            "docs": "as the creator"
+        },
+        "tools": {
+            "method": "GET|POST",
+            "auth": "per tool",
+            "docs": "GET /tools lists every MCP tool; /tools/<name> calls it with query or JSON args"
+        },
+        "whoami": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Authorization: Bearer <mod-protocol token> -> {address, owner}"
+        },
+        "auth/local": {
+            "method": "GET",
+            "auth": false,
+            "docs": "loopback only: token minted with the box key"
+        },
+        "mcp": {
+            "method": "POST",
+            "auth": "per tool",
+            "docs": "MCP streamable HTTP (JSON): initialize, tools/list, tools/call. 33 tools in three rings: open (yt_open, yt_search, yt_video, yt_channel, yt_playlist, yt_trending, yt_rss, yt_home, yt_comments, yt_status), user (yt_accounts, yt_use_account, yt_remove_account, yt_subscriptions, yt_feed, yt_my_playlists, yt_create_playlist, yt_playlist_add, yt_playlist_remove, yt_rate, yt_rating, yt_subscribe, yt_unsubscribe, yt_comment, yt_reply), creator (yt_me, yt_my_videos, yt_upload, yt_update_video, yt_set_thumbnail, yt_delete_video, yt_analytics, yt_my_comments, yt_moderate). stdio twin: python3 -m ytmod.mcp_server"
+        }
+    },
+    "fns": [
+        "forward",
+        "open",
+        "embed",
+        "rss",
+        "home",
+        "home_channels",
+        "search",
+        "video",
+        "channel",
+        "playlist",
+        "trending",
+        "comments",
+        "set_client",
+        "client",
+        "login",
+        "accounts",
+        "use",
+        "logout",
+        "subscriptions",
+        "feed",
+        "playlists",
+        "create_playlist",
+        "playlist_add",
+        "like",
+        "subscribe",
+        "unsubscribe",
+        "comment",
+        "me",
+        "my_videos",
+        "upload",
+        "update_video",
+        "thumbnail",
+        "analytics",
+        "my_comments",
+        "moderate",
+        "mcp",
+        "serve",
+        "kill",
+        "status",
+        "test"
+    ],
+    "schema": "QmWpttKZEicSdRwPZ2YvPBQMpbafvF8CvgMnZ6LyuVi64c"
+}

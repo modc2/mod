@@ -1,0 +1,127 @@
+{
+  "name": "trustedstake",
+  "version": "0.1.0",
+  "description": "TrustedStake \u2014 non-custodial Bittensor index staking, as one mod. A delegator signs one addProxy(<index proxy>, Staking) extrinsic and keeps custody of their TAO while an index manager rebalances that stake across subnets; revoking the proxy ends it. This module is the manager desk over the platform's Manager API: list strategies, set subnet weights, pause and resume, queue a manual rebalance, read the trading engine's activity log and the delegator roster. BYOK \u2014 a scoped ts_mk_ key lives off-tree at ~/.mod/trustedstake/key.json (0600); the module holds no house key, signs no extrinsic, and can write only to the caller's own strategies. Weights are validated locally (must sum to 100) before any call is spent. Python stdlib only, no server, no dependencies.",
+  "icon": "\u25c7",
+  "anchor": "mod.py",
+  "chain": "bittensor",
+  "upstream": "https://api.app.trustedstake.ai/api/v1/manager-api",
+  "urls": {
+    "app": "https://app.trustedstake.ai",
+    "site": "https://trustedstake.ai",
+    "docs": "https://trustedstake.gitbook.io/trustedstake",
+    "manager_api": "https://trustedstake.gitbook.io/trustedstake/strategies/manager-api",
+    "upstream": "https://api.app.trustedstake.ai",
+    "api": "http://localhost:50141"
+  },
+  "backend": "python stdlib only (urllib) \u2014 CLI + library, no port, no server",
+  "layout": {
+    "mod.py": "the anchor \u2014 the Manager API client, the weight parser, every fn",
+    "config.json": "this file",
+    "README.md": "what the platform is, what this wraps, and what it refuses to do"
+  },
+  "endpoints": {
+    "health": "GET /health (keyless)",
+    "strategies": "GET /api/v1/manager-api/strategies",
+    "strategy": "GET /api/v1/manager-api/strategies/{id}",
+    "create": "POST /api/v1/manager-api/strategies",
+    "update": "PATCH /api/v1/manager-api/strategies/{id}",
+    "active": "PATCH /api/v1/manager-api/strategies/{id}/active",
+    "delete": "DELETE /api/v1/manager-api/strategies/{id}",
+    "rebalance": "POST /api/v1/manager-api/strategies/{id}/rebalance",
+    "activity": "GET /api/v1/manager-api/strategies/{id}/activity?page=&limit=",
+    "delegators": "GET /api/v1/manager-api/strategies/{id}/delegators?activeOnly="
+  },
+  "fns": [
+    "forward",
+    "info",
+    "health",
+    "account",
+    "strategies",
+    "ls",
+    "strategy",
+    "create",
+    "update",
+    "set_weights",
+    "pause",
+    "resume",
+    "delete",
+    "rebalance",
+    "activity",
+    "delegators",
+    "weights",
+    "fees",
+    "limits",
+    "scopes",
+    "docs",
+    "set_key",
+    "raw",
+    "test",
+    "readme"
+  ],
+  "byok": {
+    "header": "Authorization: Bearer ts_mk_<key>",
+    "get_keys": "https://app.trustedstake.ai \u2014 Manager \u2192 Settings \u2192 API Keys (wallet signature required)",
+    "env": [
+      "TRUSTEDSTAKE_API_KEY",
+      "TRUSTEDSTAKE_MANAGER_KEY"
+    ],
+    "store": "~/.mod/trustedstake/key.json (0600, off-tree)",
+    "order": [
+      "key= argument",
+      "TRUSTEDSTAKE_API_KEY",
+      "TRUSTEDSTAKE_MANAGER_KEY",
+      "~/.mod/trustedstake/key.json"
+    ],
+    "scopes": {
+      "strategies:read": "list strategies, strategy detail, delegators",
+      "strategies:write": "create, update, delete, pause, resume, whitelist",
+      "rebalances:trigger": "queue manual rebalances",
+      "operations:read": "strategy transaction history and activity"
+    },
+    "note": "keys are scoped and expire (90d default, 365d max); every call spends the caller's own 130 req/min budget against their own strategies"
+  },
+  "keyless": [
+    "info",
+    "health",
+    "weights",
+    "fees",
+    "limits",
+    "scopes",
+    "docs",
+    "test",
+    "readme"
+  ],
+  "custody": {
+    "model": "non-custodial via the Substrate proxy pallet (Staking proxy type)",
+    "delegator_action": "addProxy(<index proxy account>, Staking) \u2014 signed in the delegator's own wallet",
+    "exit": "revoke the proxy (the platform's withdraw button) \u2014 principal never moves off the coldkey",
+    "this_module": "signs nothing, holds no seed, reads no delegator key; writes only strategy definitions owned by the caller's key"
+  },
+  "limits": {
+    "active_strategies_per_wallet": 3,
+    "active_api_keys_per_wallet": 5,
+    "requests_per_minute_per_key": 130,
+    "weights_must_sum_to": 100,
+    "min_delegator_balance_tao": {
+      "1-3": 0.5,
+      "4-6": 1.0,
+      "7-12": 2.0
+    },
+    "rebalance": "auto: hourly when profitability thresholds are met; manual: immediate, daily cap per strategy"
+  },
+  "fees": {
+    "take_rate_pct": 9.0,
+    "effective_take_rate_pct": 6.62,
+    "basis": "staking yield (validator dividends) only \u2014 never the principal",
+    "verified": "2026-09-10"
+  },
+  "env": {
+    "TRUSTEDSTAKE_API_KEY": "manager key used when a call carries none",
+    "TRUSTEDSTAKE_BASE_URL": "override the upstream base (default https://api.app.trustedstake.ai)",
+    "TRUSTEDSTAKE_TIMEOUT": "per-request timeout in seconds (default 30)"
+  },
+  "key": "trustedstake",
+  "port": 50141,
+  "schema": "QmYxJgGkbiuhTs67jVmHue2A8LdFFLnmASh5k6uXmDvBU6"
+}

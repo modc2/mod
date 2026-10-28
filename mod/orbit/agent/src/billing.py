@@ -114,9 +114,22 @@ class Meter:
         tally = getattr(self._local, 'tally', None)
         return round(tally['cost'], 8) if tally else 0.0
 
+    def last(self) -> Optional[dict]:
+        """The model call this thread just made, read once and cleared.
+
+        The run tally answers "what did this run cost"; this answers "what did
+        that step cost", which is the number a caller watching a run wants
+        while it is still going. Cleared on read so a step that made no model
+        call reports nothing rather than re-reporting the last one.
+        """
+        call = getattr(self._local, 'last', None)
+        self._local.last = None
+        return call
+
     def take(self) -> dict:
         """Read and clear this thread's tally. Never raises — billing a run
         must not be able to break the run that just finished."""
+        self._local.last = None
         tally = getattr(self._local, 'tally', None)
         self._local.tally = None
         if not tally:
@@ -160,3 +173,13 @@ class Meter:
             tally['priced'] = False   # unknown model — bill the fallback price
         else:
             tally['cost'] += cost
+        # …and the same call on its own, for whoever is watching the run live
+        self._local.last = {
+            'call': tally['calls'],
+            'provider': tally['provider'], 'model': tally['model'],
+            'prompt_tokens': int(prompt_tokens),
+            'completion_tokens': int(completion_tokens),
+            'cost': round(cost, 8) if cost is not None else None,
+            'priced': cost is not None,
+            'total': round(tally['cost'], 8),
+        }

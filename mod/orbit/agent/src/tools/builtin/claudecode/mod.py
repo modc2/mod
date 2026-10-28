@@ -2,7 +2,7 @@
 import subprocess
 import os
 import json
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 
 
 class Tool:

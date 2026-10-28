@@ -1,0 +1,189 @@
+{
+  "netuid": 111,
+  "name": "Claims",
+  "symbol": "Ё",
+  "owner": "5CGTryXjAmwmb3mAFD6B5ba2iBXZBcS5dN9pHLBxRoeonigv",
+  "description": "Turning scientific literature into a structured claim-evidence graph",
+  "github": "https://github.com/DeSciClaims/Claims",
+  "url": null,
+  "discord": "https://discord.com/channels/799672011265015819/1515007366016401599",
+  "logo": "https://www.dropbox.com/scl/fi/712kuof7877598tlvx3ep/Main-Logo_Dark_Claims.svg?rlkey=zhpmlbyirvdez3gm4j05gb0lk&st=xfm4tx9t&dl=0",
+  "registered_at": 5615562,
+  "tempo": 360,
+  "active": true,
+  "block": 9322663,
+  "related": [],
+  "market": {
+    "price": 0.004055061,
+    "moving_price": 0.004055236233398318,
+    "market_cap": 20403.270496070796,
+    "tao_in": 5444.173531196,
+    "alpha_in": 1342562.465426841,
+    "alpha_out": 3688994.518813543,
+    "volume": 217224.99312446,
+    "vol_24h": 9.493356508988654,
+    "emission": 0.0,
+    "change_1h": -0.0004685480927468788,
+    "change_24h": 0.030514398257053266,
+    "change_7d": -6.228875799412825
+  },
+  "spark_24h": [
+    0.004053824,
+    0.004053824,
+    0.004053964,
+    0.004053895,
+    0.004053894,
+    0.004053894,
+    0.004053894,
+    0.004053894,
+    0.004053894,
+    0.004053891,
+    0.004053867,
+    0.004053867,
+    0.004057694,
+    0.004056899,
+    0.004056899,
+    0.004056891,
+    0.004055826,
+    0.004055826,
+    0.004055826,
+    0.004055597,
+    0.004055597,
+    0.004055597,
+    0.004055597,
+    0.004055597,
+    0.004055597,
+    0.004055529,
+    0.004055529,
+    0.004055529,
+    0.004055529,
+    0.004055529,
+    0.004055529,
+    0.004055529,
+    0.004055529,
+    0.004055529,
+    0.004055529,
+    0.004055528,
+    0.004055528,
+    0.004055528,
+    0.004055528,
+    0.004055528,
+    0.004055528,
+    0.004055528,
+    0.004055528,
+    0.004055527,
+    0.004055523,
+    0.00405508,
+    0.00405508,
+    0.004055061
+  ],
+  "trades_24h": {
+    "trades": 6,
+    "buys": 2,
+    "sells": 4,
+    "buy_tao": 5.160517,
+    "sell_tao": 3.031602891,
+    "net_tao": 2.1289141089999997,
+    "traders": 6
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5CoGrEDwTvSQv2Uv33YucbxzshpemD2oEqFguu6fwWFobiuQ",
+      "net_tao": 5.0,
+      "gross_tao": 5.0,
+      "trades": 1
+    },
+    {
+      "coldkey": "5Hax1szeETrWD6PrSmxjvSewcZbR4JdZoVMqhtjC9Xzcj3ww",
+      "net_tao": -2.385471828,
+      "gross_tao": 2.385471828,
+      "trades": 1
+    },
+    {
+      "coldkey": "5GTF4f2FhDFrhtzzn8FnmucHQMtKB6rwzHE8duVHbDLkjzEd",
+      "net_tao": -0.348899805,
+      "gross_tao": 0.348899805,
+      "trades": 1
+    },
+    {
+      "coldkey": "5Ejg9g9W3mDXeJvGqUQSpGFGX5ppmZbPZesqKFaM1yPFuiKZ",
+      "net_tao": -0.282258833,
+      "gross_tao": 0.282258833,
+      "trades": 1
+    },
+    {
+      "coldkey": "5FEoLveFgYEshLtfGjiNfTWKDMpaftLXDufmUmniMXyFbH12",
+      "net_tao": 0.160517,
+      "gross_tao": 0.160517,
+      "trades": 1
+    }
+  ],
+  "news": [
+    {
+      "ts": 1792445171,
+      "kind": "release",
+      "source": "github",
+      "title": "v1.1.0",
+      "url": "https://github.com/DeSciClaims/Claims/releases/tag/v1.1.0",
+      "publisher": "DeSciClaims/Claims"
+    },
+    {
+      "ts": 1792429189,
+      "kind": "commit",
+      "source": "github",
+      "title": "Enable equivalence-group shared coverage by default",
+      "url": "https://github.com/DeSciClaims/Claims/commit/4fcb7307d67e62a8962c9c7d9582e390b18c4a48",
+      "publisher": "DeSciClaims/Claims"
+    },
+    {
+      "ts": 1792414978,
+      "kind": "commit",
+      "source": "github",
+      "title": "Integrate approved-group fractional coverage into validator scoring",
+      "url": "https://github.com/DeSciClaims/Claims/commit/0e0235a9cd9eb3ef6098227cb57ac1343b635f3e",
+      "publisher": "DeSciClaims/Claims"
+    },
+    {
+      "ts": 1792406752,
+      "kind": "commit",
+      "source": "github",
+      "title": "Replay group-only fractional coverage with explicit mixed-claim policies",
+      "url": "https://github.com/DeSciClaims/Claims/commit/edc406cc528d33029c9ada21985a8e824a1b5ec7",
+      "publisher": "DeSciClaims/Claims"
+    },
+    {
+      "ts": 1792370849,
+      "kind": "commit",
+      "source": "github",
+      "title": "Compare historical mainnet usage and replay decision changes",
+      "url": "https://github.com/DeSciClaims/Claims/commit/57662de4c71320738f1c85e1d0bd6c5d3626f122",
+      "publisher": "DeSciClaims/Claims"
+    },
+    {
+      "ts": 1792370285,
+      "kind": "commit",
+      "source": "github",
+      "title": "Add isolated full mainnet batch replay with historical inputs",
+      "url": "https://github.com/DeSciClaims/Claims/commit/d6f63b5d86258930b3a610740313530705a638af",
+      "publisher": "DeSciClaims/Claims"
+    },
+    {
+      "ts": 1792108539,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(consensus): log finalization status for voided rounds",
+      "url": "https://github.com/DeSciClaims/Claims/commit/41573a43589f96ce27746e24426c3f025134ecae",
+      "publisher": "DeSciClaims/Claims"
+    },
+    {
+      "ts": 1791903056,
+      "kind": "commit",
+      "source": "github",
+      "title": "Docs: update agent_v1 vs section_context_v1 schema",
+      "url": "https://github.com/DeSciClaims/Claims/commit/84d9f5f1ac7ca480c90ff529ae114d2f3902b02b",
+      "publisher": "DeSciClaims/Claims"
+    }
+  ],
+  "updated": 1792474861,
+  "updated_day": "2026-10-20"
+}

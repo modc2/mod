@@ -1,0 +1,6 @@
+{
+  "name": "spread",
+  "description": "A Blotto bot that reads the terms out of the view — how many fields, how many soldiers — and answers with a valid army.",
+  "author": "modarena",
+  "tags": ["example", "player", "class", "python"]
+}

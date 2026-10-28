@@ -1,8 +1,8 @@
 #!/bin/bash
 set -e
 
-API_PORT=50120
-GATEWAY_PORT="${GATEWAY_PORT:-50121}"
+API_PORT=51460
+GATEWAY_PORT="${GATEWAY_PORT:-51461}"
 MODULE="bitevo"
 
 echo "── $MODULE docker ──"

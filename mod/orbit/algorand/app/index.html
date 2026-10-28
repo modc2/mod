@@ -1,0 +1,1133 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>algorand</title>
+<style>
+:root{--bg:#0b0d10;--panel:#12161b;--line:#222a33;--ink:#e6edf3;--dim:#8b98a5;--acc:#2ee6c6;--warn:#ffb547;--bad:#ff6b6b;--ok:#4ade80}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+header{display:flex;align-items:center;gap:14px;padding:14px 20px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.logo{font-weight:800;letter-spacing:.08em;font-size:15px}
+.logo b{color:var(--acc)}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{background:none;border:0;color:var(--dim);padding:6px 12px;cursor:pointer;font:inherit;font-size:12px;letter-spacing:.06em}
+.seg button.on{background:var(--acc);color:#04201b;font-weight:700}
+.chip{font-size:12px;color:var(--dim);border:1px solid var(--line);border-radius:999px;padding:4px 10px;white-space:nowrap}
+.chip b{color:var(--ink)}
+.grow{flex:1}
+nav{display:flex;gap:4px;padding:0 20px;border-bottom:1px solid var(--line);overflow-x:auto}
+nav button{background:none;border:0;border-bottom:2px solid transparent;color:var(--dim);padding:11px 14px;cursor:pointer;font:inherit;font-size:12px;letter-spacing:.1em;font-weight:600}
+nav button.on{color:var(--ink);border-color:var(--acc)}
+main{max-width:1100px;margin:0 auto;padding:20px}
+section{display:none}section.on{display:block}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:14px}
+.card h3{margin:0 0 10px;font-size:12px;letter-spacing:.12em;color:var(--dim);font-weight:700}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+input,textarea,select{background:#0a0d11;border:1px solid var(--line);color:var(--ink);border-radius:8px;padding:9px 11px;font:inherit;min-width:0}
+textarea{width:100%;font-family:ui-monospace,Menlo,monospace;font-size:12.5px;min-height:150px}
+input.wide{flex:1;min-width:240px}
+input:focus,textarea:focus{outline:1px solid var(--acc)}
+button.go{background:var(--acc);color:#04201b;border:0;border-radius:8px;padding:9px 16px;font:inherit;font-weight:700;cursor:pointer;letter-spacing:.04em}
+button.ghost{background:none;color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:8px 14px;font:inherit;cursor:pointer}
+button:disabled{opacity:.5;cursor:wait}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.stat{background:#0a0d11;border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.stat .k{font-size:11px;color:var(--dim);letter-spacing:.1em}
+.stat .v{font-size:18px;font-weight:700;margin-top:2px;word-break:break-all}
+table{width:100%;border-collapse:collapse;font-size:13px}
+td,th{padding:7px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+th{color:var(--dim);font-weight:600;font-size:11px;letter-spacing:.1em}
+.mono{font-family:ui-monospace,Menlo,monospace;font-size:12px;word-break:break-all}
+.dim{color:var(--dim)}.ok{color:var(--ok)}.bad{color:var(--bad)}.warn{color:var(--warn)}
+pre{background:#0a0d11;border:1px solid var(--line);border-radius:8px;padding:12px;overflow:auto;max-height:460px;font-size:12px;margin:0}
+a{color:var(--acc)}
+.link{cursor:pointer;color:var(--acc)}
+.note{font-size:12px;color:var(--dim);margin-top:8px}
+.mainnet-only{display:none}body.mainnet .mainnet-only{display:inline-flex}
+label.ck{display:inline-flex;gap:6px;align-items:center;font-size:12px;color:var(--warn)}
+.cp-btn{cursor:pointer;color:var(--dim);margin-left:3px;font-size:11px;opacity:.6;user-select:none}.cp-btn:hover{color:var(--acc);opacity:1}
+.toast{position:fixed;right:18px;bottom:18px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 16px;max-width:420px;display:none;font-size:13px}
+.toast.on{display:block}
+#atip{position:fixed;z-index:9999;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px;pointer-events:none;display:none;font-size:12px;max-width:320px;box-shadow:0 4px 18px rgba(0,0,0,.5)}
+#atip .at-addr{font-family:ui-monospace,Menlo,monospace;word-break:break-all;margin-bottom:8px;font-size:11px;color:var(--dim)}
+#atip .at-name{color:var(--acc);font-weight:700;margin-bottom:5px}
+#atip .at-rows{display:grid;grid-template-columns:auto auto;gap:3px 12px}
+#atip .at-k{color:var(--dim);font-size:11px;letter-spacing:.08em}
+#atip .at-v{font-weight:700}
+@keyframes fadein{from{background:rgba(46,230,198,.12)}to{background:transparent}}
+.new-row{animation:fadein 2s ease forwards}
+.tl-cm{color:var(--dim)}.tl-kw{color:var(--acc)}.tl-lb{color:var(--warn);font-weight:700}.tl-pr{color:#c792ea}.tl-mt{color:var(--ok)}.tl-li{color:#f78c6c}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo"><b>A</b> ALGORAND</div>
+  <div class="seg" id="net">
+    <button data-n="mainnet">MAINNET</button><button data-n="testnet">TESTNET</button>
+  </div>
+  <span class="chip" id="round">round <b>-</b></span>
+  <span class="chip" id="price">ALGO <b>-</b></span>
+  <span class="grow"></span>
+  <span class="chip" id="signer">no key</span>
+</header>
+<nav id="tabs">
+  <button data-t="explore" class="on">EXPLORE</button>
+  <button data-t="apps">APPS</button>
+  <button data-t="wallet">WALLET</button>
+  <button data-t="assets">ASSETS</button>
+  <button data-t="deploy">DEPLOY</button>
+  <button data-t="chain">CHAIN</button>
+  <button data-t="mcp">MCP</button>
+</nav>
+<main>
+
+<section id="explore" class="on">
+  <div class="card">
+    <h3>LOOK UP</h3>
+    <div class="row">
+      <input class="wide" id="q" placeholder="address, name.algo, asset id, app id, or transaction id">
+      <button class="go" id="qgo">GO</button>
+    </div>
+    <div class="note">Numbers are tried as an asset first, then as an app, then as a block. Try <span class="link" data-ex="algo.algo">algo.algo</span>, <span class="link" data-ex="31566704">31566704</span> (USDC), <span class="link" data-ex="1002541853">1002541853</span>.</div>
+  </div>
+  <div id="qout"></div>
+</section>
+
+<section id="apps">
+  <div class="card">
+    <h3>CALL AN APP</h3>
+    <div class="row">
+      <input id="app_id" placeholder="app id" style="width:160px">
+      <input class="wide" id="app_method" placeholder="ARC-4 method, e.g. get(address)uint64 (optional)">
+    </div>
+    <div id="app_args_row" class="row" style="margin-top:8px">
+      <input class="wide" id="app_args" placeholder='args: JSON array, or comma-separated. Raw args: int:5, str:hi, addr:..., b64:...'>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <input id="app_boxes" placeholder="boxes (names)" style="width:200px">
+      <input id="app_accounts" placeholder="accounts" style="width:200px">
+      <input id="app_pay" placeholder="pay ALGO (signed only)" style="width:180px">
+      <select id="app_oc"><option>noop</option><option>optin</option><option>closeout</option><option>clear</option><option>delete</option></select>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <button class="go" id="simgo">SIMULATE (free)</button>
+      <button class="ghost" id="callgo">SIGN + CALL</button>
+      <label class="ck mainnet-only"><input type="checkbox" id="app_confirm"> sign on mainnet</label>
+      <div id="app_ret_note" class="note" style="margin-top:0;margin-left:8px;display:none"></div>
+    </div>
+    <div class="note">Simulate runs the call on algod with no key and no fee: you see the logs, the decoded return and the state changes before anything is signed.</div>
+  </div>
+  <div id="appinfo"></div>
+  <div id="appout"></div>
+</section>
+
+<section id="wallet">
+  <div class="card">
+    <h3>KEYSTORE</h3>
+    <div id="wstat" class="dim">loading...</div>
+    <div class="row" style="margin-top:10px">
+      <button class="ghost" id="wgen">NEW KEY</button>
+      <input class="wide" id="wmn" placeholder="25-word mnemonic to import">
+      <button class="ghost" id="wimp">IMPORT</button>
+    </div>
+    <div class="note">Keys stay on this host in ~/.mod/algorand/. The page never sees a secret. Signing over HTTP needs the write token (cat ~/.mod/algorand/token):</div>
+    <div class="row" style="margin-top:6px"><input class="wide" id="token" type="password" placeholder="write token"><button class="ghost" id="tsave">SAVE</button></div>
+  </div>
+  <div class="card">
+    <h3>SEND ALGO</h3>
+    <div class="row">
+      <input class="wide" id="s_to" placeholder="to: address or name.algo">
+      <input id="s_amt" placeholder="amount" style="width:120px">
+      <input id="s_note" placeholder="note" style="width:180px">
+      <label class="ck mainnet-only"><input type="checkbox" id="s_confirm"> mainnet</label>
+      <button class="go" id="sgo">SEND</button>
+    </div>
+  </div>
+  <div id="wrcv"></div>
+  <div id="wout"></div>
+  <div id="wact"></div>
+</section>
+
+<section id="assets">
+  <div class="card">
+    <h3>FIND</h3>
+    <div class="row"><input class="wide" id="a_q" placeholder="name or unit"><button class="go" id="a_find">SEARCH</button></div>
+  </div>
+  <div class="card">
+    <h3>OPT IN / SEND</h3>
+    <div class="row">
+      <input id="a_id" placeholder="asset id" style="width:140px">
+      <button class="ghost" id="a_opt">OPT IN</button>
+      <input class="wide" id="a_to" placeholder="to">
+      <input id="a_amt" placeholder="amount" style="width:120px">
+      <button class="ghost" id="a_send">SEND</button>
+      <label class="ck mainnet-only"><input type="checkbox" id="a_confirm"> mainnet</label>
+    </div>
+    <div class="note">An account must opt in to an asset before it can hold it. Each opt-in locks 0.1 ALGO of minimum balance.</div>
+  </div>
+  <div class="card">
+    <h3>MINT</h3>
+    <div class="row">
+      <input id="m_name" placeholder="name" style="width:180px">
+      <input id="m_unit" placeholder="unit" style="width:100px">
+      <input id="m_total" placeholder="total (base units)" style="width:170px">
+      <input id="m_dec" placeholder="decimals" style="width:100px">
+      <input class="wide" id="m_url" placeholder="url (optional)">
+      <button class="go" id="m_go">MINT</button>
+    </div>
+  </div>
+  <div id="aout"></div>
+</section>
+
+<section id="deploy">
+  <div class="card">
+    <h3>DEPLOY A CONTRACT (TEAL)</h3>
+    <textarea id="teal">#pragma version 10
+// counter: every call adds one to "count" and returns it (ARC-4 style log)
+txn ApplicationID
+bz create
+txn OnCompletion
+int NoOp
+==
+assert
+byte "count"
+byte "count"
+app_global_get
+int 1
++
+dup
+store 0
+app_global_put
+byte 0x151f7c75
+load 0
+itob
+concat
+log
+int 1
+return
+create:
+int 1</textarea>
+    <div id="teal_live" class="note" style="min-height:18px"></div>
+    <div class="row" style="margin-top:8px">
+      <input id="d_gi" placeholder="global ints" value="1" style="width:110px">
+      <input id="d_gb" placeholder="global bytes" value="0" style="width:120px">
+      <input id="d_li" placeholder="local ints" value="0" style="width:110px">
+      <input id="d_lb" placeholder="local bytes" value="0" style="width:120px">
+      <button class="ghost" id="d_compile">COMPILE</button>
+      <button class="go" id="d_go">DEPLOY</button>
+      <label class="ck mainnet-only"><input type="checkbox" id="d_confirm"> mainnet</label>
+    </div>
+    <div class="note">State schema is fixed at creation. The sample counter only accepts plain calls (no update or delete). Call it from APPS with no method and no args; set the method to <span class="mono">inc()uint64</span> only if your program checks the selector.</div>
+  </div>
+  <div class="card">
+    <h3>UPDATE EXISTING APP</h3>
+    <div class="row">
+      <input id="d_upid" placeholder="app id" style="width:160px">
+      <button class="go" id="d_update">UPDATE</button>
+    </div>
+    <div class="note">Uses the TEAL above and the mainnet checkbox. State schema cannot change after creation — update only replaces the programs.</div>
+  </div>
+  <div id="dout"></div>
+</section>
+
+<section id="chain">
+  <div class="card"><h3>NETWORK</h3><div id="netstats" class="stats"></div></div>
+  <div class="card" id="blkcard"><h3>LATEST BLOCK</h3>
+    <div class="row" style="margin-bottom:10px">
+      <button class="ghost" id="blkprev">PREV</button>
+      <input id="blkrnd" style="width:120px" placeholder="round">
+      <button class="go" id="blkgo">GO</button>
+      <button class="ghost" id="blknext">NEXT</button>
+    </div>
+    <div id="blk"></div>
+  </div>
+  <div class="card" id="feedcard"><h3>LIVE FEED</h3>
+    <div style="overflow-y:auto;max-height:400px">
+      <table><tr><th>ROUND</th><th>TYPE</th><th>SENDER</th><th>WHAT</th><th>TX</th></tr>
+      <tbody id="feedtbl"><tr><td colspan=5 class="dim">waiting for next block...</td></tr></tbody></table>
+    </div>
+  </div>
+</section>
+
+<section id="mcp">
+  <div class="card">
+    <h3>CONNECT AN AGENT</h3>
+    <pre id="mcpcfg"></pre>
+    <div class="note">Same tools as this page. Writes over HTTP need token= in the arguments.</div>
+  </div>
+  <div class="card"><h3>TOOLS</h3><div id="tlist"></div></div>
+</section>
+</main>
+<div class="toast" id="toast"></div>
+<div id="atip"></div>
+
+<script>
+/* qrcode-generator by Kazuhiko Arase — MIT licence — https://github.com/kazuhikoarase/qrcode-generator */
+var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],f={},c=function(t,r){o=function(t){for(var r=new Array(t),e=0;e<t;e+=1){r[e]=new Array(t);for(var n=0;n<t;n+=1)r[e][n]=null}return r}(i=4*e+17),l(0,0),l(i-7,0),l(0,i-7),s(),h(),d(t,r),e>=7&&v(t),null==a&&(a=p(e,n,u)),w(a,r)},l=function(t,r){for(var e=-1;e<=7;e+=1)if(!(t+e<=-1||i<=t+e))for(var n=-1;n<=7;n+=1)r+n<=-1||i<=r+n||(o[t+e][r+n]=0<=e&&e<=6&&(0==n||6==n)||0<=n&&n<=6&&(0==e||6==e)||2<=e&&e<=4&&2<=n&&n<=4)},h=function(){for(var t=8;t<i-8;t+=1)null==o[t][6]&&(o[t][6]=t%2==0);for(var r=8;r<i-8;r+=1)null==o[6][r]&&(o[6][r]=r%2==0)},s=function(){for(var t=B.getPatternPosition(e),r=0;r<t.length;r+=1)for(var n=0;n<t.length;n+=1){var i=t[r],a=t[n];if(null==o[i][a])for(var u=-2;u<=2;u+=1)for(var f=-2;f<=2;f+=1)o[i+u][a+f]=-2==u||2==u||-2==f||2==f||0==u&&0==f}},v=function(t){for(var r=B.getBCHTypeNumber(e),n=0;n<18;n+=1){var a=!t&&1==(r>>n&1);o[Math.floor(n/3)][n%3+i-8-3]=a}for(n=0;n<18;n+=1){a=!t&&1==(r>>n&1);o[n%3+i-8-3][Math.floor(n/3)]=a}},d=function(t,r){for(var e=n<<3|r,a=B.getBCHTypeInfo(e),u=0;u<15;u+=1){var f=!t&&1==(a>>u&1);u<6?o[u][8]=f:u<8?o[u+1][8]=f:o[i-15+u][8]=f}for(u=0;u<15;u+=1){f=!t&&1==(a>>u&1);u<8?o[8][i-u-1]=f:u<9?o[8][15-u-1+1]=f:o[8][15-u-1]=f}o[i-8][8]=!t},w=function(t,r){for(var e=-1,n=i-1,a=7,u=0,f=B.getMaskFunction(r),c=i-1;c>0;c-=2)for(6==c&&(c-=1);;){for(var g=0;g<2;g+=1)if(null==o[n][c-g]){var l=!1;u<t.length&&(l=1==(t[u]>>>a&1)),f(n,c-g)&&(l=!l),o[n][c-g]=l,-1==(a-=1)&&(u+=1,a=7)}if((n+=e)<0||i<=n){n-=e,e=-e;break}}},p=function(t,r,e){for(var n=A.getRSBlocks(t,r),o=b(),i=0;i<e.length;i+=1){var a=e[i];o.put(a.getMode(),4),o.put(a.getLength(),B.getLengthInBits(a.getMode(),t)),a.write(o)}var u=0;for(i=0;i<n.length;i+=1)u+=n[i].dataCount;if(o.getLengthInBits()>8*u)throw"code length overflow. ("+o.getLengthInBits()+">"+8*u+")";for(o.getLengthInBits()+4<=8*u&&o.put(0,4);o.getLengthInBits()%8!=0;)o.putBit(!1);for(;!(o.getLengthInBits()>=8*u||(o.put(236,8),o.getLengthInBits()>=8*u));)o.put(17,8);return function(t,r){for(var e=0,n=0,o=0,i=new Array(r.length),a=new Array(r.length),u=0;u<r.length;u+=1){var f=r[u].dataCount,c=r[u].totalCount-f;n=Math.max(n,f),o=Math.max(o,c),i[u]=new Array(f);for(var g=0;g<i[u].length;g+=1)i[u][g]=255&t.getBuffer()[g+e];e+=f;var l=B.getErrorCorrectPolynomial(c),h=k(i[u],l.getLength()-1).mod(l);for(a[u]=new Array(l.getLength()-1),g=0;g<a[u].length;g+=1){var s=g+h.getLength()-a[u].length;a[u][g]=s>=0?h.getAt(s):0}}var v=0;for(g=0;g<r.length;g+=1)v+=r[g].totalCount;var d=new Array(v),w=0;for(g=0;g<n;g+=1)for(u=0;u<r.length;u+=1)g<i[u].length&&(d[w]=i[u][g],w+=1);for(g=0;g<o;g+=1)for(u=0;u<r.length;u+=1)g<a[u].length&&(d[w]=a[u][g],w+=1);return d}(o,n)};f.addData=function(t,r){var e=null;switch(r=r||"Byte"){case"Numeric":e=M(t);break;case"Alphanumeric":e=x(t);break;case"Byte":e=m(t);break;case"Kanji":e=L(t);break;default:throw"mode:"+r}u.push(e),a=null},f.isDark=function(t,r){if(t<0||i<=t||r<0||i<=r)throw t+","+r;return o[t][r]},f.getModuleCount=function(){return i},f.make=function(){if(e<1){for(var t=1;t<40;t++){for(var r=A.getRSBlocks(t,n),o=b(),i=0;i<u.length;i++){var a=u[i];o.put(a.getMode(),4),o.put(a.getLength(),B.getLengthInBits(a.getMode(),t)),a.write(o)}var g=0;for(i=0;i<r.length;i++)g+=r[i].dataCount;if(o.getLengthInBits()<=8*g)break}e=t}c(!1,function(){for(var t=0,r=0,e=0;e<8;e+=1){c(!0,e);var n=B.getLostPoint(f);(0==e||t>n)&&(t=n,r=e)}return r}())},f.createTableTag=function(t,r){t=t||2;var e="";e+='<table style="',e+=" border-width: 0px; border-style: none;",e+=" border-collapse: collapse;",e+=" padding: 0px; margin: "+(r=void 0===r?4*t:r)+"px;",e+='">',e+="<tbody>";for(var n=0;n<f.getModuleCount();n+=1){e+="<tr>";for(var o=0;o<f.getModuleCount();o+=1)e+='<td style="',e+=" border-width: 0px; border-style: none;",e+=" border-collapse: collapse;",e+=" padding: 0px; margin: 0px;",e+=" width: "+t+"px;",e+=" height: "+t+"px;",e+=" background-color: ",e+=f.isDark(n,o)?"#000000":"#ffffff",e+=";",e+='"/>';e+="</tr>"}return e+="</tbody>",e+="</table>"},f.createSvgTag=function(t,r,e,n){var o={};"object"==typeof arguments[0]&&(t=(o=arguments[0]).cellSize,r=o.margin,e=o.alt,n=o.title),t=t||2,r=void 0===r?4*t:r,(e="string"==typeof e?{text:e}:e||{}).text=e.text||null,e.id=e.text?e.id||"qrcode-description":null,(n="string"==typeof n?{text:n}:n||{}).text=n.text||null,n.id=n.text?n.id||"qrcode-title":null;var i,a,u,c,g=f.getModuleCount()*t+2*r,l="";for(c="l"+t+",0 0,"+t+" -"+t+",0 0,-"+t+"z ",l+='<svg version="1.1" xmlns="http://www.w3.org/2000/svg"',l+=o.scalable?"":' width="'+g+'px" height="'+g+'px"',l+=' viewBox="0 0 '+g+" "+g+'" ',l+=' preserveAspectRatio="xMinYMin meet"',l+=n.text||e.text?' role="img" aria-labelledby="'+y([n.id,e.id].join(" ").trim())+'"':"",l+=">",l+=n.text?'<title id="'+y(n.id)+'">'+y(n.text)+"</title>":"",l+=e.text?'<description id="'+y(e.id)+'">'+y(e.text)+"</description>":"",l+='<rect width="100%" height="100%" fill="white" cx="0" cy="0"/>',l+='<path d="',a=0;a<f.getModuleCount();a+=1)for(u=a*t+r,i=0;i<f.getModuleCount();i+=1)f.isDark(a,i)&&(l+="M"+(i*t+r)+","+u+c);return l+='" stroke="transparent" fill="black"/>',l+="</svg>"},f.createDataURL=function(t,r){t=t||2,r=void 0===r?4*t:r;var e=f.getModuleCount()*t+2*r,n=r,o=e-r;return I(e,e,(function(r,e){if(n<=r&&r<o&&n<=e&&e<o){var i=Math.floor((r-n)/t),a=Math.floor((e-n)/t);return f.isDark(a,i)?0:1}return 1}))},f.createImgTag=function(t,r,e){t=t||2,r=void 0===r?4*t:r;var n=f.getModuleCount()*t+2*r,o="";return o+="<img",o+=' src="',o+=f.createDataURL(t,r),o+='"',o+=' width="',o+=n,o+='"',o+=' height="',o+=n,o+='"',e&&(o+=' alt="',o+=y(e),o+='"'),o+="/>"};var y=function(t){for(var r="",e=0;e<t.length;e+=1){var n=t.charAt(e);switch(n){case"<":r+="&lt;";break;case">":r+="&gt;";break;case"&":r+="&amp;";break;case'"':r+="&quot;";break;default:r+=n}}return r};return f.createASCII=function(t,r){if((t=t||1)<2)return function(t){t=void 0===t?2:t;var r,e,n,o,i,a=1*f.getModuleCount()+2*t,u=t,c=a-t,g={"██":"█","█ ":"▀"," █":"▄","  ":" "},l={"██":"▀","█ ":"▀"," █":" ","  ":" "},h="";for(r=0;r<a;r+=2){for(n=Math.floor((r-u)/1),o=Math.floor((r+1-u)/1),e=0;e<a;e+=1)i="█",u<=e&&e<c&&u<=r&&r<c&&f.isDark(n,Math.floor((e-u)/1))&&(i=" "),u<=e&&e<c&&u<=r+1&&r+1<c&&f.isDark(o,Math.floor((e-u)/1))?i+=" ":i+="█",h+=t<1&&r+1>=c?l[i]:g[i];h+="\n"}return a%2&&t>0?h.substring(0,h.length-a-1)+Array(a+1).join("▀"):h.substring(0,h.length-1)}(r);t-=1,r=void 0===r?2*t:r;var e,n,o,i,a=f.getModuleCount()*t+2*r,u=r,c=a-r,g=Array(t+1).join("██"),l=Array(t+1).join("  "),h="",s="";for(e=0;e<a;e+=1){for(o=Math.floor((e-u)/t),s="",n=0;n<a;n+=1)i=1,u<=n&&n<c&&u<=e&&e<c&&f.isDark(o,Math.floor((n-u)/t))&&(i=0),s+=i?g:l;for(o=0;o<t;o+=1)h+=s+"\n"}return h.substring(0,h.length-1)},f.renderTo2dContext=function(t,r){r=r||2;for(var e=f.getModuleCount(),n=0;n<e;n++)for(var o=0;o<e;o++)t.fillStyle=f.isDark(n,o)?"black":"white",t.fillRect(n*r,o*r,r,r)},f};t.stringToBytes=(t.stringToBytesFuncs={default:function(t){for(var r=[],e=0;e<t.length;e+=1){var n=t.charCodeAt(e);r.push(255&n)}return r}}).default,t.createStringToBytes=function(t,r){var e=function(){for(var e=S(t),n=function(){var t=e.read();if(-1==t)throw"eof";return t},o=0,i={};;){var a=e.read();if(-1==a)break;var u=n(),f=n()<<8|n();i[String.fromCharCode(a<<8|u)]=f,o+=1}if(o!=r)throw o+" != "+r;return i}(),n="?".charCodeAt(0);return function(t){for(var r=[],o=0;o<t.length;o+=1){var i=t.charCodeAt(o);if(i<128)r.push(i);else{var a=e[t.charAt(o)];"number"==typeof a?(255&a)==a?r.push(a):(r.push(a>>>8),r.push(255&a)):r.push(n)}}return r}};var r,e,n,o,i,a=1,u=2,f=4,c=8,g={L:1,M:0,Q:3,H:2},l=0,h=1,s=2,v=3,d=4,w=5,p=6,y=7,B=(r=[[],[6,18],[6,22],[6,26],[6,30],[6,34],[6,22,38],[6,24,42],[6,26,46],[6,28,50],[6,30,54],[6,32,58],[6,34,62],[6,26,46,66],[6,26,48,70],[6,26,50,74],[6,30,54,78],[6,30,56,82],[6,30,58,86],[6,34,62,90],[6,28,50,72,94],[6,26,50,74,98],[6,30,54,78,102],[6,28,54,80,106],[6,32,58,84,110],[6,30,58,86,114],[6,34,62,90,118],[6,26,50,74,98,122],[6,30,54,78,102,126],[6,26,52,78,104,130],[6,30,56,82,108,134],[6,34,60,86,112,138],[6,30,58,86,114,142],[6,34,62,90,118,146],[6,30,54,78,102,126,150],[6,24,50,76,102,128,154],[6,28,54,80,106,132,158],[6,32,58,84,110,136,162],[6,26,54,82,110,138,166],[6,30,58,86,114,142,170]],e=1335,n=7973,i=function(t){for(var r=0;0!=t;)r+=1,t>>>=1;return r},(o={}).getBCHTypeInfo=function(t){for(var r=t<<10;i(r)-i(e)>=0;)r^=e<<i(r)-i(e);return 21522^(t<<10|r)},o.getBCHTypeNumber=function(t){for(var r=t<<12;i(r)-i(n)>=0;)r^=n<<i(r)-i(n);return t<<12|r},o.getPatternPosition=function(t){return r[t-1]},o.getMaskFunction=function(t){switch(t){case l:return function(t,r){return(t+r)%2==0};case h:return function(t,r){return t%2==0};case s:return function(t,r){return r%3==0};case v:return function(t,r){return(t+r)%3==0};case d:return function(t,r){return(Math.floor(t/2)+Math.floor(r/3))%2==0};case w:return function(t,r){return t*r%2+t*r%3==0};case p:return function(t,r){return(t*r%2+t*r%3)%2==0};case y:return function(t,r){return(t*r%3+(t+r)%2)%2==0};default:throw"bad maskPattern:"+t}},o.getErrorCorrectPolynomial=function(t){for(var r=k([1],0),e=0;e<t;e+=1)r=r.multiply(k([1,C.gexp(e)],0));return r},o.getLengthInBits=function(t,r){if(1<=r&&r<10)switch(t){case a:return 10;case u:return 9;case f:case c:return 8;default:throw"mode:"+t}else if(r<27)switch(t){case a:return 12;case u:return 11;case f:return 16;case c:return 10;default:throw"mode:"+t}else{if(!(r<41))throw"type:"+r;switch(t){case a:return 14;case u:return 13;case f:return 16;case c:return 12;default:throw"mode:"+t}}},o.getLostPoint=function(t){for(var r=t.getModuleCount(),e=0,n=0;n<r;n+=1)for(var o=0;o<r;o+=1){for(var i=0,a=t.isDark(n,o),u=-1;u<=1;u+=1)if(!(n+u<0||r<=n+u))for(var f=-1;f<=1;f+=1)o+f<0||r<=o+f||0==u&&0==f||a==t.isDark(n+u,o+f)&&(i+=1);i>5&&(e+=3+i-5)}for(n=0;n<r-1;n+=1)for(o=0;o<r-1;o+=1){var c=0;t.isDark(n,o)&&(c+=1),t.isDark(n+1,o)&&(c+=1),t.isDark(n,o+1)&&(c+=1),t.isDark(n+1,o+1)&&(c+=1),0!=c&&4!=c||(e+=3)}for(n=0;n<r;n+=1)for(o=0;o<r-6;o+=1)t.isDark(n,o)&&!t.isDark(n,o+1)&&t.isDark(n,o+2)&&t.isDark(n,o+3)&&t.isDark(n,o+4)&&!t.isDark(n,o+5)&&t.isDark(n,o+6)&&(e+=40);for(o=0;o<r;o+=1)for(n=0;n<r-6;n+=1)t.isDark(n,o)&&!t.isDark(n+1,o)&&t.isDark(n+2,o)&&t.isDark(n+3,o)&&t.isDark(n+4,o)&&!t.isDark(n+5,o)&&t.isDark(n+6,o)&&(e+=40);var g=0;for(o=0;o<r;o+=1)for(n=0;n<r;n+=1)t.isDark(n,o)&&(g+=1);return e+=Math.abs(100*g/r/r-50)/5*10},o),C=function(){for(var t=new Array(256),r=new Array(256),e=0;e<8;e+=1)t[e]=1<<e;for(e=8;e<256;e+=1)t[e]=t[e-4]^t[e-5]^t[e-6]^t[e-8];for(e=0;e<255;e+=1)r[t[e]]=e;var n={glog:function(t){if(t<1)throw"glog("+t+")";return r[t]},gexp:function(r){for(;r<0;)r+=255;for(;r>=256;)r-=255;return t[r]}};return n}();function k(t,r){if(void 0===t.length)throw t.length+"/"+r;var e=function(){for(var e=0;e<t.length&&0==t[e];)e+=1;for(var n=new Array(t.length-e+r),o=0;o<t.length-e;o+=1)n[o]=t[o+e];return n}(),n={getAt:function(t){return e[t]},getLength:function(){return e.length},multiply:function(t){for(var r=new Array(n.getLength()+t.getLength()-1),e=0;e<n.getLength();e+=1)for(var o=0;o<t.getLength();o+=1)r[e+o]^=C.gexp(C.glog(n.getAt(e))+C.glog(t.getAt(o)));return k(r,0)},mod:function(t){if(n.getLength()-t.getLength()<0)return n;for(var r=C.glog(n.getAt(0))-C.glog(t.getAt(0)),e=new Array(n.getLength()),o=0;o<n.getLength();o+=1)e[o]=n.getAt(o);for(o=0;o<t.getLength();o+=1)e[o]^=C.gexp(C.glog(t.getAt(o))+r);return k(e,0).mod(t)}};return n}var A=function(){var t=[[1,26,19],[1,26,16],[1,26,13],[1,26,9],[1,44,34],[1,44,28],[1,44,22],[1,44,16],[1,70,55],[1,70,44],[2,35,17],[2,35,13],[1,100,80],[2,50,32],[2,50,24],[4,25,9],[1,134,108],[2,67,43],[2,33,15,2,34,16],[2,33,11,2,34,12],[2,86,68],[4,43,27],[4,43,19],[4,43,15],[2,98,78],[4,49,31],[2,32,14,4,33,15],[4,39,13,1,40,14],[2,121,97],[2,60,38,2,61,39],[4,40,18,2,41,19],[4,40,14,2,41,15],[2,146,116],[3,58,36,2,59,37],[4,36,16,4,37,17],[4,36,12,4,37,13],[2,86,68,2,87,69],[4,69,43,1,70,44],[6,43,19,2,44,20],[6,43,15,2,44,16],[4,101,81],[1,80,50,4,81,51],[4,50,22,4,51,23],[3,36,12,8,37,13],[2,116,92,2,117,93],[6,58,36,2,59,37],[4,46,20,6,47,21],[7,42,14,4,43,15],[4,133,107],[8,59,37,1,60,38],[8,44,20,4,45,21],[12,33,11,4,34,12],[3,145,115,1,146,116],[4,64,40,5,65,41],[11,36,16,5,37,17],[11,36,12,5,37,13],[5,109,87,1,110,88],[5,65,41,5,66,42],[5,54,24,7,55,25],[11,36,12,7,37,13],[5,122,98,1,123,99],[7,73,45,3,74,46],[15,43,19,2,44,20],[3,45,15,13,46,16],[1,135,107,5,136,108],[10,74,46,1,75,47],[1,50,22,15,51,23],[2,42,14,17,43,15],[5,150,120,1,151,121],[9,69,43,4,70,44],[17,50,22,1,51,23],[2,42,14,19,43,15],[3,141,113,4,142,114],[3,70,44,11,71,45],[17,47,21,4,48,22],[9,39,13,16,40,14],[3,135,107,5,136,108],[3,67,41,13,68,42],[15,54,24,5,55,25],[15,43,15,10,44,16],[4,144,116,4,145,117],[17,68,42],[17,50,22,6,51,23],[19,46,16,6,47,17],[2,139,111,7,140,112],[17,74,46],[7,54,24,16,55,25],[34,37,13],[4,151,121,5,152,122],[4,75,47,14,76,48],[11,54,24,14,55,25],[16,45,15,14,46,16],[6,147,117,4,148,118],[6,73,45,14,74,46],[11,54,24,16,55,25],[30,46,16,2,47,17],[8,132,106,4,133,107],[8,75,47,13,76,48],[7,54,24,22,55,25],[22,45,15,13,46,16],[10,142,114,2,143,115],[19,74,46,4,75,47],[28,50,22,6,51,23],[33,46,16,4,47,17],[8,152,122,4,153,123],[22,73,45,3,74,46],[8,53,23,26,54,24],[12,45,15,28,46,16],[3,147,117,10,148,118],[3,73,45,23,74,46],[4,54,24,31,55,25],[11,45,15,31,46,16],[7,146,116,7,147,117],[21,73,45,7,74,46],[1,53,23,37,54,24],[19,45,15,26,46,16],[5,145,115,10,146,116],[19,75,47,10,76,48],[15,54,24,25,55,25],[23,45,15,25,46,16],[13,145,115,3,146,116],[2,74,46,29,75,47],[42,54,24,1,55,25],[23,45,15,28,46,16],[17,145,115],[10,74,46,23,75,47],[10,54,24,35,55,25],[19,45,15,35,46,16],[17,145,115,1,146,116],[14,74,46,21,75,47],[29,54,24,19,55,25],[11,45,15,46,46,16],[13,145,115,6,146,116],[14,74,46,23,75,47],[44,54,24,7,55,25],[59,46,16,1,47,17],[12,151,121,7,152,122],[12,75,47,26,76,48],[39,54,24,14,55,25],[22,45,15,41,46,16],[6,151,121,14,152,122],[6,75,47,34,76,48],[46,54,24,10,55,25],[2,45,15,64,46,16],[17,152,122,4,153,123],[29,74,46,14,75,47],[49,54,24,10,55,25],[24,45,15,46,46,16],[4,152,122,18,153,123],[13,74,46,32,75,47],[48,54,24,14,55,25],[42,45,15,32,46,16],[20,147,117,4,148,118],[40,75,47,7,76,48],[43,54,24,22,55,25],[10,45,15,67,46,16],[19,148,118,6,149,119],[18,75,47,31,76,48],[34,54,24,34,55,25],[20,45,15,61,46,16]],r=function(t,r){var e={};return e.totalCount=t,e.dataCount=r,e},e={};return e.getRSBlocks=function(e,n){var o=function(r,e){switch(e){case g.L:return t[4*(r-1)+0];case g.M:return t[4*(r-1)+1];case g.Q:return t[4*(r-1)+2];case g.H:return t[4*(r-1)+3];default:return}}(e,n);if(void 0===o)throw"bad rs block @ typeNumber:"+e+"/errorCorrectionLevel:"+n;for(var i=o.length/3,a=[],u=0;u<i;u+=1)for(var f=o[3*u+0],c=o[3*u+1],l=o[3*u+2],h=0;h<f;h+=1)a.push(r(c,l));return a},e}(),b=function(){var t=[],r=0,e={getBuffer:function(){return t},getAt:function(r){var e=Math.floor(r/8);return 1==(t[e]>>>7-r%8&1)},put:function(t,r){for(var n=0;n<r;n+=1)e.putBit(1==(t>>>r-n-1&1))},getLengthInBits:function(){return r},putBit:function(e){var n=Math.floor(r/8);t.length<=n&&t.push(0),e&&(t[n]|=128>>>r%8),r+=1}};return e},M=function(t){var r=a,e=t,n={getMode:function(){return r},getLength:function(t){return e.length},write:function(t){for(var r=e,n=0;n+2<r.length;)t.put(o(r.substring(n,n+3)),10),n+=3;n<r.length&&(r.length-n==1?t.put(o(r.substring(n,n+1)),4):r.length-n==2&&t.put(o(r.substring(n,n+2)),7))}},o=function(t){for(var r=0,e=0;e<t.length;e+=1)r=10*r+i(t.charAt(e));return r},i=function(t){if("0"<=t&&t<="9")return t.charCodeAt(0)-"0".charCodeAt(0);throw"illegal char :"+t};return n},x=function(t){var r=u,e=t,n={getMode:function(){return r},getLength:function(t){return e.length},write:function(t){for(var r=e,n=0;n+1<r.length;)t.put(45*o(r.charAt(n))+o(r.charAt(n+1)),11),n+=2;n<r.length&&t.put(o(r.charAt(n)),6)}},o=function(t){if("0"<=t&&t<="9")return t.charCodeAt(0)-"0".charCodeAt(0);if("A"<=t&&t<="Z")return t.charCodeAt(0)-"A".charCodeAt(0)+10;switch(t){case" ":return 36;case"$":return 37;case"%":return 38;case"*":return 39;case"+":return 40;case"-":return 41;case".":return 42;case"/":return 43;case":":return 44;default:throw"illegal char :"+t}};return n},m=function(r){var e=f,n=t.stringToBytes(r),o={getMode:function(){return e},getLength:function(t){return n.length},write:function(t){for(var r=0;r<n.length;r+=1)t.put(n[r],8)}};return o},L=function(r){var e=c,n=t.stringToBytesFuncs.SJIS;if(!n)throw"sjis not supported.";!function(){var t=n("友");if(2!=t.length||38726!=(t[0]<<8|t[1]))throw"sjis not supported."}();var o=n(r),i={getMode:function(){return e},getLength:function(t){return~~(o.length/2)},write:function(t){for(var r=o,e=0;e+1<r.length;){var n=(255&r[e])<<8|255&r[e+1];if(33088<=n&&n<=40956)n-=33088;else{if(!(57408<=n&&n<=60351))throw"illegal char at "+(e+1)+"/"+n;n-=49472}n=192*(n>>>8&255)+(255&n),t.put(n,13),e+=2}if(e<r.length)throw"illegal char at "+(e+1)}};return i},D=function(){var t=[],r={writeByte:function(r){t.push(255&r)},writeShort:function(t){r.writeByte(t),r.writeByte(t>>>8)},writeBytes:function(t,e,n){e=e||0,n=n||t.length;for(var o=0;o<n;o+=1)r.writeByte(t[o+e])},writeString:function(t){for(var e=0;e<t.length;e+=1)r.writeByte(t.charCodeAt(e))},toByteArray:function(){return t},toString:function(){var r="";r+="[";for(var e=0;e<t.length;e+=1)e>0&&(r+=","),r+=t[e];return r+="]"}};return r},S=function(t){var r=t,e=0,n=0,o=0,i={read:function(){for(;o<8;){if(e>=r.length){if(0==o)return-1;throw"unexpected end of file./"+o}var t=r.charAt(e);if(e+=1,"="==t)return o=0,-1;t.match(/^\s$/)||(n=n<<6|a(t.charCodeAt(0)),o+=6)}var i=n>>>o-8&255;return o-=8,i}},a=function(t){if(65<=t&&t<=90)return t-65;if(97<=t&&t<=122)return t-97+26;if(48<=t&&t<=57)return t-48+52;if(43==t)return 62;if(47==t)return 63;throw"c:"+t};return i},I=function(t,r,e){for(var n=function(t,r){var e=t,n=r,o=new Array(t*r),i={setPixel:function(t,r,n){o[r*e+t]=n},write:function(t){t.writeString("GIF87a"),t.writeShort(e),t.writeShort(n),t.writeByte(128),t.writeByte(0),t.writeByte(0),t.writeByte(0),t.writeByte(0),t.writeByte(0),t.writeByte(255),t.writeByte(255),t.writeByte(255),t.writeString(","),t.writeShort(0),t.writeShort(0),t.writeShort(e),t.writeShort(n),t.writeByte(0);var r=a(2);t.writeByte(2);for(var o=0;r.length-o>255;)t.writeByte(255),t.writeBytes(r,o,255),o+=255;t.writeByte(r.length-o),t.writeBytes(r,o,r.length-o),t.writeByte(0),t.writeString(";")}},a=function(t){for(var r=1<<t,e=1+(1<<t),n=t+1,i=u(),a=0;a<r;a+=1)i.add(String.fromCharCode(a));i.add(String.fromCharCode(r)),i.add(String.fromCharCode(e));var f,c,g,l=D(),h=(f=l,c=0,g=0,{write:function(t,r){if(t>>>r!=0)throw"length over";for(;c+r>=8;)f.writeByte(255&(t<<c|g)),r-=8-c,t>>>=8-c,g=0,c=0;g|=t<<c,c+=r},flush:function(){c>0&&f.writeByte(g)}}),s=0,v=String.fromCharCode(o[s]);for(s+=1;s<o.length;){var d=String.fromCharCode(o[s]);s+=1,i.contains(v+d)?v+=d:(h.write(i.indexOf(v),n),i.size()<4095&&(i.size()==1<<n&&(n+=1),i.add(v+d)),v=d)}return h.write(i.indexOf(v),n),h.write(e,n),h.flush(),l.toByteArray()},u=function(){var t={},r=0,e={add:function(n){if(e.contains(n))throw"dup key:"+n;t[n]=r,r+=1},size:function(){return r},indexOf:function(r){return t[r]},contains:function(r){return void 0!==t[r]}};return e};return i}(t,r),o=0;o<r;o+=1)for(var i=0;i<t;i+=1)n.setPixel(i,o,e(i,o));var a=D();n.write(a);for(var u=function(){var t=0,r=0,e=0,n="",o={},i=function(t){n+=String.fromCharCode(a(63&t))},a=function(t){if(t<0);else{if(t<26)return 65+t;if(t<52)return t-26+97;if(t<62)return t-52+48;if(62==t)return 43;if(63==t)return 47}throw"n:"+t};return o.writeByte=function(n){for(t=t<<8|255&n,r+=8,e+=1;r>=6;)i(t>>>r-6),r-=6},o.flush=function(){if(r>0&&(i(t<<6-r),t=0,r=0),e%3!=0)for(var o=3-e%3,a=0;a<o;a+=1)n+="="},o.toString=function(){return n},o}(),f=a.toByteArray(),c=0;c<f.length;c+=1)u.writeByte(f[c]);return u.flush(),"data:image/gif;base64,"+u};return t}();qrcode.stringToBytesFuncs["UTF-8"]=function(t){return function(t){for(var r=[],e=0;e<t.length;e++){var n=t.charCodeAt(e);n<128?r.push(n):n<2048?r.push(192|n>>6,128|63&n):n<55296||n>=57344?r.push(224|n>>12,128|n>>6&63,128|63&n):(e++,n=65536+((1023&n)<<10|1023&t.charCodeAt(e)),r.push(240|n>>18,128|n>>12&63,128|n>>6&63,128|63&n))}return r}(t)};
+</script>
+<script>
+// Same-origin: app/server.py proxies <base>/_api to the API (api/api.py).
+const API = location.pathname.replace(/\/(index\.html)?$/, '') + '/_api';
+let NET = localStorage.getItem('algo_net') || 'mainnet';
+let _chainRound = null, _chainTimer = null, _tealTimer = null;
+let _feedTxns = [];
+let _histAddr = null, _histKind = null;
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const short = a => a && a.length > 20 ? a.slice(0, 6) + '...' + a.slice(-4) : (a || '');
+const big = n => n >= 1e9 ? (n / 1e9).toFixed(2) + 'B' : n >= 1e6 ? (n / 1e6).toFixed(2) + 'M' : fmt(n, 0);
+const fmt = (n, d = 6) => n == null ? '-' : Number(n).toLocaleString(undefined, {maximumFractionDigits: d});
+
+function toast(msg, bad) {
+  const t = $('toast'); t.innerHTML = msg; t.className = 'toast on'; t.style.borderColor = bad ? 'var(--bad)' : 'var(--line)';
+  clearTimeout(toast.h); toast.h = setTimeout(() => t.className = 'toast', 6000);
+}
+async function api(path, body, write) {
+  const opts = body ? {method: 'POST', headers: {'content-type': 'application/json'},
+    body: JSON.stringify({...body, ...(write ? {token: localStorage.getItem('algo_token') || ''} : {})})} : {};
+  const sep = path.includes('?') ? '&' : '?';
+  const r = await fetch(API + path + (body ? '' : sep + 'network=' + NET), opts);
+  const j = await r.json().catch(() => ({error: 'HTTP ' + r.status}));
+  if (!r.ok || j.error) throw new Error(j.error || ('HTTP ' + r.status));
+  return j;
+}
+function busy(btn, fn) {
+  return async () => { btn.disabled = true; try { await fn(); } catch (e) { toast(esc(e.message), true); } finally { btn.disabled = false; } };
+}
+function wnet() { return NET === 'mainnet' ? 'mainnet' : 'testnet'; }
+function txLink(r) { return r.explorer ? `<a href="${r.explorer}" target="_blank">${short(r.txid)}</a>` : esc(r.txid); }
+
+// ── network switch ─────────────────────────────────────────
+function setNet(n) {
+  NET = n; localStorage.setItem('algo_net', n);
+  document.body.classList.toggle('mainnet', n === 'mainnet');
+  document.querySelectorAll('#net button').forEach(b => b.classList.toggle('on', b.dataset.n === n));
+  head(); wallet();
+  if ($('chain').classList.contains('on')) chain();
+}
+document.querySelectorAll('#net button').forEach(b => b.onclick = () => setNet(b.dataset.n));
+document.querySelectorAll('#tabs button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('#tabs button').forEach(x => x.classList.toggle('on', x === b));
+  document.querySelectorAll('main section').forEach(s => s.classList.toggle('on', s.id === b.dataset.t));
+  if (b.dataset.t === 'chain') { chain(); startChainTimer(); } else stopChainTimer();
+  if (b.dataset.t === 'mcp') mcpTab();
+  history.replaceState(null, '', '#' + b.dataset.t);
+});
+
+async function head() {
+  try { const h = await api('/health'); $('round').innerHTML = `round <b>${fmt(h.round, 0)}</b>`; } catch (e) {}
+  try { const p = await api('/price'); $('price').innerHTML = `ALGO <b>$${fmt(p.usd, 4)}</b> <span class="${p.change_24h_pct < 0 ? 'bad' : 'ok'}">${p.change_24h_pct}%</span>`; } catch (e) {}
+}
+
+// ── explore ────────────────────────────────────────────────
+function kind(q) {
+  if (/^[A-Z2-7]{58}$/.test(q) || /\.algo$/i.test(q)) return 'account';
+  if (/^[A-Z2-7]{52}$/.test(q)) return 'tx';
+  if (/^\d+$/.test(q)) return 'number';
+  return 'search';
+}
+async function lookup(q) {
+  q = (q ?? $('q').value).trim(); if (!q) return;
+  $('q').value = q; history.replaceState(null, '', '#explore/' + encodeURIComponent(q));
+  const out = $('qout'); out.innerHTML = '<div class="card dim">looking up...</div>';
+  const k = kind(q);
+  try {
+    if (k === 'account') return out.innerHTML = renderAccount(await api('/account?address=' + encodeURIComponent(q)));
+    if (k === 'tx') return out.innerHTML = renderTx(await api('/tx?txid=' + q));
+    if (k === 'number') {
+      try { return out.innerHTML = renderAsset(await api('/asset?asset=' + q)); } catch (_) {}
+      try { return out.innerHTML = renderApp(await api('/app?app_id=' + q + '&program=true')); } catch (_) {}
+      return out.innerHTML = renderBlockExplore(await api('/block?round=' + q));
+    }
+    const r = await api('/assets?q=' + encodeURIComponent(q));
+    out.innerHTML = renderAssetList(r);
+  } catch (e) { out.innerHTML = `<div class="card bad">${esc(e.message)}</div>`; }
+}
+$('qgo').onclick = () => lookup();
+$('q').onkeydown = e => { if (e.key === 'Enter') lookup(); };
+document.addEventListener('click', e => {
+  const cp = e.target.dataset && e.target.dataset.cp;
+  if (cp) { e.stopPropagation(); navigator.clipboard.writeText(cp).then(() => toast('copied')); return; }
+  const ex = e.target.dataset && e.target.dataset.ex; if (ex) { document.querySelector('[data-t=explore]').click(); lookup(ex); }
+});
+const go = v => `<span class="link mono" data-ex="${esc(v)}">${esc(short(String(v)))}</span><span class="cp-btn" data-cp="${esc(v)}" title="copy">⎘</span>`;
+
+function renderAccount(a) {
+  const assets = a.assets.length ? `<table><tr><th>ASSET</th><th>UNIT</th><th>BALANCE</th></tr>${a.assets.map(x =>
+    `<tr><td>${go(x.asset_id)} ${esc(x.name || '')}</td><td>${esc(x.unit || '')}</td><td>${fmt(x.balance)}${x.frozen ? ' <span class="warn">frozen</span>' : ''}</td></tr>`).join('')}</table>` : '<div class="dim">no assets</div>';
+  return `<div class="card"><h3>ACCOUNT ${a.name ? '- ' + esc(a.name) : ''}</h3>
+    <div class="mono">${esc(a.address)} ${a.explorer ? `<a href="${a.explorer}" target="_blank">explorer</a>` : ''}</div>
+    <div class="stats" style="margin-top:12px">
+      <div class="stat"><div class="k">BALANCE</div><div class="v">${fmt(a.balance_algo)} ALGO</div></div>
+      <div class="stat"><div class="k">SPENDABLE</div><div class="v">${fmt(a.spendable_algo)}</div></div>
+      <div class="stat"><div class="k">MIN BALANCE</div><div class="v">${fmt(a.min_balance_algo)}</div></div>
+      <div class="stat"><div class="k">USD</div><div class="v">${a.usd != null ? '$' + fmt(a.usd, 2) : '-'}</div></div>
+      <div class="stat"><div class="k">STATUS</div><div class="v">${esc(a.status)}</div></div>
+    </div>
+    ${a.rekeyed_to ? `<div class="note warn">rekeyed: signs with ${go(a.rekeyed_to)}</div>` : ''}
+    <div class="note">apps opted in: ${a.apps_opted_in.map(go).join(' ') || 'none'} - apps created: ${a.apps_created.map(go).join(' ') || 'none'} - assets created: ${a.assets_created.map(go).join(' ') || 'none'}</div>
+  </div><div class="card"><h3>ASSETS (${a.assets.length})</h3>${assets}</div>
+  <div class="card"><h3>RECENT</h3>
+    <div class="row" style="gap:4px;margin-bottom:8px"><button class="go hfbtn" data-k="" onclick="setHistFilter(null)">ALL</button><button class="ghost hfbtn" data-k="pay" onclick="setHistFilter('pay')">PAY</button><button class="ghost hfbtn" data-k="axfer" onclick="setHistFilter('axfer')">ASA</button><button class="ghost hfbtn" data-k="appl" onclick="setHistFilter('appl')">APP</button></div>
+    <div id="hist" class="dim">loading...</div></div>` + (setTimeout(() => loadHistory(a.address, null, null), 0), '');
+}
+function setHistFilter(kind) {
+  document.querySelectorAll('.hfbtn').forEach(b => {
+    const active = b.dataset.k === (kind || '');
+    b.className = (active ? 'go' : 'ghost') + ' hfbtn';
+  });
+  loadHistory(_histAddr, kind, null);
+}
+async function loadHistory(addr, kind, nextToken) {
+  _histAddr = addr; _histKind = kind;
+  const el = $('hist');
+  if (!nextToken) el.innerHTML = '<span class="dim">loading...</span>';
+  const lm = $('hist_more');
+  if (lm) lm.remove();
+  try {
+    let url = '/history?limit=20&address=' + encodeURIComponent(addr);
+    if (kind) url += '&kind=' + kind;
+    if (nextToken) url += '&next_token=' + encodeURIComponent(nextToken);
+    const h = await api(url);
+    const rows = h.transactions.map(t =>
+      `<tr><td class="dim">${esc(t.time || t.round)}</td><td>${esc(t.type)}${t.group ? ' <span class="chip" style="font-size:10px;padding:1px 5px;vertical-align:middle" title="atomic group">G</span>' : ''}</td><td>${txWhat(t)}</td><td>${go(t.id)}</td></tr>`).join('');
+    if (!nextToken) {
+      el.innerHTML = `<table><tr><th>TIME</th><th>TYPE</th><th>WHAT</th><th>TX</th></tr>${rows}</table>`;
+    } else {
+      const tbl = el.querySelector('table');
+      if (tbl) tbl.insertAdjacentHTML('beforeend', rows);
+    }
+    if (h.next) {
+      const btn = document.createElement('button');
+      btn.className = 'ghost'; btn.id = 'hist_more'; btn.style.marginTop = '8px';
+      btn.textContent = 'LOAD MORE ↓';
+      btn.onclick = () => loadHistory(_histAddr, _histKind, h.next);
+      el.appendChild(btn);
+    }
+  } catch (e) {
+    if (!nextToken) el.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    else toast(esc(e.message), true);
+  }
+}
+function summarizeRaw(t) {
+  const kind = t['tx-type'];
+  const out = { id: t.id, type: kind, round: t['confirmed-round'], sender: t.sender };
+  if (kind === 'pay') {
+    const p = t['payment-transaction'] || {};
+    out.receiver = p.receiver; out.amount_algo = (p.amount || 0) / 1e6;
+  } else if (kind === 'axfer') {
+    const x = t['asset-transfer-transaction'] || {};
+    out.receiver = x.receiver; out.asset_id = x['asset-id']; out.amount = x.amount;
+    out.opt_in = x.receiver === t.sender && !x.amount;
+  } else if (kind === 'appl') {
+    const x = t['application-transaction'] || {};
+    out.app_id = x['application-id'] || t['created-application-index'];
+    out.on_complete = x['on-completion'];
+  } else if (kind === 'acfg') {
+    const x = t['asset-config-transaction'] || {};
+    out.asset_id = x['asset-id'] || t['created-asset-index'];
+  }
+  return out;
+}
+async function loadGroup(groupId, txId) {
+  const container = document.getElementById('grpcont_' + txId);
+  const chip = document.getElementById('grpchip_' + txId);
+  if (!container) return;
+  container.innerHTML = '<span class="dim">loading group...</span>';
+  try {
+    const r = await api('/rpc?path=/v2/transactions&group-id=' + encodeURIComponent(groupId) + '&indexer=true');
+    const txns = r.transactions || [];
+    if (chip) chip.textContent = 'GROUP (' + txns.length + ')';
+    if (!txns.length) { container.innerHTML = '<span class="dim">no group data</span>'; return; }
+    container.innerHTML = `<table><tr><th>TYPE</th><th>WHAT</th><th>TX</th></tr>${
+      txns.map(raw => { const s = summarizeRaw(raw); return `<tr><td>${esc(s.type || '-')}</td><td>${txWhat(s)}</td><td>${go(s.id)}</td></tr>`; }).join('')
+    }</table>`;
+  } catch (e) { container.innerHTML = `<span class="bad">${esc(e.message)}</span>`; }
+}
+function txWhat(t) {
+  const dir = t.direction === 'in' ? 'from ' + go(t.sender) : 'to ' + go(t.receiver || '');
+  if (t.type === 'pay') return `${fmt(t.amount_algo)} ALGO ${dir}`;
+  if (t.type === 'axfer') return t.opt_in ? `opt in to ${go(t.asset_id)}` : `${fmt(t.amount, 0)} of ${go(t.asset_id)} ${dir}`;
+  if (t.type === 'appl') return `app ${go(t.app_id)} ${esc(t.on_complete || '')}`;
+  if (t.type === 'acfg') return `${t.created ? 'created' : 'configured'} asset ${go(t.asset_id)}`;
+  return esc(t.type);
+}
+function goRound(n) {
+  document.querySelector('[data-t=chain]').click();
+  $('blkrnd').value = n;
+  chain(n);
+}
+function renderTx(t) {
+  const rnd = t.round != null ? `<span class="link" onclick="goRound(${t.round})">${fmt(t.round, 0)}</span>` : '-';
+  let body = '';
+  if (t.type === 'pay') {
+    body = `<div class="stat"><div class="k">AMOUNT</div><div class="v">${fmt(t.amount_algo)} ALGO</div></div>
+    <div class="stat"><div class="k">SENDER</div><div class="v mono">${go(t.sender)}</div></div>
+    <div class="stat"><div class="k">RECEIVER</div><div class="v mono">${go(t.receiver)}</div></div>
+    <div class="stat"><div class="k">FEE</div><div class="v">${fmt(t.fee_algo)} ALGO</div></div>
+    <div class="stat"><div class="k">ROUND</div><div class="v">${rnd}</div></div>
+    ${t.close_to ? `<div class="stat"><div class="k">CLOSE TO</div><div class="v mono">${go(t.close_to)}</div></div>` : ''}`;
+  } else if (t.type === 'axfer') {
+    body = `<div class="stat"><div class="k">ASSET</div><div class="v">${go(t.asset_id)}${t.opt_in ? ' <span class="ok">opt-in</span>' : ''}</div></div>
+    <div class="stat"><div class="k">AMOUNT</div><div class="v">${fmt(t.amount, 0)}</div></div>
+    <div class="stat"><div class="k">SENDER</div><div class="v mono">${go(t.sender)}</div></div>
+    <div class="stat"><div class="k">RECEIVER</div><div class="v mono">${go(t.receiver)}</div></div>
+    <div class="stat"><div class="k">ROUND</div><div class="v">${rnd}</div></div>`;
+  } else if (t.type === 'appl') {
+    body = `<div class="stat"><div class="k">APP</div><div class="v">${go(t.app_id)}</div></div>
+    <div class="stat"><div class="k">ON-COMPLETE</div><div class="v">${esc(t.on_complete || '-')}</div></div>
+    <div class="stat"><div class="k">ARGS</div><div class="v">${t.args ?? 0}</div></div>
+    <div class="stat"><div class="k">SENDER</div><div class="v mono">${go(t.sender)}</div></div>
+    <div class="stat"><div class="k">ROUND</div><div class="v">${rnd}</div></div>`;
+  } else if (t.type === 'acfg') {
+    body = `<div class="stat"><div class="k">ASSET</div><div class="v">${go(t.asset_id)}${t.created ? ' <span class="ok">created</span>' : ''}</div></div>
+    <div class="stat"><div class="k">CREATOR</div><div class="v mono">${go(t.sender)}</div></div>
+    <div class="stat"><div class="k">ROUND</div><div class="v">${rnd}</div></div>`;
+  } else if (t.type === 'keyreg') {
+    body = `<div class="stat"><div class="k">STATUS</div><div class="v ${t.online ? 'ok' : 'warn'}">${t.online ? 'ONLINE' : 'OFFLINE'}</div></div>
+    <div class="stat"><div class="k">SENDER</div><div class="v mono">${go(t.sender)}</div></div>
+    <div class="stat"><div class="k">ROUND</div><div class="v">${rnd}</div></div>`;
+  } else {
+    body = `<div class="stat"><div class="k">TYPE</div><div class="v">${esc(t.type || '-')}</div></div>
+    <div class="stat"><div class="k">SENDER</div><div class="v mono">${t.sender ? go(t.sender) : '-'}</div></div>
+    <div class="stat"><div class="k">ROUND</div><div class="v">${rnd}</div></div>`;
+  }
+  return `<div class="card"><h3>TRANSACTION <span class="${t.confirmed ? 'ok' : 'warn'}">${t.confirmed ? 'confirmed' : 'pending'}</span>${t.group ? ` <span id="grpchip_${esc(t.id)}" class="chip link" style="font-size:11px;padding:2px 8px;cursor:pointer;vertical-align:middle" onclick="loadGroup(${JSON.stringify(t.group)},${JSON.stringify(t.id)})">GROUP</span>` : ''}</h3>
+    <div class="stats">${body}</div>
+    ${t.note ? `<div class="note">NOTE: ${esc(t.note)}</div>` : ''}
+    ${(t.logs || []).length ? `<div class="note">logs:</div><pre>${esc((t.logs || []).join('\n'))}</pre>` : ''}
+    ${t.global_delta && Object.keys(t.global_delta).length ? `<div class="note">state changes:</div><table>${Object.entries(t.global_delta).map(([k,v]) => `<tr><td class="mono">${esc(k)}</td><td class="mono">${/^[A-Z2-7]{58}$/.test(String(v)) ? go(String(v)) : esc(String(v))}</td></tr>`).join('')}</table>` : ''}
+    ${t.group ? `<div id="grpcont_${esc(t.id)}" style="margin-top:8px"></div>` : ''}
+    <div class="note" style="margin-top:8px"><span class="link" onclick="var p=this.closest('.card').querySelector('pre.raw');var v=p.style.display==='none';p.style.display=v?'block':'none';this.textContent=v?'hide raw ▸':'show raw ▾'">show raw &#9662;</span></div>
+    <pre class="raw" style="display:none;margin-top:8px">${esc(JSON.stringify(t.raw || t, null, 2))}</pre></div>
+${(t.inner_txns && t.inner_txns.length) ? `<div class="card"><h3>INNER TRANSACTIONS (${t.inner_txns.length})</h3>
+<div style="overflow-y:auto;max-height:320px"><table><tr><th>TYPE</th><th>WHAT</th><th>TX</th></tr>
+${t.inner_txns.map(i => `<tr><td>${esc(i.type||'-')}</td><td>${txWhat(i)}</td><td>${i.id ? go(i.id) : '<span class="dim">-</span>'}</td></tr>`).join('')}
+</table></div></div>` : ''}`;
+}
+function renderBlockExplore(b) {
+  const txns = b.transactions && b.transactions.length
+    ? `<div style="overflow-y:auto;max-height:320px;margin-top:8px"><table><tr><th>TYPE</th><th>SENDER</th><th>WHAT</th><th>TX</th></tr>${b.transactions.map(t => `<tr><td>${esc(t.type || '-')}${t.group ? ' <span class="chip" style="font-size:10px;padding:1px 5px;vertical-align:middle" title="atomic group">G</span>' : ''}</td><td>${go(t.sender || '')}</td><td>${txWhat(t)}</td><td>${go(t.id)}</td></tr>`).join('')}</table></div>`
+    : `<div class="note dim" style="margin-top:8px">transactions not yet indexed</div>`;
+  return `<div class="card"><h3>BLOCK <span class="link" onclick="goRound(${b.round})">${fmt(b.round, 0)}</span></h3>
+    <div class="stats">
+      <div class="stat"><div class="k">ROUND</div><div class="v">${fmt(b.round, 0)}</div></div>
+      <div class="stat"><div class="k">TIME</div><div class="v" style="font-size:13px">${esc(b.time)}</div></div>
+      <div class="stat"><div class="k">TXNS</div><div class="v">${b.txn_count}</div></div>
+      <div class="stat"><div class="k">PROPOSER</div><div class="v mono">${b.proposer ? go(b.proposer) : '-'}</div></div>
+    </div>
+    ${Object.keys(b.txn_types || {}).length ? `<div class="note">${Object.entries(b.txn_types).map(([k, v]) => `${k}: ${v}`).join(' - ')}</div>` : ''}
+    ${txns}
+  </div>`;
+}
+function renderAsset(a) {
+  return `<div class="card"><h3>ASSET ${a.asset_id}</h3><div class="stats">
+    <div class="stat"><div class="k">NAME</div><div class="v">${esc(a.name)}</div></div>
+    <div class="stat"><div class="k">UNIT</div><div class="v">${esc(a.unit)}</div></div>
+    <div class="stat"><div class="k">SUPPLY</div><div class="v">${fmt(a.total_units, 2)}</div></div>
+    <div class="stat"><div class="k">DECIMALS</div><div class="v">${a.decimals}</div></div></div>
+    <table style="margin-top:10px">${['creator', 'manager', 'reserve', 'freeze', 'clawback'].map(r =>
+      `<tr><th>${r.toUpperCase()}</th><td>${a[r] ? go(a[r]) : '<span class="dim">none (locked)</span>'}</td></tr>`).join('')}
+    ${a.url ? `<tr><th>URL</th><td>${esc(a.url)}</td></tr>` : ''}</table>
+    ${a.explorer ? `<div class="note"><a href="${a.explorer}" target="_blank">explorer</a></div>` : ''}</div>
+  <div id="nftmeta_${a.asset_id}"></div>
+  <div class="card"><h3>TOP HOLDERS</h3><div id="holders_${a.asset_id}" class="dim">loading...</div></div>` + (setTimeout(() => loadHolders(a.asset_id), 0), setTimeout(() => loadNftMetadata(a), 0), '');
+}
+async function loadNftMetadata(a) {
+  const el = $('nftmeta_' + a.asset_id);
+  if (!el) return;
+  const url = a.url || '';
+  let meta = null, standard = null;
+
+  const hashIdx = url.lastIndexOf('#');
+  const fragment = hashIdx !== -1 ? url.slice(hashIdx + 1) : '';
+  const isArc3 = url.startsWith('ipfs://') || fragment === 'arc3';
+
+  if (isArc3) {
+    try {
+      let metaUrl = fragment === 'arc3' ? url.slice(0, hashIdx) : url;
+      if (metaUrl.startsWith('ipfs://')) metaUrl = 'https://ipfs.algonode.xyz/ipfs/' + metaUrl.slice(7);
+      const r = await fetch(metaUrl);
+      if (r.ok) { meta = await r.json(); standard = 'ARC-3'; }
+    } catch (_) {}
+  }
+
+  if (!meta) {
+    try {
+      const r = await api('/rpc?path=/v2/assets/' + a.asset_id + '/transactions&tx-type=acfg&limit=1&indexer=true');
+      const txns = r.transactions || [];
+      if (txns.length && txns[0].note) {
+        const decoded = atob(txns[0].note);
+        if (decoded.startsWith('arc69:')) { meta = JSON.parse(decoded.slice(6)); standard = 'ARC-69'; }
+      }
+    } catch (_) {}
+  }
+
+  if (!meta) return;
+
+  let imgHtml = '';
+  if (meta.image) {
+    let imgUrl = meta.image;
+    if (imgUrl.startsWith('ipfs://')) imgUrl = 'https://ipfs.algonode.xyz/ipfs/' + imgUrl.slice(7);
+    imgHtml = `<img src="${esc(imgUrl)}" style="max-width:200px;border-radius:8px;float:left;margin:0 14px 8px 0" loading="lazy">`;
+  }
+
+  const props = meta.properties || meta.attributes;
+  let propsHtml = '';
+  if (props) {
+    let rows = '';
+    if (Array.isArray(props)) {
+      rows = props.map(p => `<tr><td class="dim">${esc(p.trait_type || p.name || '')}</td><td>${esc(String(p.value ?? ''))}</td></tr>`).join('');
+    } else if (typeof props === 'object') {
+      rows = Object.entries(props).map(([k, v]) => `<tr><td class="dim">${esc(k)}</td><td>${esc(typeof v === 'object' ? JSON.stringify(v) : String(v))}</td></tr>`).join('');
+    }
+    if (rows) propsHtml = `<table style="margin-top:10px">${rows}</table>`;
+  }
+
+  el.innerHTML = `<div class="card"><h3>NFT METADATA <span class="chip" style="vertical-align:middle">${esc(standard)}</span></h3>
+    ${imgHtml}
+    ${meta.description ? `<p style="margin:0 0 8px">${esc(meta.description)}</p>` : ''}
+    ${propsHtml}
+    <div style="clear:both"></div>
+  </div>`;
+}
+async function loadHolders(asset_id) {
+  const el = $('holders_' + asset_id);
+  if (!el) return;
+  try {
+    const h = await api('/asset_holders?asset=' + asset_id);
+    if (!h.holders || !h.holders.length) { el.innerHTML = '<span class="dim">no data</span>'; return; }
+    el.innerHTML = `<table><tr><th>#</th><th>ADDRESS</th><th>BALANCE</th></tr>${h.holders.map((hh, i) =>
+      `<tr><td class="dim">${i + 1}</td><td>${go(hh.address)}</td><td>${fmt(hh.balance)}${hh.frozen ? ' <span class="warn">frozen</span>' : ''}</td></tr>`).join('')}</table>`;
+  } catch (e) { el.innerHTML = `<span class="dim">${esc(e.message)}</span>`; }
+}
+function renderAssetList(r) {
+  return `<div class="card"><h3>ASSETS MATCHING "${esc(r.query)}"</h3><table><tr><th>ID</th><th>NAME</th><th>UNIT</th><th>DEC</th></tr>${r.assets.map(a =>
+    `<tr><td>${go(a.asset_id)}</td><td>${esc(a.name)}</td><td>${esc(a.unit)}</td><td>${a.decimals}</td></tr>`).join('') || '<tr><td colspan=4 class="dim">nothing</td></tr>'}</table></div>`;
+}
+const TEAL_OPS = new Set(['int','byte','addr','txn','gtxn','itxn','itxna','global','load','store','dup','pop','concat','substring','substring3','len','itob','btoi','assert','err','return','log','bz','bnz','b','callsub','retsub','app_global_get','app_global_put','app_global_del','app_local_get','app_local_put','app_local_del','app_opted_in','balance','min_balance','asset_holding_get','asset_params_get','acct_params_get','cover','uncover','swap','dig','select','setbit','getbit','setbyte','getbyte','extract','extract3','extract_uint16','extract_uint32','extract_uint64','replace2','replace3','ed25519verify','ed25519verify_bare','ecdsa_verify','ecdsa_pk_recover','ecdsa_pk_decompress','vrf_verify','sha256','keccak256','sha512_256','sha3_256','not','and','or','+','-','*','/','%','<','>','<=','>=','==','!=','!','|','&','^','~','shl','shr','exp','divmodw','addw','mulw','expw','divw','bsqrt','widemath','prefix','suffix','contains','box_create','box_del','box_extract','box_get','box_len','box_put','box_replace','box_resize','box_splice','abi_call','proto','switch','match','frame_dig','frame_bury','pop_top']);
+function highlightTeal(src) {
+  if (!src) return '';
+  return src.split('\n').map(line => {
+    const he = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+    const trimmed = line.trimStart();
+    if (/^#pragma\s/.test(trimmed)) return `<span class="tl-pr">${he(line)}</span>`;
+    if (/^\/\/\s*method\s+"/.test(trimmed)) return `<span class="tl-mt">${he(line)}</span>`;
+    const commentIdx = line.indexOf('//');
+    if (commentIdx === 0) return `<span class="tl-cm">${he(line)}</span>`;
+    if (/^[A-Za-z_][\w$]*:\s*$/.test(trimmed)) return `<span class="tl-lb">${he(line)}</span>`;
+    const parts = trimmed.split(/\s+/);
+    const op = parts[0];
+    if (TEAL_OPS.has(op)) {
+      const indent = line.slice(0, line.length - trimmed.length);
+      const rest = parts.slice(1);
+      let highlighted = `${he(indent)}<span class="tl-kw">${he(op)}</span>`;
+      if (rest.length) {
+        const arg = rest[0];
+        const isLit = /^-?\d+$/.test(arg) || /^0x[0-9a-fA-F]+$/.test(arg);
+        const argSpan = isLit ? `<span class="tl-li">${he(arg)}</span>` : he(arg);
+        const tailParts = rest.slice(1);
+        let tail = tailParts.length ? ' ' + tailParts.join(' ') : '';
+        const tailCommentIdx = tail.indexOf('//');
+        if (tailCommentIdx !== -1) {
+          const before = tail.slice(0, tailCommentIdx);
+          const comment = tail.slice(tailCommentIdx);
+          tail = he(before) + `<span class="tl-cm">${he(comment)}</span>`;
+        } else {
+          tail = he(tail);
+        }
+        highlighted += ' ' + argSpan + tail;
+      }
+      return highlighted;
+    }
+    if (commentIdx > 0) {
+      const code = he(line.slice(0, commentIdx));
+      const comment = `<span class="tl-cm">${he(line.slice(commentIdx))}</span>`;
+      return code + comment;
+    }
+    return he(line);
+  }).join('\n');
+}
+function renderApp(a) {
+  const gs = Object.entries(a.global_state);
+  return `<div class="card"><h3>APP ${a.app_id}</h3><div class="stats">
+    <div class="stat"><div class="k">CREATOR</div><div class="v mono">${go(a.creator)}</div></div>
+    <div class="stat"><div class="k">APP ACCOUNT</div><div class="v mono">${go(a.address)}</div></div>
+    <div class="stat"><div class="k">BALANCE</div><div class="v">${fmt(a.balance_algo)} ALGO</div></div>
+    <div class="stat"><div class="k">PROGRAM</div><div class="v">${a.approval_bytes} B</div></div></div>
+    <div class="row" style="margin-top:10px"><button class="ghost" onclick="openApp(${a.app_id})">CALL THIS APP</button>
+    ${a.explorer ? `<a href="${a.explorer}" target="_blank">explorer</a>` : ''}</div></div>
+    <div class="card"><h3>GLOBAL STATE (${gs.length})</h3><table>${gs.map(([k, v]) =>
+      `<tr><td class="mono">${esc(k)}</td><td class="mono">${/^[A-Z2-7]{58}$/.test(v) ? go(v) : esc(v)}</td></tr>`).join('') || '<tr><td class="dim">empty</td></tr>'}</table></div>
+    ${a.boxes.length ? `<div class="card"><h3>BOXES</h3>${a.boxes.map(b => `<span class="chip mono" style="cursor:pointer" onclick="loadBox(${a.app_id}, ${JSON.stringify(b).replace(/"/g, '&quot;')})">${esc(b)}</span>`).join(' ')}</div><div id="boxout_${a.app_id}"></div>` : ''}
+    <div class="card"><h3>LOCAL STATE</h3><div class="row" style="gap:8px;margin-bottom:6px"><input id="ls_addr_${a.app_id}" class="mono" style="flex:1" placeholder="address or .algo name"><button class="ghost" onclick="loadLocalState(${a.app_id})">GO</button></div><div id="lsout_${a.app_id}"></div></div>
+    <div class="card"><h3>APPROVAL PROGRAM</h3><pre>${highlightTeal(a.approval_teal || '')}</pre></div>
+    <div class="card"><h3>RECENT CALLS</h3><div id="apphist_${a.app_id}" class="dim">loading…</div></div>` + (setTimeout(() => loadAppHistory(a.app_id), 0), '');
+}
+async function loadAppHistory(appId) {
+  const el = $('apphist_' + appId);
+  if (!el) return;
+  try {
+    const r = await api('/rpc?path=/v2/transactions&application-id=' + appId + '&limit=10&indexer=true');
+    const txns = r.transactions || [];
+    if (!txns.length) { el.innerHTML = '<span class="dim">no activity indexed</span>'; return; }
+    el.innerHTML = `<table><tr><th>TIME</th><th>SENDER</th><th>ON-COMPLETE</th><th>TX</th></tr>${
+      txns.map(raw => {
+        const s = summarizeRaw(raw);
+        const time = raw['round-time'] ? new Date(raw['round-time'] * 1000).toISOString().slice(0, 16).replace('T', ' ') : esc(String(s.round || '-'));
+        return `<tr><td class="dim">${time}</td><td>${go(s.sender)}</td><td>${esc(s.on_complete || '-')}</td><td>${go(s.id)}</td></tr>`;
+      }).join('')
+    }</table>`;
+  } catch (e) {
+    el.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+  }
+}
+async function loadBox(appId, name) {
+  const out = $('boxout_' + appId);
+  if (!out) return;
+  out.innerHTML = '<div class="card dim">loading…</div>';
+  try {
+    const r = await api('/box?app_id=' + appId + '&name=' + encodeURIComponent(name));
+    const val = r.text ? esc(r.text) : r.uint64 != null ? fmt(r.uint64, 0) : `<span class="mono">${esc(r.hex)}</span>`;
+    out.innerHTML = `<div class="card"><h3>BOX <span class="mono">${esc(name)}</span></h3><div class="stats">
+      <div class="stat"><div class="k">VALUE</div><div class="v">${val}</div></div>
+      ${r.uint64 != null ? `<div class="stat"><div class="k">UINT64</div><div class="v">${fmt(r.uint64, 0)}</div></div>` : ''}
+      <div class="stat"><div class="k">HEX</div><div class="v mono" style="font-size:12px;word-break:break-all">${esc(r.hex)}</div></div>
+    </div></div>`;
+  } catch (e) {
+    out.innerHTML = `<div class="card"><span class="bad">${esc(e.message)}</span></div>`;
+  }
+}
+async function loadLocalState(appId) {
+  const input = $('ls_addr_' + appId);
+  const address = input ? input.value.trim() : '';
+  if (!address) return;
+  const out = $('lsout_' + appId);
+  if (!out) return;
+  out.innerHTML = '<div class="dim">loading…</div>';
+  try {
+    const r = await api('/local_state?app_id=' + appId + '&address=' + encodeURIComponent(address));
+    if (!r.opted_in) { out.innerHTML = '<div class="dim">not opted in</div>'; return; }
+    const entries = Object.entries(r.state);
+    out.innerHTML = `<table>${entries.map(([k, v]) =>
+      `<tr><td class="mono">${esc(k)}</td><td class="mono">${/^[A-Z2-7]{58}$/.test(String(v)) ? go(v) : esc(v)}</td></tr>`).join('') || '<tr><td class="dim">empty</td></tr>'}</table>`;
+  } catch (e) {
+    out.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+  }
+}
+function openApp(id) { $('app_id').value = id; document.querySelector('[data-t=apps]').click(); history.replaceState(null, '', '#apps/' + id); }
+
+// ── apps preview ───────────────────────────────────────────
+let _appPreviewTimer = null;
+$('app_id').oninput = () => {
+  clearTimeout(_appPreviewTimer);
+  const val = $('app_id').value.trim();
+  if (!val || !/^\d+$/.test(val)) { $('appinfo').innerHTML = ''; return; }
+  const id = parseInt(val, 10);
+  if (!id) { $('appinfo').innerHTML = ''; return; }
+  _appPreviewTimer = setTimeout(async () => {
+    $('appinfo').innerHTML = '<div class="card dim">loading app info…</div>';
+    try {
+      const a = await api('/app?app_id=' + id + '&program=true');
+      $('appinfo').innerHTML = renderAppPreview(a);
+    } catch (e) {
+      $('appinfo').innerHTML = `<div class="card"><span class="bad">${esc(e.message)}</span></div>`;
+    }
+  }, 800);
+};
+function renderAppPreview(a) {
+  const gs = Object.entries(a.global_state).slice(0, 8);
+  const gsFull = Object.keys(a.global_state).length;
+  const methods = [];
+  if (a.approval_teal) {
+    const seen = new Set();
+    for (const re of [/\/\/ method "([^"]+)"/g, /^method "([^"]+)"/gm]) {
+      let m; re.lastIndex = 0;
+      while ((m = re.exec(a.approval_teal)) !== null) {
+        if (!seen.has(m[1])) { seen.add(m[1]); methods.push(m[1]); }
+      }
+    }
+  }
+  return `<div class="card">
+    <h3>APP ${a.app_id} <span class="dim" style="font-weight:400;letter-spacing:0;font-size:11px">context</span></h3>
+    <div class="stats">
+      <div class="stat"><div class="k">CREATOR</div><div class="v mono">${go(a.creator)}</div></div>
+      <div class="stat"><div class="k">APP ACCOUNT</div><div class="v mono">${go(a.address)}</div></div>
+      <div class="stat"><div class="k">BALANCE</div><div class="v">${fmt(a.balance_algo)} ALGO</div></div>
+      <div class="stat"><div class="k">APPROVAL</div><div class="v">${a.approval_bytes} B</div></div>
+    </div>
+    ${gs.length ? `<div style="margin-top:10px"><table>${gs.map(([k, v]) =>
+      `<tr><td class="mono">${esc(k)}</td><td class="mono">${/^[A-Z2-7]{58}$/.test(String(v)) ? go(v) : esc(v)}</td></tr>`).join('')}${gsFull > 8 ? `<tr><td colspan="2" class="dim">…${gsFull - 8} more</td></tr>` : ''}</table></div>` : ''}
+    ${methods.length ? `<div style="margin-top:10px"><div class="k" style="margin-bottom:6px">METHODS</div><div style="display:flex;flex-wrap:wrap;gap:6px">${methods.map(sig =>
+      `<span class="chip mono" style="cursor:pointer" onclick="$('app_method').value=${JSON.stringify(sig)};$('app_method').dispatchEvent(new Event('input'));$('app_method').scrollIntoView({behavior:'smooth',block:'nearest'})">${esc(sig)}</span>`).join('')}</div></div>` : ''}
+    <div class="row" style="margin-top:10px;gap:12px">
+      <span class="link" onclick="$('appout').scrollIntoView({behavior:'smooth'})">CALL THIS APP ↓</span>
+      ${a.explorer ? `<a href="${a.explorer}" target="_blank">explorer</a>` : ''}
+    </div>
+  </div>`;
+}
+
+// ── apps ───────────────────────────────────────────────────
+function parseArc4(sig) {
+  const parenOpen = sig.indexOf('(');
+  if (parenOpen === -1) return null;
+  let depth = 0, closeIdx = -1;
+  for (let i = parenOpen; i < sig.length; i++) {
+    if (sig[i] === '(') depth++;
+    else if (sig[i] === ')') { if (--depth === 0) { closeIdx = i; break; } }
+  }
+  if (closeIdx === -1) return null;
+  const ret = sig.slice(closeIdx + 1);
+  if (!ret) return null;
+  const argsStr = sig.slice(parenOpen + 1, closeIdx);
+  const args = [];
+  if (argsStr.trim()) {
+    let d = 0, cur = '';
+    for (const ch of argsStr) {
+      if (ch === '(' || ch === '[') d++;
+      else if (ch === ')' || ch === ']') d--;
+      if (ch === ',' && d === 0) { args.push(cur.trim()); cur = ''; }
+      else cur += ch;
+    }
+    if (cur.trim()) args.push(cur.trim());
+  }
+  return { args, ret };
+}
+function collectArgs() {
+  const dynamic = document.querySelectorAll('#app_args_row [data-arg-idx]');
+  if (dynamic.length) return Array.from(dynamic).map(el => el.value.trim()).join(',');
+  return $('app_args').value.trim();
+}
+$('app_method').oninput = () => {
+  const sig = $('app_method').value.trim();
+  const parsed = sig ? parseArc4(sig) : null;
+  const row = $('app_args_row');
+  const note = $('app_ret_note');
+  if (parsed) {
+    if (!parsed.args.length) {
+      row.innerHTML = `<input class="wide" id="app_args" placeholder='no arguments'>`;
+    } else {
+      row.innerHTML = parsed.args.map((type, i) =>
+        `<div style="display:flex;flex-direction:column;flex:1;min-width:100px">` +
+        `<span class="dim" style="font-size:11px;margin-bottom:3px">arg ${i+1} (${esc(type)})</span>` +
+        `<input data-arg-idx="${i}" placeholder="${esc(type)}" style="width:100%">` +
+        `</div>`).join('');
+    }
+    note.textContent = 'returns: ' + parsed.ret;
+    note.style.display = '';
+  } else {
+    row.innerHTML = `<input class="wide" id="app_args" placeholder='args: JSON array, or comma-separated. Raw args: int:5, str:hi, addr:..., b64:...'>`;
+    note.style.display = 'none';
+  }
+};
+function appBody() {
+  const b = {app_id: +$('app_id').value, method: $('app_method').value.trim() || undefined,
+    args: collectArgs() || undefined, boxes: $('app_boxes').value.trim() || undefined,
+    accounts: $('app_accounts').value.trim() || undefined, on_complete: $('app_oc').value};
+  if (!b.app_id) throw new Error('app id first');
+  return b;
+}
+function renderCall(r, signed) {
+  const ok = signed ? true : r.ok;
+  return `<div class="card"><h3>${signed ? 'SIGNED CALL' : 'SIMULATION'} <span class="${ok ? 'ok' : 'bad'}">${ok ? 'OK' : 'FAILED'}</span></h3>
+    ${r.failure ? `<pre class="bad">${esc(r.failure)}</pre>` : ''}
+    <div class="stats"><div class="stat"><div class="k">RETURN</div><div class="v mono">${esc(r.return ?? '-')}</div></div>
+    ${r.app_budget_consumed != null ? `<div class="stat"><div class="k">BUDGET</div><div class="v">${r.app_budget_consumed}</div></div>` : ''}
+    ${signed ? `<div class="stat"><div class="k">TX</div><div class="v">${txLink(r)}</div></div>` : ''}</div>
+    ${(r.logs || []).length ? `<div class="note">logs:</div><pre>${esc((r.logs || []).join('\n'))}</pre>` : ''}
+    ${r.global_delta && Object.keys(r.global_delta).length ? `<div class="note">state changes:</div><table>${Object.entries(r.global_delta).map(([k, v]) => `<tr><td class="mono">${esc(k)}</td><td class="mono">${/^[A-Z2-7]{58}$/.test(String(v)) ? go(String(v)) : esc(String(v))}</td></tr>`).join('')}</table>` : ''}
+${(r.inner_txns && r.inner_txns.length) ? `<div class="card"><h3>INNER TRANSACTIONS (${r.inner_txns.length})</h3>
+<div style="overflow-y:auto;max-height:260px"><table><tr><th>TYPE</th><th>WHAT</th></tr>
+${r.inner_txns.map(i => `<tr><td>${esc(i.type||'-')}</td><td>${txWhat(i)}</td></tr>`).join('')}
+</table></div></div>` : ''}
+${(r.trace && r.trace.length) ? (() => { const tid = 'tr' + Math.random().toString(36).slice(2); return `<div class="card"><h3>TRACE (${r.trace.length} opcodes) <span class="link" onclick="const el=document.getElementById('${tid}');el.style.display=el.style.display==='none'?'block':'none'">toggle</span></h3><div id="${tid}" style="display:none;max-height:300px;overflow-y:auto"><table><tr><th>PC</th><th>PUSHED</th><th>POPPED</th></tr>${r.trace.map(e=>`<tr><td class="mono">${e.pc}</td><td class="mono">${esc((e.push||[]).join(', ') || '-')}</td><td class="mono">${e.pop || 0}</td></tr>`).join('')}</table></div></div>`; })() : ''}</div>`;
+}
+$('simgo').onclick = busy($('simgo'), async () => {
+  const b = appBody(); b.network = NET;
+  if ($('app_pay').value) b.pay_algo = +$('app_pay').value;
+  $('appout').innerHTML = renderCall(await api('/simulate', b), false);
+});
+$('callgo').onclick = busy($('callgo'), async () => {
+  const b = appBody(); b.network = wnet(); b.confirm = $('app_confirm').checked;
+  if ($('app_pay').value) b.pay_algo = +$('app_pay').value;
+  const r = await api('/app_call', b, true);
+  $('appout').innerHTML = renderCall(r, true); toast('confirmed in round ' + r.confirmed_round);
+});
+
+// ── wallet receive ─────────────────────────────────────────
+var _rcvSel = null;
+function _rcvUri() {
+  var amt = ($('rcv_amt') || {}).value || '';
+  var note = ($('rcv_note') || {}).value || '';
+  var uri = 'algorand://' + _rcvSel;
+  var params = [];
+  if (amt.trim()) {
+    var micro = Math.round(parseFloat(amt.trim()) * 1e6);
+    if (!isNaN(micro) && micro > 0) params.push('amount=' + micro);
+  }
+  if (note.trim()) params.push('note=' + encodeURIComponent(note.trim()));
+  if (params.length) uri += '?' + params.join('&');
+  return uri;
+}
+function _rcvDraw() {
+  var canvas = $('rcv_qr');
+  if (!canvas || !_rcvSel) return;
+  var uri = _rcvUri();
+  try {
+    var qr = qrcode(0, 'M');
+    qr.addData(uri, 'Byte');
+    qr.make();
+    var count = qr.getModuleCount();
+    var cell = 5, margin = 4 * cell;
+    canvas.width = count * cell + 2 * margin;
+    canvas.height = count * cell + 2 * margin;
+    var ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#000000';
+    for (var r = 0; r < count; r++)
+      for (var c = 0; c < count; c++)
+        if (qr.isDark(r, c)) ctx.fillRect(margin + c * cell, margin + r * cell, cell, cell);
+    var txt = $('rcv_txt');
+    if (txt) txt.textContent = uri;
+  } catch (e) { /* ignore */ }
+}
+function renderReceive(sel) {
+  var el = $('wrcv');
+  if (!el) return;
+  if (!sel) { el.innerHTML = ''; _rcvSel = null; return; }
+  _rcvSel = sel;
+  el.innerHTML = '<div class="card"><h3>RECEIVE</h3>' +
+    '<div class="row" style="margin-bottom:10px">' +
+    '<input id="rcv_amt" placeholder="amount ALGO (optional)" style="width:200px" oninput="_rcvDraw()">' +
+    '<input id="rcv_note" placeholder="note (optional)" style="width:200px" oninput="_rcvDraw()">' +
+    '<button class="ghost" onclick="navigator.clipboard.writeText(_rcvUri()).then(function(){toast(\'URI copied\')})">COPY URI</button>' +
+    '</div>' +
+    '<canvas id="rcv_qr" style="display:block;border-radius:6px"></canvas>' +
+    '<div id="rcv_txt" class="note mono" style="margin-top:8px;word-break:break-all;font-size:11px"></div>' +
+    '</div>';
+  _rcvDraw();
+}
+// ── wallet ─────────────────────────────────────────────────
+async function walletHist(addr) {
+  const el = $('wact');
+  if (!addr) { el.innerHTML = ''; return; }
+  try {
+    const h = await api('/history?limit=10&address=' + encodeURIComponent(addr));
+    if (!h.transactions || !h.transactions.length) { el.innerHTML = ''; return; }
+    const rows = h.transactions.map(t =>
+      `<tr${t.direction === 'in' ? ' class="ok"' : ''}><td class="dim">${esc(t.time || t.round)}</td><td>${esc(t.type)}</td><td>${txWhat(t)}</td><td>${go(t.id)}</td></tr>`).join('');
+    el.innerHTML = `<div class="card"><h3>RECENT</h3><table><tr><th>TIME</th><th>TYPE</th><th>WHAT</th><th>TX</th></tr>${rows}</table></div>`;
+  } catch (e) { el.innerHTML = ''; }
+}
+async function wallet() {
+  try {
+    const w = await api('/wallet?op=status&network=' + wnet());
+    const sel = w.selected;
+    $('signer').innerHTML = sel ? `signer <b class="mono">${short(sel)}</b>${w.balance && w.balance.algo != null ? ' - ' + fmt(w.balance.algo) + ' ALGO' : ''}` : 'no key';
+    $('wstat').innerHTML = w.accounts.length ? `<table><tr><th>ADDRESS</th><th>LABEL</th><th></th></tr>${w.accounts.map(a =>
+      `<tr><td class="mono">${go(a.address)}</td><td>${esc(a.label || '')}</td><td>${a.selected ? '<span class="ok">signing</span>' : `<span class="link" onclick="selectKey('${a.address}')">use</span>`}</td></tr>`).join('')}</table>
+      ${w.balance ? (w.balance.error ? `<div class="note bad">${esc(w.balance.error)}</div>` : `<div class="stats" style="margin-top:10px"><div class="stat"><div class="k">BALANCE</div><div class="v">${fmt(w.balance.algo)} ALGO</div></div><div class="stat"><div class="k">SPENDABLE</div><div class="v">${fmt(w.balance.spendable_algo)}</div></div><div class="stat"><div class="k">MIN BALANCE</div><div class="v">${fmt(w.balance.min_balance_algo)}</div></div>${w.balance.usd != null ? `<div class="stat"><div class="k">USD</div><div class="v">$${fmt(w.balance.usd, 2)}</div></div>` : ''}</div>${w.balance.assets && w.balance.assets.length ? '<div style="margin-top:10px"><div class="k">ASSETS (' + w.balance.assets.length + ')</div><table><tr><th>ASSET</th><th>UNIT</th><th>BALANCE</th></tr>' + w.balance.assets.map(x => `<tr><td>${go(x.asset_id)} ${esc(x.name || '')}</td><td>${esc(x.unit || '')}</td><td>${fmt(x.balance)}${x.frozen ? ' <span class="warn">frozen</span>' : ''}</td></tr>`).join('') + '</table></div>' : ''}`) : ''}
+      ${wnet() === 'testnet' && sel ? `<div class="note"><button class="ghost" onclick="fundWallet('${sel}')">FUND</button></div>` : ''}`
+      : '<div class="dim">No keys yet. Make one, or import a mnemonic.</div>';
+    walletHist(w.selected || null);
+    renderReceive(sel || null);
+  } catch (e) { $('wstat').innerHTML = `<span class="bad">${esc(e.message)}</span>`; }
+}
+async function selectKey(a) { try { await api('/wallet', {op: 'select', address: a}, true); wallet(); } catch (e) { toast(esc(e.message), true); } }
+async function fundWallet(a) { try { const r = await api('/faucet', {address: a}, false); toast('funded — tx ' + short(r.txid || '')); wallet(); } catch (e) { toast(esc(e.message), true); } }
+$('wgen').onclick = busy($('wgen'), async () => { const r = await api('/wallet', {op: 'generate'}, true); toast('new key ' + short(r.address)); wallet(); });
+$('wimp').onclick = busy($('wimp'), async () => { const r = await api('/wallet', {op: 'import', mnemonic: $('wmn').value}, true); $('wmn').value = ''; toast('imported ' + short(r.address)); wallet(); });
+$('token').value = localStorage.getItem('algo_token') || '';
+$('tsave').onclick = () => { localStorage.setItem('algo_token', $('token').value.trim()); toast('token saved in this browser'); };
+$('sgo').onclick = busy($('sgo'), async () => {
+  const r = await api('/send', {to: $('s_to').value.trim(), amount_algo: +$('s_amt').value, note: $('s_note').value || undefined,
+    network: wnet(), confirm: $('s_confirm').checked}, true);
+  $('wout').innerHTML = `<div class="card"><h3>SENT</h3>${fmt(r.amount_algo)} ALGO - ${txLink(r)} - round ${r.confirmed_round}</div>`; wallet();
+});
+
+// ── assets ─────────────────────────────────────────────────
+$('a_find').onclick = busy($('a_find'), async () => { $('aout').innerHTML = renderAssetList(await api('/assets?q=' + encodeURIComponent($('a_q').value))); });
+$('a_opt').onclick = busy($('a_opt'), async () => {
+  const r = await api('/optin', {asset_id: $('a_id').value.trim(), network: wnet(), confirm: $('a_confirm').checked}, true);
+  $('aout').innerHTML = `<div class="card"><h3>OPTED IN</h3>${txLink(r)} - round ${r.confirmed_round}</div>`;
+});
+$('a_send').onclick = busy($('a_send'), async () => {
+  const r = await api('/asset_send', {asset_id: $('a_id').value.trim(), to: $('a_to').value.trim(), amount: +$('a_amt').value,
+    network: wnet(), confirm: $('a_confirm').checked}, true);
+  $('aout').innerHTML = `<div class="card"><h3>SENT</h3>${txLink(r)} - round ${r.confirmed_round}</div>`;
+});
+$('m_go').onclick = busy($('m_go'), async () => {
+  const r = await api('/asset_create', {name: $('m_name').value, unit: $('m_unit').value, total: +$('m_total').value,
+    decimals: +($('m_dec').value || 0), url: $('m_url').value || undefined, network: wnet(), confirm: $('a_confirm').checked}, true);
+  $('aout').innerHTML = `<div class="card"><h3>MINTED</h3>asset ${go(r.asset_id)} - ${txLink(r)}</div>`;
+});
+
+// ── deploy ─────────────────────────────────────────────────
+$('teal').oninput = () => {
+  clearTimeout(_tealTimer);
+  const src = $('teal').value.trim();
+  if (!src) { $('teal_live').innerHTML = ''; return; }
+  _tealTimer = setTimeout(async () => {
+    try {
+      const r = await api('/compile', {source: src, network: wnet()});
+      $('teal_live').innerHTML = `<span class="ok">✓ ${r.bytes} bytes — hash <span class="mono">${esc(r.hash.slice(0,12))}…</span></span>`;
+    } catch (e) {
+      $('teal_live').innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  }, 600);
+};
+$('d_compile').onclick = busy($('d_compile'), async () => {
+  $('teal_live').innerHTML = '';
+  const r = await api('/compile', {source: $('teal').value, network: wnet()});
+  $('dout').innerHTML = `<div class="card"><h3>COMPILED <span class="ok">OK</span></h3><div class="note">${r.bytes} bytes - hash <span class="mono">${esc(r.hash)}</span></div><pre>${esc(r.b64)}</pre></div>`;
+});
+$('d_go').onclick = busy($('d_go'), async () => {
+  const r = await api('/app_create', {approval: $('teal').value, global_ints: +$('d_gi').value, global_bytes: +$('d_gb').value,
+    local_ints: +$('d_li').value, local_bytes: +$('d_lb').value, network: wnet(), confirm: $('d_confirm').checked}, true);
+  $('dout').innerHTML = `<div class="card"><h3>DEPLOYED</h3>app ${go(r.app_id)} - account <span class="mono">${esc(r.app_address)}</span> - ${txLink(r)}
+    <div class="row" style="margin-top:10px"><button class="ghost" onclick="openApp(${r.app_id})">CALL IT</button></div></div>`;
+});
+$('d_update').onclick = busy($('d_update'), async () => {
+  const app_id = +$('d_upid').value;
+  if (!app_id) throw new Error('app id required');
+  const r = await api('/app_update', {app_id, approval: $('teal').value,
+    network: wnet(), confirm: $('d_confirm').checked}, true);
+  $('dout').innerHTML = `<div class="card"><h3>UPDATED</h3>app ${go(app_id)} - ${txLink(r)}
+    <div class="row" style="margin-top:10px"><button class="ghost" onclick="openApp(${app_id})">CALL IT</button></div></div>`;
+});
+
+// ── chain + mcp ────────────────────────────────────────────
+function renderFeed(newCount) {
+  const el = $('feedtbl');
+  if (!el) return;
+  if (!_feedTxns.length) {
+    el.innerHTML = '<tr><td colspan=5 class="dim">waiting for next block...</td></tr>';
+    return;
+  }
+  el.innerHTML = _feedTxns.map((t, i) =>
+    `<tr${i < (newCount || 0) ? ' class="new-row"' : ''}><td class="dim mono">${fmt(t._round, 0)}</td><td>${esc(t.type||'-')}</td><td>${go(t.sender||'')}</td><td>${txWhat(t)}</td><td>${go(t.id)}</td></tr>`
+  ).join('');
+}
+async function chain(rnd) {
+  const fetchLatest = (rnd == null);
+  try {
+    const n = await api('/network');
+    $('netstats').innerHTML = [['ROUND', fmt(n.round, 0)], ['PROTOCOL', n.last_version.slice(0, 7)], ['MIN FEE', n.min_fee_algo + ' ALGO'],
+      ['SUPPLY', big(n.total_supply_algo)], ['ONLINE STAKE', big(n.online_stake_algo)], ['GENESIS', n.genesis_id]]
+      .map(([k, v]) => `<div class="stat"><div class="k">${k}</div><div class="v">${esc(v)}</div></div>`).join('');
+    const b = await api(fetchLatest ? '/block' : '/block?round=' + rnd);
+    $('blkrnd').value = b.round;
+    $('blkprev').disabled = b.round <= 0;
+    if (fetchLatest && _chainRound != null && b.round > _chainRound) {
+      const card = $('blkcard');
+      card.style.borderColor = 'var(--acc)';
+      setTimeout(() => { card.style.borderColor = ''; }, 600);
+      const newTxns = (b.transactions || []).map(t => ({...t, _round: b.round}));
+      if (newTxns.length) {
+        _feedTxns = [...newTxns, ..._feedTxns].slice(0, 60);
+        renderFeed(newTxns.length);
+      }
+    }
+    if (fetchLatest) _chainRound = b.round;
+    $('blk').innerHTML = `<div class="stats"><div class="stat"><div class="k">ROUND</div><div class="v">${fmt(b.round, 0)}</div></div>
+      <div class="stat"><div class="k">TIME</div><div class="v" style="font-size:13px">${esc(b.time)}</div></div>
+      <div class="stat"><div class="k">TXNS</div><div class="v">${b.txn_count}</div></div>
+      <div class="stat"><div class="k">PROPOSER</div><div class="v mono">${b.proposer ? go(b.proposer) : '-'}</div></div></div>
+      <div class="note">${Object.entries(b.txn_types).map(([k, v]) => `${k}: ${v}`).join(' - ')}</div>
+      ${b.transactions && b.transactions.length
+        ? `<div style="overflow-y:auto;max-height:320px;margin-top:8px"><table><tr><th>TYPE</th><th>SENDER</th><th>WHAT</th><th>TX</th></tr>${b.transactions.map(t => `<tr><td>${esc(t.type || '-')}${t.group ? ' <span class="chip" style="font-size:10px;padding:1px 5px;vertical-align:middle" title="atomic group">G</span>' : ''}</td><td>${go(t.sender || '')}</td><td>${txWhat(t)}</td><td>${go(t.id)}</td></tr>`).join('')}</table></div>`
+        : `<div class="note dim" style="margin-top:8px">transactions not yet indexed</div>`}`;
+  } catch (e) { $('netstats').innerHTML = `<span class="bad">${esc(e.message)}</span>`; }
+}
+function startChainTimer() {
+  stopChainTimer();
+  _chainTimer = setInterval(() => { if ($('chain').classList.contains('on')) chain(); }, 4000);
+}
+function stopChainTimer() {
+  if (_chainTimer) { clearInterval(_chainTimer); _chainTimer = null; }
+}
+$('blkprev').onclick = () => { const r = parseInt($('blkrnd').value); if (!isNaN(r) && r > 0) chain(r - 1); };
+$('blknext').onclick = () => chain();
+$('blkgo').onclick = () => { const r = parseInt($('blkrnd').value); if (!isNaN(r)) chain(r); };
+$('blkrnd').onkeydown = e => { if (e.key === 'Enter') $('blkgo').click(); };
+async function mcpTab() {
+  const url = location.origin + API + '/mcp';
+  $('mcpcfg').textContent = JSON.stringify({mcpServers: {algorand: {type: 'http', url}}}, null, 2);
+  const t = await api('/tools');
+  $('tlist').innerHTML = `<table>${t.tools.map(x => `<tr><td class="mono">${x.name}</td><td class="dim">${esc(x.description)}</td></tr>`).join('')}</table>`;
+}
+
+// ── address hover tooltip ──────────────────────────────────
+(function() {
+  const tip = $('atip');
+  let _tipTimer = null, _tipGen = 0;
+  document.addEventListener('mousemove', e => {
+    if (tip.style.display === 'block') {
+      tip.style.left = (e.clientX + 14) + 'px';
+      tip.style.top  = (e.clientY + 14) + 'px';
+    }
+  });
+  document.addEventListener('mouseover', e => {
+    const el = e.target;
+    if (!el.classList.contains('link') || !el.classList.contains('mono')) return;
+    const val = el.dataset && el.dataset.ex;
+    if (!val || !/^[A-Z2-7]{58}$/.test(val)) return;
+    clearTimeout(_tipTimer);
+    const gen = ++_tipGen;
+    const cx = e.clientX, cy = e.clientY;
+    _tipTimer = setTimeout(async () => {
+      if (_tipGen !== gen) return;
+      tip.innerHTML = '<span class="dim">loading…</span>';
+      tip.style.left = (cx + 14) + 'px';
+      tip.style.top  = (cy + 14) + 'px';
+      tip.style.display = 'block';
+      try {
+        const r = await api('/account?address=' + encodeURIComponent(val));
+        if (_tipGen !== gen) return;
+        const usd = r.usd != null ? `<div class="at-k">USD</div><div class="at-v">$${fmt(r.usd, 2)}</div>` : '';
+        tip.innerHTML =
+          (r.name ? `<div class="at-name">${esc(r.name)}</div>` : '') +
+          `<div class="at-addr">${esc(val)}</div>` +
+          `<div class="at-rows">` +
+          `<div class="at-k">BALANCE</div><div class="at-v">${fmt(r.balance_algo)} ALGO</div>` +
+          `<div class="at-k">SPENDABLE</div><div class="at-v">${fmt(r.spendable_algo)}</div>` +
+          usd +
+          `</div>`;
+      } catch (_) {
+        if (_tipGen === gen) tip.style.display = 'none';
+      }
+    }, 350);
+  });
+  document.addEventListener('mouseout', e => {
+    const el = e.target;
+    if (!el.classList.contains('link') || !el.classList.contains('mono')) return;
+    clearTimeout(_tipTimer); _tipTimer = null;
+    ++_tipGen;
+    tip.style.display = 'none';
+  });
+})();
+
+setNet(NET);
+(function() {
+  const hash = location.hash.slice(1);
+  if (!hash) return;
+  const parts = hash.split('/');
+  const tab = parts[0];
+  const val = parts[1] ? decodeURIComponent(parts[1]) : null;
+  const tabBtn = document.querySelector('[data-t=' + tab + ']');
+  if (!tabBtn) return;
+  tabBtn.click();
+  if (tab === 'explore' && val) {
+    lookup(val);
+  } else if (tab === 'apps' && val) {
+    history.replaceState(null, '', '#apps/' + parts[1]);
+    $('app_id').value = val;
+    $('app_id').dispatchEvent(new Event('input'));
+  }
+})();
+</script>
+</body>
+</html>

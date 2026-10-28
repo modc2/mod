@@ -1,0 +1,141 @@
+{
+  "netuid": 48,
+  "name": "Quantum Compute",
+  "symbol": "ק",
+  "owner": "5GNH5YMkcX8jEF1PukvxKafifcqz13jp18BT73jRL3AZc4Rc",
+  "description": "Quantum Computing",
+  "github": "https://github.com/qbittensor-labs/quantum-compute",
+  "url": "https://www.qbittensorlabs.com/",
+  "discord": "qbittensorlabs",
+  "logo": "https://qbittensorlabs.com/48.png",
+  "registered_at": 3856677,
+  "tempo": 360,
+  "active": true,
+  "block": 9322663,
+  "related": [],
+  "market": {
+    "price": 0.005023376,
+    "moving_price": 0.004994973074644804,
+    "market_cap": 30685.056099506266,
+    "tao_in": 11821.174171495,
+    "alpha_in": 2353232.755786066,
+    "alpha_out": 3755220.224740628,
+    "volume": 707632.29893226,
+    "vol_24h": 888.3208646579878,
+    "emission": 0.0,
+    "change_1h": 0.004957071561206838,
+    "change_24h": 2.8168647972440786,
+    "change_7d": -2.9215095184103923
+  },
+  "spark_24h": [
+    0.004885751,
+    0.004885751,
+    0.004879717,
+    0.005046588,
+    0.005043092,
+    0.005043092,
+    0.005085619,
+    0.005085619,
+    0.005083795,
+    0.005083793,
+    0.005083782,
+    0.005091843,
+    0.005052004,
+    0.005051876,
+    0.005051613,
+    0.00505161,
+    0.00505161,
+    0.00505161,
+    0.00505161,
+    0.005051475,
+    0.005051475,
+    0.005051475,
+    0.005051475,
+    0.005015835,
+    0.005015835,
+    0.005002766,
+    0.005002793,
+    0.005002793,
+    0.004994321,
+    0.004994321,
+    0.004994857,
+    0.004994857,
+    0.004994857,
+    0.005011814,
+    0.005011814,
+    0.005011812,
+    0.005011812,
+    0.005011812,
+    0.005011812,
+    0.005012194,
+    0.005012194,
+    0.005012194,
+    0.005012194,
+    0.005012193,
+    0.005012191,
+    0.005023127,
+    0.005023386,
+    0.005023376
+  ],
+  "trades_24h": {
+    "trades": 68,
+    "buys": 44,
+    "sells": 24,
+    "buy_tao": 525.794512338,
+    "sell_tao": 360.294323143,
+    "net_tao": 165.50018919500002,
+    "traders": 47
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5Da5PCiBBkSFS9gYWziHBLvTVRyZox1TRUGbhdqS3ydGmC4w",
+      "net_tao": 173.475943538,
+      "gross_tao": 173.475943538,
+      "trades": 2
+    },
+    {
+      "coldkey": "5HGgoL7fAfy3JFUMLpUPYtrUGPyPFUFfk2FkGUH1bigWo8No",
+      "net_tao": 30.310872755000002,
+      "gross_tao": 109.689127245,
+      "trades": 4
+    },
+    {
+      "coldkey": "5GCcH9R6SS7xtobP3EvrgSBXuowAtpjgMBP6FVTLWfqGbZ9g",
+      "net_tao": 0.30535344300000133,
+      "gross_tao": 99.694646557,
+      "trades": 2
+    },
+    {
+      "coldkey": "5CXwAFZG5JGxidYjeAwn2mzgHwktUPNczqtGi6HpNaJvWszN",
+      "net_tao": 0.4946293149999974,
+      "gross_tao": 79.505370685,
+      "trades": 3
+    },
+    {
+      "coldkey": "5D31yczGiq9tVJwGgX87sWBks1g6RST5Tju5aajGycvvrijb",
+      "net_tao": 20.063739829,
+      "gross_tao": 69.936260171,
+      "trades": 5
+    }
+  ],
+  "news": [
+    {
+      "ts": 1791569155,
+      "kind": "commit",
+      "source": "github",
+      "title": "2.0 Release",
+      "url": "https://github.com/qbittensor-labs/quantum-compute/commit/d370e966c7cb576e3153a5d9e1b3cf6c5eccef61",
+      "publisher": "qbittensor-labs/quantum-compute"
+    },
+    {
+      "ts": 1791569075,
+      "kind": "commit",
+      "source": "github",
+      "title": "[create-pull-request] automated change",
+      "url": "https://github.com/qbittensor-labs/quantum-compute/commit/b8a5857cfd1655d1fd5efb46577020db6cc22a79",
+      "publisher": "qbittensor-labs/quantum-compute"
+    }
+  ],
+  "updated": 1792474861,
+  "updated_day": "2026-10-20"
+}

@@ -1,0 +1,6 @@
+{
+  "name": "jsondiff",
+  "description": "A drill: two near-identical JSON documents, one leaf changed. Answer the dotted path to the difference. Tests comparing documents, not skimming them.",
+  "author": "arena",
+  "tags": ["example", "game", "class", "python", "drill", "json"]
+}

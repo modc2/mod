@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>grantfinder</title>
+<style>
+  :root { --bg:#0e1013; --panel:#161a1f; --line:#262c34; --ink:#e8eaed; --dim:#8b949e; --acc:#7cc4a0; --warn:#e3b341; --bad:#e5786d; }
+  * { box-sizing:border-box }
+  body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif }
+  header { display:flex; align-items:center; gap:14px; padding:14px 22px; border-bottom:1px solid var(--line); position:sticky; top:0; background:var(--bg); z-index:2 }
+  header h1 { font-size:16px; margin:0; letter-spacing:.02em }
+  header .meta { color:var(--dim); font-size:12px }
+  header .grow { flex:1 }
+  input[type=search] { width:340px; max-width:40vw; background:var(--panel); border:1px solid var(--line); color:var(--ink); padding:8px 11px; border-radius:8px; font:inherit }
+  select, button { background:var(--panel); border:1px solid var(--line); color:var(--ink); padding:7px 11px; border-radius:8px; font:inherit; cursor:pointer }
+  button:hover { border-color:#3a434e }
+  button.primary { background:#1f3a2e; border-color:#2e5a45; color:#cdeedd }
+  button.armed { background:#4a3a14; border-color:var(--warn); color:#fde9b0 }
+  main { display:grid; grid-template-columns:260px 1fr; min-height:calc(100vh - 60px) }
+  aside { border-right:1px solid var(--line); padding:16px; overflow:auto; max-height:calc(100vh - 60px); position:sticky; top:60px }
+  aside h3 { font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--dim); margin:16px 0 6px }
+  aside h3:first-child { margin-top:0 }
+  .chips { display:flex; flex-wrap:wrap; gap:5px }
+  .chip { font-size:12px; padding:3px 8px; border-radius:999px; border:1px solid var(--line); background:transparent; color:var(--ink); cursor:pointer }
+  .chip .n { color:var(--dim); margin-left:4px }
+  .chip.on { background:#1f3a2e; border-color:#2e5a45 }
+  main > section { min-width:0 }
+  .list { padding:16px 22px; display:flex; flex-direction:column; gap:10px }
+  .bar { display:flex; gap:10px; align-items:center; color:var(--dim); font-size:12px }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:13px 15px }
+  .card .top { display:flex; gap:10px; align-items:baseline }
+  .card a.name { color:var(--ink); font-weight:600; font-size:15px; text-decoration:none }
+  .card a.name:hover { text-decoration:underline }
+  .card .funder { color:var(--dim); font-size:12px }
+  .card .top { flex-wrap:wrap }
+  .card .right { margin-left:auto; display:flex; gap:8px; align-items:baseline; white-space:nowrap; max-width:100%; min-width:0 }
+  .card p { margin:6px 0 8px; color:#c9d1d9 }
+  .card .tags { display:flex; flex-wrap:wrap; gap:4px }
+  .card .tags span { font-size:11px; padding:1px 7px; border-radius:999px; background:#1d232a; color:#aeb7c1; cursor:pointer }
+  .card .foot { display:flex; gap:14px; margin-top:8px; font-size:12px; color:var(--dim) }
+  .card .foot a { color:var(--acc) }
+  .st { font-size:11px; padding:1px 7px; border-radius:6px; border:1px solid var(--line) }
+  .st.open { color:var(--acc); border-color:#2e5a45 } .st.rolling { color:#8fc3ff; border-color:#2b4a6b }
+  .st.upcoming { color:var(--warn) } .st.closed { color:var(--bad) } .st.unknown { color:var(--dim) }
+  .amt { font-weight:600; max-width:320px; overflow:hidden; text-overflow:ellipsis }
+  .empty { color:var(--dim); padding:40px 0; text-align:center }
+  .runs { margin-top:14px; font-size:12px; color:var(--dim) }
+  .runs div { padding:3px 0; border-bottom:1px dashed var(--line) }
+  .runs b { color:var(--ink); font-weight:500 }
+  .note { font-size:12px; color:var(--warn); margin-top:6px }
+  @media (max-width:800px){ main{grid-template-columns:1fr} aside{position:static;max-height:none;border-right:0;border-bottom:1px solid var(--line)} input[type=search]{width:100%;max-width:none} header{flex-wrap:wrap} }
+</style>
+</head>
+<body>
+<header>
+  <h1>grantfinder</h1>
+  <span class="meta" id="meta"></span>
+  <span class="grow"></span>
+  <input type="search" id="q" placeholder="Search grants, funders, chains..." autocomplete="off">
+  <select id="sort" title="Sort">
+    <option value="deadline">Open first</option>
+    <option value="amount">Largest</option>
+    <option value="new">Newest found</option>
+    <option value="name">A-Z</option>
+  </select>
+  <a id="csv" href="#"><button type="button">CSV</button></a>
+  <button class="primary" id="sweepBtn" type="button">Find grants</button>
+</header>
+<main>
+  <aside>
+    <div id="facets"></div>
+    <h3>Agent runs</h3>
+    <div id="sweepNote"></div>
+    <div class="runs" id="runs"></div>
+  </aside>
+  <section>
+    <div class="list">
+      <div class="bar"><span id="count"></span><span id="active"></span></div>
+      <div id="cards"></div>
+    </div>
+  </section>
+</main>
+<script>
+const API = location.pathname.startsWith('/grantfinder') ? '/grantfinder/api' : '';
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const GROUPS = ['category','status','ecosystem','topic','mechanism','amount','other'];
+const LABEL = {category:'Category', status:'Status', ecosystem:'Ecosystem', topic:'Topic', mechanism:'Mechanism', amount:'Size', other:'Other tags'};
+let sel = new Set((new URLSearchParams(location.hash.slice(1)).get('tags') || '').split(',').filter(Boolean));
+let armed = null, timer = null, owner = false;
+
+// Sign-in is build's: same origin -> its localStorage token, embedded -> ask the parent frame.
+let token = localStorage.getItem('build_jobs_token') || '';
+addEventListener('message', e => {
+  const d = e.data || {};
+  if (d.type === 'mod.session' && d.token && d.token !== token) { token = d.token; who(); }
+  if (d.type === 'mod.session.end') { token = ''; who(); }
+});
+if (parent !== window) parent.postMessage({ type: 'mod.session.request' }, '*');
+
+async function j(path, opt = {}) {
+  const headers = { ...(opt.headers || {}), ...(token ? { Authorization: 'Bearer ' + token } : {}) };
+  const r = await fetch(API + path, { ...opt, headers });
+  const b = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(b.error || r.status);
+  return b;
+}
+const money = g => g.amount_text || (g.amount_max_usd ? '$' + Math.round(g.amount_max_usd).toLocaleString() : '');
+const ago = t => { if (!t) return 'never'; const m = (Date.now()/1000 - t)/60; return m < 60 ? Math.round(m)+'m ago' : m < 1440 ? Math.round(m/60)+'h ago' : Math.round(m/1440)+'d ago'; };
+
+function syncHash() {
+  const p = new URLSearchParams(); if (sel.size) p.set('tags', [...sel].join(','));
+  if ($('q').value) p.set('q', $('q').value);
+  history.replaceState(null, '', '#' + p.toString());
+}
+
+async function facets() {
+  const g = await j('/tags');
+  $('facets').innerHTML = GROUPS.filter(k => g[k]).map(k => `<h3>${LABEL[k]}</h3><div class="chips">` +
+    g[k].slice(0, k === 'other' ? 30 : 40).map(t => `<button class="chip ${sel.has(t.tag)?'on':''}" data-t="${esc(t.tag)}">${esc(t.tag.replace(/^(status|amount)-/,''))}<span class="n">${t.n}</span></button>`).join('') + '</div>').join('')
+    || '<div class="empty" style="padding:10px 0">No grants yet. Press "Find grants" to run the agent.</div>';
+}
+
+async function list() {
+  syncHash();
+  const p = new URLSearchParams({ q: $('q').value, tags: [...sel].join(','), sort: $('sort').value });
+  const { n, grants } = await j('/grants?' + p);
+  $('count').textContent = `${n} grant${n===1?'':'s'}`;
+  $('active').innerHTML = sel.size ? '· ' + [...sel].map(t => `<button class="chip on" data-t="${esc(t)}">${esc(t)} &times;</button>`).join(' ') : '';
+  $('cards').innerHTML = grants.map(g => `
+    <div class="card">
+      <div class="top">
+        <a class="name" href="${esc(g.url)}" target="_blank" rel="noopener">${esc(g.name)}</a>
+        <span class="funder">${esc(g.funder || '')}</span>
+        <span class="right"><span class="amt" title="${esc(money(g))}">${esc(money(g))}</span><span class="st ${esc(g.status)}">${esc(g.status)}${g.deadline ? ' · ' + esc(g.deadline) : ''}</span></span>
+      </div>
+      <p>${esc(g.summary || '')}</p>
+      <div class="tags">${g.tags.filter(t => !t.startsWith('status-')).map(t => `<span data-t="${esc(t)}">${esc(t.replace(/^amount-/,''))}</span>`).join('')}</div>
+      <div class="foot">
+        ${g.apply_url ? `<a href="${esc(g.apply_url)}" target="_blank" rel="noopener">Apply</a>` : ''}
+        ${g.eligibility ? `<span>${esc(g.eligibility).slice(0,140)}</span>` : ''}
+        <span style="margin-left:auto">found ${ago(g.first_seen)}${g.evidence_url && g.evidence_url !== g.url ? ` · <a href="${esc(g.evidence_url)}" target="_blank" rel="noopener">source</a>` : ''}</span>
+      </div>
+    </div>`).join('') || '<div class="empty">Nothing matches. Clear a filter or run the agent.</div>';
+}
+
+async function who() {
+  owner = (await j('/whoami').catch(() => ({}))).owner === true;
+  $('sweepNote').innerHTML = owner ? '' : '<div class="note">Running the agent spends the owner\'s Claude account. Sign in to build as the owner to find new grants.</div>';
+  runs();
+}
+
+async function runs() {
+  const [s, r, h] = await Promise.all([j('/sweep'), j('/runs?k=14'), j('/health')]);
+  $('meta').textContent = `${h.grants} grants · $${h.spent_usd.toFixed(2)} agent spend · last run ${ago(h.last_run)}`;
+  $('sweepBtn').disabled = s.running || !owner;
+  $('sweepBtn').textContent = s.running ? 'Agent running...' : (armed ? 'Run all lanes?' : 'Find grants');
+  $('runs').innerHTML = r.runs.map(x => `<div><b>${esc(x.lane)}</b> · ${esc(x.status)}${x.status === 'running' ? ` · ${x.steps.length} steps · ${esc((x.steps.at(-1)||{}).arg||'').slice(0,40)}` : ` · ${x.found} found, ${x.new} new · $${(+x.cost).toFixed(2)}`}${x.error ? `<div style="color:var(--bad)">${esc(x.error).slice(0,120)}</div>` : ''}</div>`).join('') || 'No runs yet.';
+  clearTimeout(timer);
+  if (s.running) { timer = setTimeout(async () => { await runs(); list(); facets(); }, 5000); }
+}
+
+document.addEventListener('click', e => {
+  const t = e.target.closest('[data-t]');
+  if (t) { const v = t.dataset.t; sel.has(v) ? sel.delete(v) : sel.add(v); facets(); list(); }
+});
+$('q').addEventListener('input', () => { clearTimeout($('q')._t); $('q')._t = setTimeout(list, 200); });
+$('sort').addEventListener('change', list);
+$('csv').href = API + '/export.csv';
+$('sweepBtn').addEventListener('click', async () => {
+  const b = $('sweepBtn');
+  if (!armed) {  // arm, then confirm: one sweep spends real agent budget
+    b.classList.add('armed'); b.textContent = 'Run all lanes?';
+    armed = setTimeout(() => { armed = null; b.classList.remove('armed'); b.textContent = 'Find grants'; }, 4000);
+    return;
+  }
+  clearTimeout(armed); armed = null; b.classList.remove('armed');
+  try { await j('/sweep', { method: 'POST', headers: {'Content-Type':'application/json'}, body: '{}' }); $('sweepNote').innerHTML = ''; }
+  catch (err) { $('sweepNote').innerHTML = `<div class="note">${esc(err.message)}</div>`; }
+  runs();
+});
+
+$('q').value = new URLSearchParams(location.hash.slice(1)).get('q') || '';
+facets(); list(); who();
+</script>
+</body>
+</html>

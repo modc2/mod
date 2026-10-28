@@ -3,7 +3,7 @@ Bitevo app server — zero-dependency static frontend + API proxy.
 
 Serves app/index.html and WHITEPAPER.md, and proxies /api/* to the
 FastAPI backend on API_PORT so the frontend works same-origin both
-locally (:50121) and behind a gateway prefix (/bitevo/...).
+locally (:51461) and behind a gateway prefix (/bitevo/...).
 """
 
 import http.server
@@ -15,7 +15,7 @@ from pathlib import Path
 
 APP_DIR = Path(__file__).resolve().parent
 MODULE_DIR = APP_DIR.parent
-API_PORT = 50120
+API_PORT = 51460
 PROXY_TIMEOUT = 900  # epochs shell out to LLMs and can take minutes
 
 
@@ -88,7 +88,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
 
 def main():
-    port = int(sys.argv[1]) if len(sys.argv) > 1 else 50121
+    port = int(sys.argv[1]) if len(sys.argv) > 1 else 51461
     server = http.server.ThreadingHTTPServer(('0.0.0.0', port), Handler)
     print(f'bitevo app on http://localhost:{port} (api proxy → :{API_PORT})')
     server.serve_forever()

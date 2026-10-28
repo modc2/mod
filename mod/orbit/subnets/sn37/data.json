@@ -1,0 +1,189 @@
+{
+  "netuid": 37,
+  "name": "Aurelius",
+  "symbol": "ל",
+  "owner": "5GRBbS3aDep7cvR1NRm9Awp5HAF1o4HC7t59Y8HoheLZ6ZaP",
+  "description": "Decentralized Alignment of Artificial Intelligence",
+  "github": "https://github.com/Aurelius-Protocol/Aurelius-Protocol",
+  "url": "https://aureliusaligned.ai",
+  "discord": null,
+  "logo": "https://raw.githubusercontent.com/Aurelius-Protocol/aurelius-whitepaper/main/aurelius_logo.png",
+  "registered_at": 3212175,
+  "tempo": 360,
+  "active": true,
+  "block": 9322663,
+  "related": [],
+  "market": {
+    "price": 0.002748617,
+    "moving_price": 0.002788015641272068,
+    "market_cap": 17278.557971457096,
+    "tao_in": 7231.752983281,
+    "alpha_in": 2631050.909540174,
+    "alpha_out": 3655222.504128262,
+    "volume": 361849.484113779,
+    "vol_24h": 142.3933866979787,
+    "emission": 0.0,
+    "change_1h": -0.3713126540264233,
+    "change_24h": -2.7711088432606723,
+    "change_7d": -1.1049437507713145
+  },
+  "spark_24h": [
+    0.002826955,
+    0.002826955,
+    0.002826731,
+    0.002826723,
+    0.002826723,
+    0.002826723,
+    0.002826723,
+    0.002826432,
+    0.002826432,
+    0.002826431,
+    0.002826426,
+    0.002826426,
+    0.002768496,
+    0.002768274,
+    0.002768274,
+    0.002768272,
+    0.002768272,
+    0.002768272,
+    0.002768272,
+    0.002768221,
+    0.002767976,
+    0.002767976,
+    0.002767976,
+    0.002767976,
+    0.002767976,
+    0.002767966,
+    0.002767992,
+    0.002767992,
+    0.002767992,
+    0.002767992,
+    0.002767992,
+    0.002767992,
+    0.002767992,
+    0.002767992,
+    0.002767992,
+    0.002767992,
+    0.002767992,
+    0.002767992,
+    0.002767991,
+    0.002767991,
+    0.002767991,
+    0.002767991,
+    0.002767991,
+    0.002767991,
+    0.00276799,
+    0.002758861,
+    0.002748623,
+    0.002748617
+  ],
+  "trades_24h": {
+    "trades": 13,
+    "buys": 2,
+    "sells": 11,
+    "buy_tao": 20.034897583,
+    "sell_tao": 121.38288997,
+    "net_tao": -101.34799238699999,
+    "traders": 11
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5D31yczGiq9tVJwGgX87sWBks1g6RST5Tju5aajGycvvrijb",
+      "net_tao": 0.020109201000000354,
+      "gross_tao": 39.979890799,
+      "trades": 2
+    },
+    {
+      "coldkey": "5GjBouDTGpwFKsoCTjEhGVvLb8RQv91KmydopE2RxeUs5jha",
+      "net_tao": -30.621465948,
+      "gross_tao": 30.621465948,
+      "trades": 1
+    },
+    {
+      "coldkey": "5EtTJc8Z26EaysT9EEeJL54wkDvWW2jveHzuWnxm3yRY6Bxu",
+      "net_tao": -30.000189135,
+      "gross_tao": 30.000189135,
+      "trades": 1
+    },
+    {
+      "coldkey": "5DXYVRnDDmmFXwC5zy38j7r17BnfmvSJc5kpcuB8VCRPdGCY",
+      "net_tao": -14.857199231,
+      "gross_tao": 14.857199231,
+      "trades": 1
+    },
+    {
+      "coldkey": "5FkEvA9PGbcawCacKriWEPdUEFEAZqgv1TCZWjcaAYvRa2ir",
+      "net_tao": -13.449459744,
+      "gross_tao": 13.449459744,
+      "trades": 1
+    }
+  ],
+  "news": [
+    {
+      "ts": 1792468390,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(miner): admit reviewed runtime481 funding (#32)",
+      "url": "https://github.com/Aurelius-Protocol/Aurelius-Protocol/commit/4be6392bec8f03f7963368c97be9e301c4fbdcc7",
+      "publisher": "Aurelius-Protocol/Aurelius-Protocol"
+    },
+    {
+      "ts": 1792215888,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(miner): enable reviewed runtime479 funding (#31)",
+      "url": "https://github.com/Aurelius-Protocol/Aurelius-Protocol/commit/5350e9bd057a6d3075d084425784cb412a05555f",
+      "publisher": "Aurelius-Protocol/Aurelius-Protocol"
+    },
+    {
+      "ts": 1792110660,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(miner): support reviewed mainnet runtime479 (#30)",
+      "url": "https://github.com/Aurelius-Protocol/Aurelius-Protocol/commit/c664c09b68f749b166878c79eb4e3346702666f2",
+      "publisher": "Aurelius-Protocol/Aurelius-Protocol"
+    },
+    {
+      "ts": 1791948335,
+      "kind": "commit",
+      "source": "github",
+      "title": "docs: describe planned stake-retention mechanism in INCENTIVES.md",
+      "url": "https://github.com/Aurelius-Protocol/Aurelius-Protocol/commit/294b3a49f301ed4b3249405a59d291fbe745655c",
+      "publisher": "Aurelius-Protocol/Aurelius-Protocol"
+    },
+    {
+      "ts": 1791947948,
+      "kind": "commit",
+      "source": "github",
+      "title": "Simplify miner docs and require incentive-terms agreement (#29)",
+      "url": "https://github.com/Aurelius-Protocol/Aurelius-Protocol/commit/584685675065983536c9ff9c2016f17efc89ac3b",
+      "publisher": "Aurelius-Protocol/Aurelius-Protocol"
+    },
+    {
+      "ts": 1791903621,
+      "kind": "commit",
+      "source": "github",
+      "title": "Delete docs/evidence directory",
+      "url": "https://github.com/Aurelius-Protocol/Aurelius-Protocol/commit/3e38c9f7141ecc90523ee9925316a3a14bab55c7",
+      "publisher": "Aurelius-Protocol/Aurelius-Protocol"
+    },
+    {
+      "ts": 1791903508,
+      "kind": "commit",
+      "source": "github",
+      "title": "Replace the legacy public tree with the v5 miner and participant guid…",
+      "url": "https://github.com/Aurelius-Protocol/Aurelius-Protocol/commit/31b119e481696276435eefd12d6e5d41fbd9157f",
+      "publisher": "Aurelius-Protocol/Aurelius-Protocol"
+    },
+    {
+      "ts": 1791254493,
+      "kind": "commit",
+      "source": "github",
+      "title": "feat(validator)!: default-off master switch VALIDATOR_ENABLED (#26)",
+      "url": "https://github.com/Aurelius-Protocol/Aurelius-Protocol/commit/99ef804cc9cd4a627f2edd112100202ad7f989fa",
+      "publisher": "Aurelius-Protocol/Aurelius-Protocol"
+    }
+  ],
+  "updated": 1792474861,
+  "updated_day": "2026-10-20"
+}

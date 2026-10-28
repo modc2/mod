@@ -1,0 +1,40 @@
+# sn1 — Apex α
+
+The general intelligence platform
+
+Bittensor subnet **1** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-20 (block 9322663).
+
+Links: [github](https://github.com/macrocosm-os/apex) · [url](https://apex.macrocosmos.ai) · [discord](https://discord.gg/bvBDat3Gy)
+
+## Market
+
+| price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
+|---|---|---|---|---|---|---|
+| 0.006434 | -0.00% | -0.26% | -1.32% | 39,657 | 22,807 | 1,075 |
+
+## Last 24h flow
+
+134 trades by 50 coldkeys · 60 buys (522.55 τ) / 74 sells (549.81 τ) · net -27.25 τ
+
+## News
+
+- 2026-10-18 · release · [v4.4.14](https://github.com/macrocosm-os/apex/releases/tag/v4.4.14) — macrocosm-os/apex
+- 2026-10-18 · commit · [Release v4.4.14 (#975)](https://github.com/macrocosm-os/apex/commit/c98616650707226d6a29d9e738cc2e0962e0b45d) — macrocosm-os/apex
+- 2026-10-16 · release · [v4.4.13](https://github.com/macrocosm-os/apex/releases/tag/v4.4.13) — macrocosm-os/apex
+- 2026-10-16 · commit · [Release v4.4.13 (#974)](https://github.com/macrocosm-os/apex/commit/bd71ceb070cd72b4bd80562e96884b66e86d908a) — macrocosm-os/apex
+- 2026-10-02 · release · [v4.4.12](https://github.com/macrocosm-os/apex/releases/tag/v4.4.12) — macrocosm-os/apex
+- 2026-10-02 · commit · [Release v4.4.12 (#973)](https://github.com/macrocosm-os/apex/commit/da4a308ea7e097a1e357937e5a322a54bba9cc41) — macrocosm-os/apex
+- 2026-09-29 · release · [v4.4.11](https://github.com/macrocosm-os/apex/releases/tag/v4.4.11) — macrocosm-os/apex
+- 2026-09-29 · commit · [Release v4.4.11 (#972)](https://github.com/macrocosm-os/apex/commit/96d5978b823cf15f2b418d49b68da21431723197) — macrocosm-os/apex
+
+## Use
+
+```bash
+m subnets.sn1/info        # live identity + market (snapshot if bt is down)
+m subnets.sn1/news        # scraped news
+m subnets.sn1/trades      # 24h alpha tape
+m subnets.sn1/daily       # daily candles
+python3 orbit/subnets/sn1/mod.py  # or import it: Mod().info()
+```
+
+_config.json, README.md and data.json are regenerated every day — put hand-written code in a new file next to mod.py._

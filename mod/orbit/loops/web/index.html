@@ -1,0 +1,704 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>LOOPS</title>
+<link rel="stylesheet" href="kit.css" />
+<style>
+@keyframes pill-pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
+.pill-pulse { animation: pill-pulse 1.4s ease-in-out infinite; }
+.chip.sel { border-color: var(--accent); color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div id="hdr"></div>
+  <div class="grid">
+    <div class="card wide">
+      <h2>Loop agents <span class="sp"></span><span id="caps" class="faint"></span><button id="fleetBtn" class="sm">⊞ fleet</button><button id="tlBtn" class="sm">◷ timeline</button><button id="diaryBtn" class="sm">&#x1F4DC; diary</button><button id="newBtn" class="primary sm">+ new loop</button></h2>
+      <div id="stats" style="margin-bottom:4px"></div>
+      <div id="search_row" style="display:none;margin-bottom:8px;margin-top:4px"><input id="search_input" placeholder="/ filter loops…" style="max-width:240px;font-size:12px" /></div>
+      <div id="fleet" style="display:none;margin-bottom:8px"></div>
+      <div id="timeline" style="display:none;margin-bottom:8px"></div>
+      <div id="diary" style="display:none;margin-bottom:8px"></div>
+      <div id="form" class="card" style="display:none;margin-bottom:12px;background:var(--panel2)">
+        <div class="form">
+          <div class="chips full" id="recipe_chips" style="flex-wrap:wrap;margin-bottom:2px">
+            <span class="faint" style="font-size:11px;align-self:center;margin-right:4px">RECIPES</span>
+            <span class="chip" data-recipe='{"goal":"Fix the failing test shown in the output. Read the test output, find the cause, fix one failure at a time until all tests pass.","cmd":"pytest -x -q","every_secs":120,"max_iters":10,"until_pass":true}' style="cursor:pointer">Test guardian</span>
+            <span class="chip" data-recipe='{"goal":"Improve this module: read it, find the most valuable improvement, implement it, and keep existing tests passing. Small, safe steps. Say what you changed.","every_secs":300,"max_iters":8}' style="cursor:pointer">Continuous improve</span>
+            <span class="chip" data-recipe='{"goal":"Find the most impactful bug in this module and fix it decisively. Do not refactor. Verify the fix.","every_secs":60,"max_iters":3}' style="cursor:pointer">Quick fix</span>
+            <span class="chip" data-recipe='{"goal":"Add clear inline documentation to the most important undocumented functions. Do not change logic.","every_secs":90,"max_iters":4}' style="cursor:pointer">Doc pass</span>
+            <span class="chip" data-recipe='{"goal":"Fix the lint warnings shown in the output. Do not change logic, only fix what the linter flags.","cmd":"ruff check . || true","every_secs":60,"max_iters":3,"until_pass":true}' style="cursor:pointer">Lint sweep</span>
+          </div>
+          <label class="f">mod to improve<select id="f_module"><option value="">loading mods…</option></select></label>
+          <label class="f">name (optional)<input id="f_name" placeholder="auto" /></label>
+          <label class="f full">goal for the agent<textarea id="f_goal"></textarea></label>
+          <div class="chips full" id="goal_chips">
+            <span class="chip sel" data-goal="Improve this module: read it, find the most valuable bug fix or improvement, make it, and keep its tests passing. Small, safe steps. Say what you changed." style="cursor:pointer">Improve</span>
+            <span class="chip" data-goal="Find the most impactful real bug in this module and fix it. Don't refactor — just the bug. Verify it is fixed." style="cursor:pointer">Fix bugs</span>
+            <span class="chip" data-goal="Find the most important untested paths and add passing tests. Run them; fix any failures." style="cursor:pointer">Add tests</span>
+            <span class="chip" data-goal="Find the most important undocumented functions and write clear inline docs. Do not change logic." style="cursor:pointer">Add docs</span>
+            <span class="chip" data-goal="Find the slowest operation and make it measurably faster. Note the before/after." style="cursor:pointer">Perf</span>
+            <span class="chip" data-goal="Fix lint warnings, dead imports, and formatting issues without changing logic." style="cursor:pointer">Lint</span>
+          </div>
+          <label class="f full">command to check each round (optional, bash, runs in the mod)<textarea id="f_cmd" placeholder="e.g. pytest -x -q  — empty = the agent just keeps improving"></textarea></label>
+        </div>
+        <details style="margin-top:10px"><summary class="faint" style="cursor:pointer;font-size:12px">more options</summary>
+          <div class="form" style="margin-top:10px">
+            <label class="f">cwd (only if no mod)<input id="f_cwd" placeholder="/root/mod/mod/orbit/…" /></label>
+            <label class="f">model<input id="f_model" placeholder="default" /></label>
+            <label class="f">every (seconds)<input id="f_every" type="number" min="10" value="60" /></label>
+            <label class="f">max iterations<input id="f_max" type="number" min="1" max="500" value="5" /></label>
+            <label class="chk full"><input id="f_until" type="checkbox" /> stop as soon as the command exits 0</label>
+            <label class="f">max spend ($)<input id="f_budget" type="number" min="0" step="0.01" placeholder="no limit" /></label>
+          </div>
+        </details>
+        <div class="inline" style="margin-top:12px;justify-content:flex-end">
+          <span class="faint" style="flex:1;font-size:12px">Pick a mod and go: the agent works in that mod's folder and ends the loop by printing LOOP_DONE.</span>
+          <button id="cancelBtn">cancel</button><button id="createBtn" class="primary">improve it</button>
+        </div>
+      </div>
+      <div id="list" class="rows"><div class="empty">loading…</div></div>
+    </div>
+  </div>
+</div>
+<script src="kit.js"></script>
+<script>
+const open = new Set();
+const watchedByUser = new Set();
+const diffState = {};
+const evoState = {};
+const replayState = {};
+let last = null;
+let clockOff = 0;
+let cdTimer = null;
+let editingId = null;
+let prevStatuses = {};
+let statusFilter = "all";
+let textFilter = "";
+let timelineOpen = localStorage.getItem('loops_timeline_open') === '1';
+let fleetOpen = localStorage.getItem('loops_fleet_open') === '1';
+let diaryOpen = localStorage.getItem('loops_diary_open') === '1';
+let allMods = [];
+
+async function maybeRequestNotifPerm() {
+  if (typeof Notification === "undefined" || Notification.permission !== "default") return;
+  await Notification.requestPermission();
+}
+
+const st = (s) => s === "running" ? "on" : s === "error" ? "bad" : s === "done" ? "acc" : "";
+
+function fmtCd(secs) {
+  if (secs <= 0) return "⟳ now";
+  const m = Math.floor(secs / 60), s = Math.floor(secs % 60);
+  return `⟳ ${m}:${s.toString().padStart(2, "0")}`;
+}
+
+function tickCd() {
+  const now = Date.now() / 1000 + clockOff;
+  document.querySelectorAll(".cd[data-ts]").forEach(el => {
+    el.textContent = fmtCd(+el.dataset.ts - now);
+  });
+}
+
+function renderTimeline() {
+  const container = document.getElementById('timeline');
+  if (!container) return;
+  const btn = document.getElementById('tlBtn');
+  if (btn) { btn.style.borderColor = timelineOpen ? 'var(--accent)' : ''; btn.style.color = timelineOpen ? 'var(--accent)' : ''; }
+  container.style.display = timelineOpen ? '' : 'none';
+  if (!timelineOpen || !last) return;
+  const loops = (last.loops || []);
+  if (!loops.length) { container.innerHTML = '<div style="padding:4px 0;font-size:11px;color:var(--faint)">no loops yet</div>'; return; }
+
+  const now = Date.now() / 1000 + clockOff;
+  const W_SECS = 8 * 3600;
+  const startTs = now - W_SECS;
+  const ROW_H = 16;
+  const R = 3;
+
+  const labelCol = loops.map(l => {
+    const label = (l.name || l.module || l.id || '').slice(0, 16);
+    return `<div style="height:${ROW_H}px;display:flex;align-items:center;justify-content:flex-end;padding-right:5px;font-size:9px;color:var(--faint);font-family:monospace;overflow:hidden;white-space:nowrap">${K.esc(label)}</div>`;
+  }).join('');
+
+  const timeRows = loops.map(l => {
+    const iterData = {};
+    for (const e of (l.log || [])) {
+      if (!e.ts) continue;
+      const k = e.iter ?? 0;
+      if (!iterData[k]) iterData[k] = { ts: e.ts, hasCmd: false, passed: false, cost: 0 };
+      if (e.kind === 'cmd') { iterData[k].hasCmd = true; iterData[k].passed = e.code === 0; }
+      if (e.kind === 'agent' && e.cost_usd) { const c = parseFloat(e.cost_usd); if (!isNaN(c)) iterData[k].cost += c; }
+    }
+    const dots = Object.entries(iterData).filter(([, d]) => d.ts >= startTs && d.ts <= now).map(([iter, d]) => {
+      const pct = ((d.ts - startTs) / W_SECS * 100).toFixed(2);
+      const color = d.hasCmd ? (d.passed ? 'var(--green)' : 'var(--red)') : 'var(--accent)';
+      const status = d.hasCmd ? (d.passed ? 'pass' : 'fail') : 'agent';
+      const costStr = d.cost > 0 ? ` · $${d.cost.toFixed(3)}` : '';
+      const title = K.esc(`${l.name || l.module || l.id || ''} #${iter} ${status}${costStr}`);
+      return `<span title="${title}" style="position:absolute;top:${Math.floor(ROW_H / 2 - R)}px;left:${pct}%;width:${R * 2}px;height:${R * 2}px;border-radius:50%;background:${color};opacity:.85;transform:translateX(-${R}px)"></span>`;
+    }).join('');
+    return `<div style="height:${ROW_H}px;position:relative;border-top:.5px solid var(--line)">${dots}</div>`;
+  }).join('');
+
+  container.innerHTML = `<div style="display:flex"><div style="width:120px;flex-shrink:0">${labelCol}</div><div style="flex:1;position:relative">${timeRows}<div style="position:absolute;top:0;right:0;bottom:0;width:1px;background:var(--faint);opacity:.4"></div></div></div>`;
+}
+
+function renderFleet() {
+  const container = document.getElementById('fleet');
+  if (!container) return;
+  const btn = document.getElementById('fleetBtn');
+  if (btn) { btn.style.borderColor = fleetOpen ? 'var(--accent)' : ''; btn.style.color = fleetOpen ? 'var(--accent)' : ''; }
+  container.style.display = fleetOpen ? '' : 'none';
+  if (!fleetOpen) return;
+  if (!allMods.length) { container.innerHTML = '<div style="padding:4px 0;font-size:11px;color:var(--faint)">loading modules…</div>'; return; }
+  const loops = (last?.loops || []);
+  const chips = allMods.slice().sort((a, b) => a.name.localeCompare(b.name)).map(m => {
+    const mLoops = loops.filter(l => l.module === m.name);
+    let color, extra = '';
+    if (!mLoops.length) {
+      color = 'var(--faint)'; extra = 'opacity:.5;';
+    } else if (mLoops.some(l => l.status === 'running')) {
+      color = 'var(--accent)';
+    } else {
+      const everPassed = mLoops.some(l => (l.log || []).some(e => e.kind === 'cmd' && e.code === 0));
+      color = everPassed ? 'var(--green)' : 'var(--red)';
+    }
+    const lastTs = mLoops.reduce((mx, l) => Math.max(mx, l.updated_at || 0), 0);
+    const totalSpend = mLoops.reduce((sum, l) => sum + (l.log || []).filter(e => e.kind === 'agent' && e.cost_usd).reduce((s, e) => s + parseFloat(e.cost_usd), 0), 0);
+    const allCmds = mLoops.flatMap(l => (l.log || []).filter(e => e.kind === 'cmd'));
+    const passRate = allCmds.length ? Math.round(allCmds.filter(e => e.code === 0).length / allCmds.length * 100) + '%' : '—';
+    const lastStr = lastTs ? new Date(lastTs * 1000).toLocaleString() : 'never';
+    const tip = K.esc(`${m.name} · last run: ${lastStr} · spend: $${totalSpend.toFixed(2)} · pass rate: ${passRate}`);
+    return `<span class="chip" title="${tip}" data-fleet-mod="${K.esc(m.name)}" style="cursor:pointer;border-color:${color};color:${color};${extra}">${K.esc(m.name)}</span>`;
+  }).join('');
+  container.innerHTML = `<div class="chips" style="flex-wrap:wrap;gap:4px">${chips}</div>`;
+}
+
+function renderDiary() {
+  const container = document.getElementById('diary');
+  if (!container) return;
+  const btn = document.getElementById('diaryBtn');
+  if (btn) { btn.style.borderColor = diaryOpen ? 'var(--accent)' : ''; btn.style.color = diaryOpen ? 'var(--accent)' : ''; }
+  container.style.display = diaryOpen ? '' : 'none';
+  if (!diaryOpen || !last) return;
+
+  const now = Date.now() / 1000 + clockOff;
+  const WINDOW_48H = 48 * 3600;
+  const MAX_ENTRIES = 40;
+  const entries = [];
+
+  for (const l of (last.loops || [])) {
+    const iterMap = {};
+    for (const e of (l.log || [])) {
+      const k = e.iter ?? 0;
+      if (!iterMap[k]) iterMap[k] = { hasCmd: false, passed: false };
+      if (e.kind === 'cmd') { iterMap[k].hasCmd = true; iterMap[k].passed = e.code === 0; }
+    }
+    for (const e of (l.log || [])) {
+      if (e.kind !== 'agent' || !e.ts || !e.out) continue;
+      if (now - e.ts > WINDOW_48H) continue;
+      const lines = e.out.split('\n');
+      const meaningful = lines.filter(ln => { const t = ln.trim(); return t.length > 0 && t.length < 110 && !/^[-=]{3,}$/.test(t); });
+      if (!meaningful.length) continue;
+      const sentence = meaningful[meaningful.length - 1].trim();
+      const iter = e.iter ?? 0;
+      const im = iterMap[iter] || { hasCmd: false, passed: false };
+      const dot = im.hasCmd ? (im.passed ? 'var(--green)' : 'var(--red)') : 'var(--accent)';
+      entries.push({ ts: e.ts, label: l.name || l.module || l.id || '', iter, dot, sentence });
+    }
+  }
+
+  if (!entries.length) { container.innerHTML = '<div style="padding:4px 0;font-size:11px;color:var(--faint)">no agent output yet</div>'; return; }
+  entries.sort((a, b) => b.ts - a.ts);
+  const top = entries.slice(0, MAX_ENTRIES);
+  container.innerHTML = '<div>' + top.map(en =>
+    `<div style="display:flex;align-items:baseline;gap:6px;padding:2px 0;font-size:11px;line-height:1.4;border-top:.5px solid var(--line)">` +
+    `<span class="chip" style="flex-shrink:0;font-size:10px;opacity:.7">${K.esc(K.ago(en.ts))}</span>` +
+    `<span style="flex-shrink:0;font-family:monospace;color:var(--accent)">${K.esc(en.label)}</span>` +
+    `<span style="flex-shrink:0;color:var(--faint)">#${en.iter}</span>` +
+    `<span style="flex-shrink:0;width:7px;height:7px;border-radius:50%;background:${en.dot};display:inline-block;align-self:center"></span>` +
+    `<span style="font-style:italic;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">${K.esc(en.sentence)}</span>` +
+    `</div>`
+  ).join('') + '</div>';
+}
+
+function render() {
+  const d = last;
+  const list = document.getElementById("list");
+  if (!d) return;
+  if (d.error) { list.innerHTML = `<div class="notice bad">${K.esc(d.error)}</div>`; renderTimeline(); renderFleet(); renderDiary(); return; }
+  renderTimeline();
+  renderFleet();
+  renderDiary();
+  const loops = d.loops || [];
+  const running = loops.filter((l) => l.status === "running").length;
+  K.setState(K.pill(running > 0, `${running} running`, "idle"));
+  document.getElementById("caps").textContent = `${loops.length}/${d.cap} loops · ${running}/${d.running_cap} running · min ${d.min_every_secs}s`;
+  const statusCounts = { running: 0, done: 0, error: 0, stopped: 0 };
+  for (const l of loops) if (statusCounts[l.status] !== undefined) statusCounts[l.status]++;
+  let fleetSpend = 0, totalCmds = 0, passCmds = 0, totalIters = 0;
+  for (const l of loops) {
+    totalIters += l.iter || 0;
+    for (const e of (l.log || [])) {
+      if (e.kind === 'agent' && e.cost_usd) { const c = parseFloat(e.cost_usd); if (!isNaN(c)) fleetSpend += c; }
+      if (e.kind === 'cmd') { totalCmds++; if (e.code === 0) passCmds++; }
+    }
+  }
+  const passRateStr = totalCmds > 0 ? Math.round(passCmds / totalCmds * 100) + '%' : '—';
+  const chipsHtml = [
+    ["all", loops.length + " all"],
+    ["running", statusCounts.running + " running"],
+    ["done", statusCounts.done + " done"],
+    ["error", statusCounts.error + " error"],
+    ["stopped", statusCounts.stopped + " stopped"],
+  ].map(([sf, lbl]) => `<span class="chip${statusFilter === sf ? " sel" : ""}" data-sf="${sf}" style="cursor:pointer">${lbl}</span>`).join("");
+  document.getElementById("stats").innerHTML = loops.length
+    ? `<div class="stats"><div class="stat"><b>$${fleetSpend.toFixed(2)}</b><span>fleet spend</span></div><div class="stat"><b>${passRateStr}</b><span>pass rate</span></div><div class="stat"><b>${totalIters}</b><span>iterations run</span></div></div><div class="chips" style="margin-top:8px">${chipsHtml}</div>`
+    : "";
+  document.getElementById("search_row").style.display = loops.length ? "" : "none";
+  if (!loops.length) { list.innerHTML = `<div class="empty">No loops yet. Hit + new loop, pick a mod, and an agent keeps improving it.</div>`; return; }
+  let visible = statusFilter === "all" ? loops : loops.filter(l => l.status === statusFilter);
+  if (textFilter) { visible = visible.filter(l => [l.name, l.module, l.goal, l.cmd].join(" ").toLowerCase().includes(textFilter)); }
+  if (!visible.length) { list.innerHTML = `<div class="empty">No loops match this filter.</div>`; return; }
+  const steerVals = {}, openDetails = {};
+  document.querySelectorAll('#list .row[data-id]').forEach(row => {
+    const id = row.dataset.id;
+    const inp = row.querySelector(`#steer_${id}`);
+    if (inp?.value) steerVals[id] = inp.value;
+    const iters = new Set();
+    row.querySelectorAll('details[open] summary').forEach(s => {
+      const m = s.textContent.match(/^#(\d+)/);
+      if (m) iters.add(m[1]);
+    });
+    if (iters.size) openDetails[id] = iters;
+  });
+  list.innerHTML = visible.map((l) => {
+    const where = l.module ? `mod ${l.module}` : l.cwd;
+    const iterMap = {};
+    for (const e of (l.log || [])) {
+      const k = e.iter ?? 0;
+      if (!iterMap[k]) iterMap[k] = { hasCmd: false, passed: false, hasAgent: false, cost: 0 };
+      if (e.kind === "cmd") { iterMap[k].hasCmd = true; iterMap[k].passed = e.code === 0; }
+      if (e.kind === "agent") { iterMap[k].hasAgent = true; if (e.cost_usd) iterMap[k].cost += parseFloat(e.cost_usd); }
+    }
+    const log = (() => {
+      if (!open.has(l.id)) return "";
+      const evs = (l.log || []).slice(-200);
+      const steerRow = l.status === "running" && l.job_id ? `<div class="inline" style="margin-top:8px;gap:6px"><input id="steer_${l.id}" placeholder="Steer the agent — inject a note at its next tool boundary…" style="flex:1;font-size:12px" /><button data-a="steer" data-job="${K.esc(l.job_id)}" style="white-space:nowrap">↷ steer</button></div>` : "";
+      if (!evs.length) return `<div style="padding:6px 2px;font-size:12px;color:var(--faint)">no events yet</div>` + steerRow;
+      const groups = {};
+      for (const e of evs) { const k = e.iter ?? 0; (groups[k] = groups[k] || []).push(e); }
+      const sortedIters = Object.keys(groups).sort((a, b) => +a - +b);
+      if (replayState[l.id] !== undefined && l.status !== "running") {
+        const idx = Math.min(replayState[l.id], sortedIters.length - 1);
+        const iter = sortedIters[idx];
+        const g = groups[iter];
+        const cmdEv = g.find(e => e.kind === "cmd");
+        const agentEv = g.find(e => e.kind === "agent");
+        const ts = g[0]?.ts;
+        const time = ts ? new Date(ts * 1000).toLocaleTimeString() : "";
+        const badgeStr = cmdEv ? (cmdEv.code === 0 ? "pass ✓" : "fail ✗") : "";
+        const costStr = agentEv?.cost_usd ? `$${parseFloat(agentEv.cost_usd).toFixed(2)}` : "";
+        const navMeta = [badgeStr, costStr, time].filter(Boolean).join(" · ");
+        const cmdOut = cmdEv?.out ? `<pre class="log" style="margin:4px 0 0">${K.esc(cmdEv.out.slice(-2000))}</pre>` : "";
+        const agentOut = agentEv?.out ? `<pre class="log" style="margin:4px 0 0">${K.esc(agentEv.out.slice(-2000))}</pre>` : "";
+        const truncNote = +sortedIters[0] > 1 ? `<div class="faint s" style="padding:3px 0">earlier iterations not available</div>` : "";
+        const navBar = `<div class="inline" style="margin-top:6px;gap:6px;align-items:center"><button class="sm" data-a="replay-prev"${idx === 0 ? " disabled" : ""}>◀</button><span class="faint" style="font-size:12px">#${iter} / ${l.iter}${navMeta ? " — " + navMeta : ""}</span><button class="sm" data-a="replay-next"${idx >= sortedIters.length - 1 ? " disabled" : ""}>▶</button><button class="sm" data-a="replay-exit" style="margin-left:4px">✕ exit replay</button></div>`;
+        return truncNote + navBar + cmdOut + agentOut;
+      }
+      const lastIter = sortedIters[sortedIters.length - 1];
+      return sortedIters.map((iter) => {
+        const g = groups[iter];
+        const cmdEv = g.find((e) => e.kind === "cmd");
+        const agentEv = g.find((e) => e.kind === "agent");
+        const ts = g[0]?.ts;
+        const badge = cmdEv ? (cmdEv.code === 0 ? `<span style="color:#5fd3b8;font-weight:700">✓</span>` : `<span style="color:#e55;font-weight:700">✗</span>`) : "";
+        const time = ts ? new Date(ts * 1000).toLocaleTimeString() : "";
+        const cmdOut = cmdEv?.out ? `<pre class="log" style="margin:4px 0 0">${K.esc(cmdEv.out.slice(-2000))}</pre>` : "";
+        const agentOut = agentEv?.out ? `<pre class="log" style="margin:4px 0 0">${K.esc(agentEv.out.slice(-2000))}</pre>` : "";
+        const iterCost = agentEv?.cost_usd ? ` · $${parseFloat(agentEv.cost_usd).toFixed(2)}` : "";
+        return `<details${!openDetails[l.id] && iter === lastIter ? " open" : ""}><summary style="cursor:pointer;font-size:12px;padding:3px 0">#${iter} / ${l.max_iters} ${badge} <span class="faint">${time}${iterCost}</span></summary>${cmdOut}${agentOut}</details>`;
+      }).join("") + steerRow;
+    })();
+    return `<div class="row click" data-id="${l.id}" style="flex-wrap:wrap${l.status==='running' ? ';border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 15%,transparent)' : ''}">
+      <span class="pill ${st(l.status)}">${K.esc(l.status)}</span>${l.status === "running" && l.job_id ? `<a class="pill on pill-pulse" href="${K.BUILD_APP}">⟳ agent…</a>` : ""}
+      <div class="grow">
+        <div class="t">${K.esc(l.name)} <span class="faint mono">· ${K.esc(where)}</span></div>
+        <div class="s mono">${l.cmd ? "$ " + K.esc(l.cmd) : ""}${l.goal ? ` → ${K.esc(l.goal)}` : ""}</div>
+        <div class="s">iter ${l.iter}/${l.max_iters} · every ${K.dur(l.every_secs)}${l.until_pass ? " · until pass" : ""}${l.budget_usd != null ? ` · cap $${parseFloat(l.budget_usd).toFixed(2)}` : ""}${l.status === "running" && l.next_at ? ` · next <span class="cd" data-ts="${l.next_at}">${fmtCd(l.next_at - (Date.now() / 1000 + clockOff))}</span>` : ""}${l.note ? ` · ${K.esc(l.note)}` : ""}${(() => { const t = (l.log || []).filter(e => e.kind === "agent" && e.cost_usd).reduce((acc, e) => acc + parseFloat(e.cost_usd), 0); return t > 0 ? ` · $${t.toFixed(2)} total` : ""; })()} · updated ${K.ago(l.updated_at)}</div>
+        ${(() => { if (!l.iter) return ""; const log = l.log || []; const cmdEvs = log.filter(e => e.kind === "cmd"); const passedCnt = cmdEvs.filter(e => e.code === 0).length; const passRate = cmdEvs.length ? `${passedCnt}/${cmdEvs.length} passed` : null; const agentEvs = log.filter(e => e.kind === "agent" && e.cost_usd); const totalCost = agentEvs.reduce((acc, e) => acc + parseFloat(e.cost_usd), 0); const avgCost = agentEvs.length ? `$${(totalCost / agentEvs.length).toFixed(2)} avg/iter` : null; let trendHtml = ""; if (l.iter >= 2 && cmdEvs.length >= 2) { const half = Math.floor(l.iter / 2); const firstHalf = cmdEvs.filter(e => e.iter <= half); const secondHalf = cmdEvs.filter(e => e.iter > half); if (firstHalf.length && secondHalf.length) { const r1 = firstHalf.filter(e => e.code === 0).length / firstHalf.length; const r2 = secondHalf.filter(e => e.code === 0).length / secondHalf.length; if (r2 > r1) trendHtml = `<span style="color:var(--green)">↑ improving</span>`; else if (r2 < r1) trendHtml = `<span style="color:var(--red)">↓ regressing</span>`; } } const ds = diffState[l.id]; const statsBadge = ds?.stats ? `<span class="faint mono">+${ds.stats.added} −${ds.stats.removed} · ${ds.stats.files} files</span>` : null; const parts = [passRate, avgCost, trendHtml, statsBadge].filter(Boolean); if (!parts.length) return ""; return `<div class="s faint">${parts.join(" · ")}</div>`; })()}
+        ${(() => { const agentEvs = (l.log || []).filter(e => e.kind === "agent" && e.out); if (!agentEvs.length) return ""; const lines = agentEvs[agentEvs.length - 1].out.split("\n"); const q = lines.filter(ln => { const t = ln.trim(); return t.length > 0 && t.length < 110 && !/^[-=]{3,}$/.test(t); }); if (!q.length) return ""; return `<div class="s faint" style="font-style:italic">"${K.esc(q[q.length - 1].trim())}"</div>`; })()}
+        <div class="meter" style="margin-top:6px;display:flex;gap:2px;align-items:flex-end;height:40px">${(() => { const maxIterCost = Math.max(...Object.values(iterMap).map(v => v.cost), 0.001); return Array.from({length: l.max_iters}, (_, i) => { const it = iterMap[i + 1]; const c = !it ? "var(--line)" : it.hasCmd ? (it.passed ? "var(--green)" : "var(--red)") : "var(--accent)"; const h = Math.max(22, Math.round((it?.cost || 0) / maxIterCost * 100)); return `<span style="flex:1;height:${h}%;background:${c};border-radius:3px"></span>`; }).join(""); })()}</div>
+      </div>
+      <div class="acts">
+        ${l.status === "running" ? `<button class="sm" data-a="stop">stop</button>` : `<button class="sm" data-a="start">start</button>`}
+        ${l.status === "running" && l.next_at > 0 ? `<button class="sm" data-a="nudge" title="fire now">⚡</button>` : ""}
+        ${l.status !== "running" && l.iter > 0 ? `<button class="sm" data-a="continue">${l.iter >= l.max_iters ? "▶ +5 iters" : "▶ continue"}</button>` : ""}
+        ${l.status !== "running" ? `<button class="sm" data-a="edit">edit</button>` : ""}
+        ${l.status !== "running" && (l.log || []).some(e => e.kind === "cmd" && e.code !== 0) ? `<button class="sm" data-a="fixfail">→ fix</button>` : ""}
+        <button class="sm" data-a="copylink" title="copy link">⎘</button>
+        ${l.status !== "running" && l.iter > 1 && open.has(l.id) && replayState[l.id] === undefined ? `<button class="sm" data-a="replay">▶ replay</button>` : ""}
+        ${l.module && open.has(l.id) ? `<button class="sm" data-a="diff">${diffState[l.id] && diffState[l.id] !== 'loading' && l.status !== 'running' ? 'hide diff' : l.status === 'running' ? '↺ live diff' : '📋 diff'}</button>` : ""}
+        ${(() => { if (!open.has(l.id) || l.status === 'running') return ''; const cmdIters = [...new Set((l.log || []).filter(ev => ev.kind === 'cmd' && ev.out).map(ev => ev.iter ?? 0))]; if (cmdIters.length < 2) return ''; return `<button class="sm" data-a="evo">${evoState[l.id] ? 'hide evolution' : '◈ evolution'}</button>`; })()}
+        <button class="sm" data-a="clone">clone</button>
+        <button class="sm danger" data-a="del">delete</button>
+      </div>
+      <div style="flex-basis:100%">${log}${(() => {
+        if (!open.has(l.id) || !l.module) return "";
+        const ds = diffState[l.id];
+        if (!ds) return "";
+        if (ds === 'loading') return `<div class="faint s" style="padding:4px 0">loading diff…</div>`;
+        if (!ds.diff && !ds.commits) return `<div class="faint s" style="padding:4px 0">no file changes recorded.</div>`;
+        let out = '';
+        if (ds.commits && ds.commits.trim()) out += `<div class="s mono" style="margin:6px 0 2px">${ds.commits.trim().split('\n').map(K.esc).join('<br>')}</div>`;
+        if (ds.diff) { const lines = ds.diff.split('\n').map(ln => { const esc = K.esc(ln); if (ln.startsWith('+') && !ln.startsWith('+++')) return `<span style="color:var(--green)">${esc}</span>`; if (ln.startsWith('-') && !ln.startsWith('---')) return `<span style="color:var(--red)">${esc}</span>`; return esc; }); out += `<pre class="log" style="margin:4px 0 0">${lines.join('\n')}</pre>`; }
+        return out;
+      })()}${(() => {
+        if (!open.has(l.id) || !evoState[l.id]) return "";
+        const cmdEvsByIter = {};
+        for (const ev of (l.log || []).filter(ev => ev.kind === 'cmd' && ev.out)) { const k = ev.iter ?? 0; if (!cmdEvsByIter[k]) cmdEvsByIter[k] = ev; }
+        const sortedIters = Object.keys(cmdEvsByIter).sort((a, b) => +a - +b);
+        if (sortedIters.length < 2) return "";
+        let evoParts = '';
+        for (let i = 0; i < sortedIters.length - 1; i++) {
+          const prevIter = sortedIters[i]; const nextIter = sortedIters[i + 1];
+          const prevLines = cmdEvsByIter[prevIter].out.split('\n'); const nextLines = cmdEvsByIter[nextIter].out.split('\n');
+          const prevSet = new Set(prevLines); const nextSet = new Set(nextLines);
+          const fixed = prevLines.filter(ln => !nextSet.has(ln)); const broken = nextLines.filter(ln => !prevSet.has(ln));
+          if (!fixed.length && !broken.length) continue;
+          const rows = [...fixed.map(ln => `<span style="color:var(--green)">${K.esc(ln)}</span>`), ...broken.map(ln => `<span style="color:var(--red)">${K.esc(ln)}</span>`)].join('\n');
+          evoParts += `<div class="faint s" style="padding:3px 0;border-top:.5px solid var(--line)">iteration ${prevIter} → ${nextIter}</div><pre class="log" style="margin:2px 0 4px">${rows}</pre>`;
+        }
+        return evoParts || `<div class="faint s" style="padding:3px 0">no line-level changes between iterations</div>`;
+      })()}</div>
+    </div>`;
+  }).join("");
+  for (const [id, val] of Object.entries(steerVals)) {
+    const inp = document.getElementById(`steer_${id}`);
+    if (inp) inp.value = val;
+  }
+  for (const [id, iters] of Object.entries(openDetails)) {
+    document.querySelector(`#list .row[data-id="${id}"]`)?.querySelectorAll('details').forEach(d => {
+      const m = d.querySelector('summary')?.textContent.match(/^#(\d+)/);
+      if (m && iters.has(m[1])) d.open = true;
+    });
+  }
+}
+
+async function load() {
+  if (!K.token) { last = { error: "Loops are owner-only (their log is raw host terminal output). Sign in to build as the owner." }; return render(); }
+  prevStatuses = {};
+  for (const l of (last?.loops || [])) prevStatuses[l.id] = l.status;
+  const r = await K.api("/loops");
+  last = r.ok ? r.data : { error: r.data?.error || `failed (${r.status})` };
+  clockOff = (last.now || 0) - Date.now() / 1000;
+  for (const l of (last.loops || [])) {
+    if (l.status === "running" && !watchedByUser.has(l.id)) open.add(l.id);
+  }
+  render();
+  if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+    for (const l of (last.loops || [])) {
+      const prev = prevStatuses[l.id];
+      if (prev !== "running") continue;
+      if (l.status === "done" || l.status === "stopped" || l.status === "error") {
+        const cost = (l.log || []).filter(e => e.kind === "agent" && e.cost_usd).reduce((s, e) => s + parseFloat(e.cost_usd), 0);
+        const title = `⟳ loops: ${l.name}`;
+        if (l.status === "error") {
+          new Notification(title, { body: `Error after ${l.iter}/${l.max_iters} iters · $${cost.toFixed(2)}` });
+        } else {
+          new Notification(title, { body: `Done after ${l.iter}/${l.max_iters} iters · $${cost.toFixed(2)}` });
+        }
+      }
+    }
+  }
+  for (const l of (last.loops || [])) {
+    const prev = prevStatuses[l.id];
+    if (prev !== "running") continue;
+    if ((l.status === "done" || l.status === "stopped" || l.status === "error") && l.module && !diffState[l.id]) {
+      const since = l.log?.[0]?.ts || 0;
+      fetch(`/api/loops/diff?module=${encodeURIComponent(l.module)}&since=${encodeURIComponent(since)}`)
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+          if (!data) return;
+          const lines = (data.diff || '').split('\n');
+          const added = lines.filter(ln => ln.startsWith('+') && !ln.startsWith('+++')).length;
+          const removed = lines.filter(ln => ln.startsWith('-') && !ln.startsWith('---')).length;
+          const files = ((data.diff || '').match(/^diff --git /mg) || []).length;
+          diffState[l.id] = { ...data, stats: { added, removed, files } };
+          render();
+        });
+    }
+  }
+  if (!cdTimer) cdTimer = setInterval(tickCd, 1000);
+}
+
+document.getElementById("stats").addEventListener("click", (e) => {
+  const chip = e.target.closest("[data-sf]");
+  if (!chip) return;
+  const sf = chip.dataset.sf;
+  statusFilter = (statusFilter === sf && sf !== "all") ? "all" : sf;
+  render();
+});
+document.getElementById("search_input").addEventListener("input", (e) => {
+  textFilter = e.target.value.toLowerCase();
+  render();
+});
+document.addEventListener("keydown", (e) => {
+  const tag = document.activeElement?.tagName;
+  if (e.key === "/" && tag !== "INPUT" && tag !== "TEXTAREA") {
+    const si = document.getElementById("search_input");
+    if (!si || si.closest("#search_row")?.style.display === "none") return;
+    e.preventDefault();
+    si.focus();
+  } else if (e.key === "Escape") {
+    const si = document.getElementById("search_input");
+    if (!si || !textFilter) return;
+    textFilter = "";
+    si.value = "";
+    si.blur();
+    render();
+  }
+});
+
+document.getElementById("list").addEventListener("click", async (e) => {
+  const row = e.target.closest(".row"); if (!row) return;
+  const id = row.dataset.id, a = e.target.closest("button")?.dataset.a;
+  if (!a) { if (open.has(id)) { open.delete(id); watchedByUser.add(id); } else open.add(id); return render(); }
+  if (a === "edit") {
+    const l = (last?.loops || []).find(x => x.id === id);
+    if (!l) return;
+    editingId = id;
+    openForm(l.module);
+    document.getElementById("f_name").value = l.name || "";
+    document.getElementById("f_goal").value = l.goal || "";
+    document.getElementById("f_cmd").value = l.cmd || "";
+    document.getElementById("f_every").value = l.every_secs || 60;
+    document.getElementById("f_max").value = l.max_iters || 5;
+    document.getElementById("f_model").value = l.model || "";
+    document.getElementById("f_until").checked = !!l.until_pass;
+    document.getElementById("f_budget").value = l.budget_usd != null ? l.budget_usd : "";
+    document.querySelector("#form details").open = true;
+    createBtn.textContent = "save changes";
+    return;
+  }
+  if (a === "clone") {
+    const l = (last?.loops || []).find(x => x.id === id);
+    if (!l) return;
+    openForm(l.module);
+    document.getElementById("f_goal").value = l.goal || "";
+    document.getElementById("f_cmd").value = l.cmd || "";
+    document.getElementById("f_every").value = l.every_secs || 60;
+    document.getElementById("f_max").value = l.max_iters || 5;
+    document.getElementById("f_until").checked = !!l.until_pass;
+    document.getElementById("f_name").value = l.name ? l.name + " copy" : "";
+    document.querySelector("#form details").open = true;
+    return;
+  }
+  if (a === "fixfail") {
+    const l = (last?.loops || []).find(x => x.id === id);
+    if (!l) return;
+    const failedCmds = (l.log || []).filter(e => e.kind === "cmd" && e.code !== 0);
+    if (!failedCmds.length) return;
+    const cmdEv = failedCmds[failedCmds.length - 1];
+    const output = cmdEv.out || "";
+    openForm(l.module);
+    document.getElementById("f_cmd").value = l.cmd || "";
+    document.getElementById("f_goal").value = `The command \`${l.cmd}\` failed (exit ${cmdEv.code}). Last output:\n\n${output.slice(-600)}\n\nFix the underlying issue so the command exits 0.`;
+    document.getElementById("f_every").value = l.every_secs || 60;
+    document.getElementById("f_max").value = l.max_iters || 5;
+    document.querySelectorAll("#goal_chips .chip").forEach(c => c.classList.remove("sel"));
+    document.querySelector("#form details").open = true;
+    return;
+  }
+  if (a === "steer") {
+    const jobId = e.target.closest("[data-job]")?.dataset.job;
+    if (!jobId) return;
+    const inp = document.getElementById("steer_" + id);
+    const message = inp?.value?.trim();
+    if (!message) return K.toast("enter a note to inject", true);
+    const r = await K.api(`/jobs/${jobId}/message`, { method: "POST", body: { message } });
+    if (r.ok) { inp.value = ""; K.toast("injected"); }
+    else K.toast(r.data?.error || "inject failed", true);
+    return;
+  }
+  if (a === "replay") {
+    const rl = (last?.loops || []).find(x => x.id === id);
+    if (!rl) return;
+    const evs = (rl.log || []).slice(-200);
+    const grps = {};
+    for (const e of evs) { const k = e.iter ?? 0; (grps[k] = grps[k] || []).push(e); }
+    const iters = Object.keys(grps).sort((a, b) => +a - +b);
+    if (iters.length) { replayState[id] = iters.length - 1; render(); }
+    return;
+  }
+  if (a === "replay-prev" || a === "replay-next" || a === "replay-exit") {
+    if (a === "replay-exit") { delete replayState[id]; render(); return; }
+    const rl = (last?.loops || []).find(x => x.id === id);
+    if (!rl || replayState[id] === undefined) return;
+    const evs = (rl.log || []).slice(-200);
+    const grps = {};
+    for (const e of evs) { const k = e.iter ?? 0; (grps[k] = grps[k] || []).push(e); }
+    const iters = Object.keys(grps).sort((a, b) => +a - +b);
+    const cur = replayState[id];
+    if (a === "replay-prev" && cur > 0) replayState[id] = cur - 1;
+    if (a === "replay-next" && cur < iters.length - 1) replayState[id] = cur + 1;
+    render();
+    return;
+  }
+  if (a === "start") { await maybeRequestNotifPerm(); await K.act(`/loops/${id}/start`, {}, "started"); }
+  if (a === "continue") {
+    await maybeRequestNotifPerm();
+    const contL = (last?.loops || []).find(x => x.id === id);
+    if (contL && contL.iter >= contL.max_iters) await K.act(`/loops/${id}`, { max_iters: contL.max_iters + 5 }, "extended", "PATCH");
+    await K.act(`/loops/${id}/start`, { resume: true }, "continued");
+  }
+  if (a === "stop") await K.act(`/loops/${id}/stop`, {}, "stopped");
+  if (a === "nudge") await K.act(`/loops/${id}/nudge`, {}, "fired");
+  if (a === "del" && await K.ask("Delete this loop and its log?", "Delete", true)) await K.act(`/loops/${id}`, undefined, "deleted", "DELETE");
+  if (a === "copylink") {
+    const cl = (last?.loops || []).find(x => x.id === id);
+    if (!cl) return;
+    const p = new URLSearchParams({ module: cl.module || "", cmd: cl.cmd || "", goal: cl.goal || "", name: cl.name || "", every_secs: cl.every_secs || 60, max_iters: cl.max_iters || 5, until_pass: cl.until_pass ? "1" : "0" });
+    if (cl.budget_usd != null) p.set("budget_usd", cl.budget_usd);
+    navigator.clipboard.writeText(location.origin + location.pathname + "?" + p.toString());
+    K.toast("link copied");
+    return;
+  }
+  if (a === "diff") {
+    const dl = (last?.loops || []).find(x => x.id === id);
+    if (!dl || !dl.module) return;
+    if (diffState[id] === 'loading') return;
+    if (diffState[id] && diffState[id] !== 'loading') { delete diffState[id]; return render(); }
+    diffState[id] = 'loading';
+    render();
+    const since = dl.log?.[0]?.ts || 0;
+    const resp = await fetch(`/api/loops/diff?module=${encodeURIComponent(dl.module)}&since=${encodeURIComponent(since)}`);
+    diffState[id] = resp.ok ? await resp.json() : null;
+    render();
+    return;
+  }
+  if (a === "evo") { if (evoState[id]) delete evoState[id]; else evoState[id] = true; render(); return; }
+  load();
+});
+
+const form = document.getElementById("form");
+const DEFAULT_GOAL = "Improve this module: read it, find the most valuable bug fix or improvement, make it, and keep its tests passing. Small, safe steps. Say what you changed.";
+const goalEl = document.getElementById("f_goal");
+goalEl.value = DEFAULT_GOAL;
+function resetGoal() {
+  goalEl.value = DEFAULT_GOAL;
+  document.querySelectorAll("#goal_chips .chip").forEach(c => c.classList.toggle("sel", c.dataset.goal === DEFAULT_GOAL));
+  document.querySelectorAll("#recipe_chips .chip").forEach(c => c.classList.remove("sel"));
+}
+document.getElementById("goal_chips").addEventListener("click", e => {
+  const chip = e.target.closest(".chip[data-goal]");
+  if (!chip) return;
+  goalEl.value = chip.dataset.goal;
+  document.querySelectorAll("#goal_chips .chip").forEach(c => c.classList.remove("sel"));
+  chip.classList.add("sel");
+});
+document.getElementById("recipe_chips").addEventListener("click", e => {
+  const chip = e.target.closest(".chip[data-recipe]");
+  if (!chip) return;
+  let recipe;
+  try { recipe = JSON.parse(chip.dataset.recipe); } catch { return; }
+  if (recipe.goal != null) goalEl.value = recipe.goal;
+  document.getElementById("f_cmd").value = recipe.cmd || "";
+  document.getElementById("f_every").value = recipe.every_secs || 60;
+  document.getElementById("f_max").value = recipe.max_iters || 5;
+  document.getElementById("f_until").checked = !!recipe.until_pass;
+  document.querySelector("#form details").open = true;
+  document.querySelectorAll("#recipe_chips .chip").forEach(c => c.classList.remove("sel"));
+  chip.classList.add("sel");
+  document.querySelectorAll("#goal_chips .chip").forEach(c => c.classList.remove("sel"));
+});
+goalEl.addEventListener("input", () => {
+  document.querySelectorAll("#goal_chips .chip").forEach(c => c.classList.remove("sel"));
+  document.querySelectorAll("#recipe_chips .chip").forEach(c => c.classList.remove("sel"));
+});
+["f_cmd", "f_every", "f_max"].forEach(id => {
+  document.getElementById(id).addEventListener("input", () => {
+    document.querySelectorAll("#recipe_chips .chip").forEach(c => c.classList.remove("sel"));
+  });
+});
+document.getElementById("f_until").addEventListener("change", () => {
+  document.querySelectorAll("#recipe_chips .chip").forEach(c => c.classList.remove("sel"));
+});
+const modEl = document.getElementById("f_module");
+const createBtn = document.getElementById("createBtn");
+const syncBtn = () => { createBtn.textContent = modEl.value ? `improve ${modEl.value}` : "create + start"; };
+modEl.onchange = syncBtn;
+K.api("/modules").then((r) => {
+  const mods = (r.data?.modules || []).filter((m) => m.name && !m.name.includes("/") && ["orbit", "core"].includes(m.category));
+  allMods = mods;
+  const by = {};
+  for (const m of mods) (by[m.category] = by[m.category] || []).push(m);
+  modEl.innerHTML = `<option value="">pick a mod…</option>` + Object.keys(by).map((t) =>
+    `<optgroup label="${K.esc(t)}">${by[t].sort((x, y) => x.name.localeCompare(y.name)).map((m) => `<option value="${K.esc(m.name)}">${K.esc(m.name)}</option>`).join("")}</optgroup>`).join("");
+  if (modEl.dataset.want) modEl.value = modEl.dataset.want;
+  syncBtn();
+  if (last) renderFleet();
+}).catch(() => { modEl.innerHTML = `<option value="">mod list unavailable</option>`; });
+function openForm(mod) { form.style.display = ""; if (mod) { modEl.dataset.want = mod; modEl.value = mod; syncBtn(); } }
+document.getElementById("fleetBtn").onclick = () => { fleetOpen = !fleetOpen; localStorage.setItem('loops_fleet_open', fleetOpen ? '1' : '0'); renderFleet(); };
+document.getElementById("fleet").addEventListener("click", e => { const chip = e.target.closest("[data-fleet-mod]"); if (!chip) return; openForm(chip.dataset.fleetMod); });
+document.getElementById("tlBtn").onclick = () => { timelineOpen = !timelineOpen; localStorage.setItem('loops_timeline_open', timelineOpen ? '1' : '0'); renderTimeline(); };
+document.getElementById("diaryBtn").onclick = () => { diaryOpen = !diaryOpen; localStorage.setItem('loops_diary_open', diaryOpen ? '1' : '0'); renderDiary(); };
+document.getElementById("newBtn").onclick = () => { form.style.display === "none" ? openForm() : (form.style.display = "none"); };
+document.getElementById("cancelBtn").onclick = () => { form.style.display = "none"; editingId = null; syncBtn(); };
+createBtn.onclick = async () => {
+  await maybeRequestNotifPerm();
+  const v = (id) => document.getElementById(id).value.trim();
+  if (editingId) {
+    const body = {
+      name: v("f_name"), goal: v("f_goal"), cmd: v("f_cmd"), model: v("f_model"),
+      every_secs: +v("f_every") || 60, max_iters: +v("f_max") || 5, until_pass: document.getElementById("f_until").checked,
+      budget_usd: parseFloat(v("f_budget")) || null,
+    };
+    const made = await K.act(`/loops/${editingId}`, body, "loop updated", "PATCH");
+    if (!made) return;
+    const savedId = editingId;
+    editingId = null;
+    form.style.display = "none";
+    resetGoal();
+    syncBtn();
+    await K.act(`/loops/${savedId}/start`, {}, "started");
+    load();
+    return;
+  }
+  if (!v("f_module") && !v("f_cwd")) return K.toast("pick a mod first", true);
+  const body = {
+    name: v("f_name"), module: v("f_module"), cwd: v("f_cwd"), cmd: v("f_cmd"), goal: v("f_goal"), model: v("f_model"),
+    every_secs: +v("f_every") || 60, max_iters: +v("f_max") || 5, until_pass: document.getElementById("f_until").checked,
+    budget_usd: parseFloat(v("f_budget")) || null,
+  };
+  const made = await K.act("/loops", body, "loop created");
+  if (!made) return;
+  const id = made.id || made.loop?.id;
+  if (id && made.loop?.status !== "running" && made.status !== "running") await K.act(`/loops/${id}/start`, {}, "started");
+  form.style.display = "none";
+  resetGoal();
+  load();
+};
+
+// Prefill from ?cmd=&module=&cwd= (e.g. a link from a terminal).
+const q = new URLSearchParams(location.search);
+for (const k of ["cmd", "cwd", "goal", "name"]) if (q.get(k)) { document.getElementById("f_" + k).value = q.get(k); form.style.display = ""; }
+if (q.get("module")) openForm(q.get("module"));
+for (const [qk, fk] of [["every_secs","f_every"],["max_iters","f_max"],["budget_usd","f_budget"]]) if (q.get(qk)) { document.getElementById(fk).value = q.get(qk); form.style.display = ""; }
+if (q.get("until_pass")) { const up = q.get("until_pass"); document.getElementById("f_until").checked = up === "1" || up === "true"; form.style.display = ""; }
+
+async function tick() {
+  await load();
+  const delay = (last?.loops||[]).some(l=>l.status==="running") ? 1800 : 4500;
+  setTimeout(tick, delay);
+}
+K.init({ glyph: "⟳", title: "Loops", accent: "#5fd3b8", sub: "Run a command in a module, hand its output to an agent, wait, repeat — until it passes, the agent says LOOP_DONE, or you stop it." })
+  .then(() => tick());
+</script>
+</body>
+</html>

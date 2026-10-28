@@ -35,15 +35,18 @@ m wasmland/verify <run id>                  # replay and attest — the mechanis
 m wasmland/runs status=disputed             # what didn't hold up
 m wasmland/grant <address> 100              # credits (the only mint)
 m wasmland/to_arena listing=<id>            # a game becomes its own mod
-m wasmland/serve                            # API + console on :50480
+m wasmland/serve                            # API :50480 + console :50481
 m wasmland/test
 ```
 
 ## HTTP
 
-Console at `/wasmland`, API on the same port, and `/wasmland/_api/*` is the
-same API one segment along so one page works behind the gateway and on a bare
-port alike.
+Two services: the API (`wasmland-api`, :50480, routed at `/api/wasmland`) and
+the console (`wasmland-app`, :50481, routed at `/wasmland`). The console asks
+its own origin at `/wasmland/_api/*`, which the app service forwards to the
+API, so one page works behind the gateway and on a bare port alike. Status
+codes and bytes cross that hop unchanged — 402 must stay 402, and artifact
+bytes must still hash to their own id.
 
 ```
 GET  /engines                 compute types

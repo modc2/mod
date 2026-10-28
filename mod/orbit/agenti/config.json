@@ -1,0 +1,43 @@
+{
+    "name": "agenti",
+    "title": "agenti \u00b7 money for your AI agents",
+    "description": "Give an AI agent its own crypto wallet. Web app + API + MCP: agent wallets (one phrase -> EVM + Solana, upstream derivation paths), balances on Base/Ethereum/Arbitrum/Polygon/Solana, pay x402 APIs in USDC inside spend limits, payment requests with QR, activity ledger, and a browser for the vendored nirholas/agenti monorepo (SDK, 58-tool MCP, examples) under src/.",
+    "version": "0.2.0",
+    "anchor": "mod.py",
+    "network": "local",
+    "private": true,
+    "upstream": {
+        "repo": "https://github.com/nirholas/agenti",
+        "commit": "72cfb67a18432a3d8773d200db1141b32289fb0a"
+    },
+    "fns": [
+        "serve",
+        "wallets",
+        "create_wallet",
+        "balances",
+        "probe",
+        "pay",
+        "policy",
+        "info",
+        "packages",
+        "readme",
+        "install",
+        "build",
+        "test",
+        "test_upstream",
+        "mcp"
+    ],
+    "urls": {
+        "app": "http://localhost:50129/agenti/",
+        "api": "http://localhost:50129/agenti/api",
+        "mcp": "http://localhost:50129/mcp"
+    },
+    "port": 50129,
+    "schema": "QmPZPQbrHLUzuSPpbzScpGHGkq6uRqL8zUbibktQF6HKoS",
+    "app_port": 50129,
+    "route": true,
+    "mcp": {
+        "http": "http://localhost:50129/mcp"
+    },
+    "state": "~/.mod/agenti/ (0700): wallets.json (0600, keys), policy.json, ledger.jsonl, invoices.json, deleted/"
+}

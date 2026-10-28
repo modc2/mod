@@ -1,0 +1,34 @@
+{
+  "name": "guardian",
+  "title": "Guardian \u00b7 build agent",
+  "version": "0.1.0",
+  "description": "The agent that screens every suggestion before it enters a module's queue \u2014 console switch, per-module house rules, held edits and AUTO mode. App for build's GUARDIAN.",
+  "icon": "\u25c8",
+  "color": "#c8e65a",
+  "anchor": "mod.py",
+  "port": 51484,
+  "app_port": 51484,
+  "gateway_port": 51484,
+  "base_path": "/guardian",
+  "route": true,
+  "deps": [
+    "build"
+  ],
+  "urls": {
+    "app": "http://localhost:51484/guardian/"
+  },
+  "agent": {
+    "of": "build",
+    "status": "/guardian",
+    "console": "build \u25b8 ACCOUNT \u25b8 AGENT \u25b8 AGENTS"
+  },
+  "fns": [
+    "forward",
+    "info",
+    "status",
+    "serve",
+    "kill"
+  ],
+  "schema": "QmXC4YJEfv5AxDKbvuDkWyKL9RTGquamXPtaPHE24oyq4G",
+  "always_on": true
+}

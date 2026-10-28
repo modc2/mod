@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>reviewer</title>
+<style>
+  :root { --bg:#111; --card:#1b1b1b; --line:#2c2c2c; --fg:#eee; --dim:#999; --acc:#9d7cff;
+          --high:#ff5f6d; --medium:#ffb020; --low:#4fc3f7; --info:#8a8a8a; --ok:#3ddc84; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 system-ui, sans-serif; }
+  main { max-width:1100px; margin:0 auto; padding:20px 16px 60px; }
+  h1 { margin:0 0 14px; font-size:22px; letter-spacing:.5px; display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+  h1 span.name { color:var(--acc); }
+  h1 small { color:var(--dim); font-size:13px; font-weight:400; }
+  input, textarea, select, button { font:inherit; color:var(--fg); background:var(--card);
+    border:1px solid var(--line); border-radius:8px; padding:8px 10px; }
+  textarea { width:100%; min-height:120px; resize:vertical; font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:13px; }
+  button { cursor:pointer; }
+  button:disabled { opacity:.5; cursor:default; }
+  button.go { background:var(--acc); color:#111; border-color:var(--acc); font-weight:600; }
+  button.sm { padding:2px 8px; font-size:12px; }
+  .grid { display:grid; grid-template-columns: 1fr 300px; gap:16px; }
+  @media (max-width: 820px) { .grid { grid-template-columns:1fr; } }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px 14px; margin-bottom:12px; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; margin:8px 0; align-items:center; }
+  .row > input[type=text] { flex:1; min-width:140px; }
+  .tabs { display:flex; gap:6px; flex-wrap:wrap; }
+  .tab { padding:4px 12px; border:1px solid var(--line); border-radius:99px; cursor:pointer; color:var(--dim); font-size:13px; }
+  .tab.on { color:#111; background:var(--acc); border-color:var(--acc); }
+  .chip { font-size:12px; padding:2px 10px; border:1px solid var(--line); border-radius:99px; cursor:pointer; color:var(--dim); }
+  .chip.on { color:#111; background:var(--acc); border-color:var(--acc); }
+  .chip.high.on { background:var(--high); border-color:var(--high); }
+  .chip.medium.on { background:var(--medium); border-color:var(--medium); }
+  .chip.low.on { background:var(--low); border-color:var(--low); }
+  .chip.info.on { background:var(--info); border-color:var(--info); }
+  .score { display:flex; gap:16px; align-items:center; }
+  .ring { width:84px; height:84px; border-radius:50%; display:grid; place-items:center; font-size:26px; font-weight:700;
+          border:5px solid var(--acc); }
+  .ring.A { border-color:var(--ok); } .ring.B { border-color:var(--low); } .ring.C { border-color:var(--medium); }
+  .ring.D, .ring.F { border-color:var(--high); }
+  .ring small { font-size:12px; color:var(--dim); font-weight:400; }
+  .meta { color:var(--dim); font-size:13px; }
+  .f { border-top:1px solid var(--line); padding:10px 0; }
+  .f.done { opacity:.45; }
+  .f .head { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .sev { font-size:11px; font-weight:700; padding:1px 7px; border-radius:4px; color:#111; text-transform:uppercase; }
+  .sev.high { background:var(--high); } .sev.medium { background:var(--medium); }
+  .sev.low { background:var(--low); } .sev.info { background:var(--info); }
+  .loc { font-family:ui-monospace, Menlo, monospace; font-size:13px; color:var(--acc); }
+  .rule { color:var(--dim); font-size:12px; }
+  .msg { margin:4px 0 2px; }
+  .fix { color:var(--dim); font-size:13px; }
+  .fix::before { content:"fix: "; color:var(--ok); }
+  .acts { margin-left:auto; display:flex; gap:4px; }
+  .hist { border-top:1px solid var(--line); padding:8px 0; cursor:pointer; display:flex; gap:8px; align-items:center; }
+  .hist:hover { color:var(--acc); }
+  .hist .g { font-weight:700; width:28px; }
+  .hist .t { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .hist .d { color:var(--dim); font-size:12px; }
+  .summary { white-space:pre-wrap; font-size:14px; background:#141414; border:1px solid var(--line); border-radius:8px; padding:10px 12px; max-height:420px; overflow:auto; }
+  .empty { color:var(--dim); text-align:center; padding:20px 0; }
+  details > summary { cursor:pointer; color:var(--acc); font-weight:600; }
+  .rl { border-top:1px solid var(--line); padding:6px 0; font-size:13px; }
+  .rl code { color:var(--acc); }
+  #toast { position:fixed; bottom:18px; left:50%; transform:translateX(-50%); background:var(--acc); color:#111;
+    padding:8px 14px; border-radius:8px; display:none; font-weight:600; max-width:90vw; }
+  #toast.err { background:var(--high); }
+  .dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--dim); margin-right:5px; }
+  .dot.on { background:var(--ok); }
+</style>
+</head>
+<body>
+<main>
+  <h1><span class="name">reviewer</span> <small>code review for the fleet</small>
+      <small id="agentchip"><span class="dot"></span>agent</small></h1>
+
+  <div class="grid">
+    <div>
+      <div class="card">
+        <div class="tabs" id="kinds">
+          <span class="tab on" data-k="module">Module</span>
+          <span class="tab" data-k="path">Path</span>
+          <span class="tab" data-k="code">Code</span>
+          <span class="tab" data-k="diff">Diff</span>
+        </div>
+        <div id="k-module" class="row">
+          <input type="text" id="target" list="targets" placeholder="Module name (type to search the fleet)">
+          <datalist id="targets"></datalist>
+        </div>
+        <div id="k-path" class="row" hidden>
+          <input type="text" id="path" placeholder="/absolute/path/to/dir-or-file">
+        </div>
+        <div id="k-code" hidden>
+          <div class="row"><input type="text" id="filename" placeholder="filename (extension picks the rules)" value="snippet.py"></div>
+          <textarea id="code" placeholder="Paste source here"></textarea>
+        </div>
+        <div id="k-diff" hidden>
+          <textarea id="diff" placeholder="Paste a unified diff (git diff); only added lines are reviewed"></textarea>
+        </div>
+        <div class="row">
+          <select id="engine">
+            <option value="static">static · offline, instant</option>
+            <option value="agent">agent · + claudecode written review</option>
+          </select>
+          <input type="text" id="focus" placeholder="focus for the agent (optional)" hidden>
+          <button class="go" id="run">Review</button>
+          <span class="meta" id="runmeta"></span>
+        </div>
+      </div>
+
+      <div id="result" class="card" hidden>
+        <div class="score">
+          <div class="ring" id="ring"><span id="scoren">–</span></div>
+          <div>
+            <div id="rtitle" style="font-weight:600"></div>
+            <div class="meta" id="rmeta"></div>
+            <div class="row" id="filters"></div>
+          </div>
+        </div>
+        <div id="summarybox" hidden>
+          <div class="meta" style="margin:10px 0 4px">agent review</div>
+          <div class="summary" id="summary"></div>
+        </div>
+        <div id="findings"></div>
+      </div>
+    </div>
+
+    <div>
+      <div class="card">
+        <div class="row" style="margin-top:0"><strong>Recent reviews</strong><button class="sm" id="refresh" style="margin-left:auto">refresh</button></div>
+        <div id="history"><div class="empty">nothing reviewed yet</div></div>
+      </div>
+      <div class="card">
+        <details><summary id="rulesum">Rules</summary><div id="rules"></div></details>
+      </div>
+      <div class="card meta">
+        API at <code>/reviewer/api/{fn}</code>, MCP at <code>/reviewer/mcp</code>.
+        <div id="apilist"></div>
+      </div>
+    </div>
+  </div>
+</main>
+<div id="toast"></div>
+
+<script>
+(function () {
+  // The console is served under /reviewer/; the API answers at /reviewer/api/{fn}.
+  const BASE = location.pathname.replace(/\/[^/]*$/, '') || '';
+  const API = BASE + '/api/';
+  const $ = (id) => document.getElementById(id);
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+  let current = null, kind = 'module', hide = new Set(), pendingDelete = null;
+
+  function toast(msg, err) { const t = $('toast'); t.textContent = msg; t.className = err ? 'err' : ''; t.style.display = 'block'; clearTimeout(t._h); t._h = setTimeout(() => t.style.display = 'none', err ? 4000 : 2200); }
+  async function get(fn, q) { const r = await fetch(API + fn + (q ? '?' + new URLSearchParams(q) : '')); const j = await r.json(); if (!r.ok) throw new Error(j.error || r.status); return j; }
+  async function post(fn, body) { const r = await fetch(API + fn, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); const j = await r.json(); if (!r.ok) throw new Error(j.error || r.status); return j; }
+  const ago = (ts) => { const s = Math.max(0, Date.now() / 1000 - ts); return s < 90 ? 'just now' : s < 5400 ? Math.round(s / 60) + ' min ago' : s < 172800 ? Math.round(s / 3600) + ' h ago' : Math.round(s / 86400) + ' d ago'; };
+
+  // kinds
+  document.querySelectorAll('#kinds .tab').forEach(t => t.onclick = () => {
+    kind = t.dataset.k;
+    document.querySelectorAll('#kinds .tab').forEach(x => x.classList.toggle('on', x === t));
+    ['module', 'path', 'code', 'diff'].forEach(k => $('k-' + k).hidden = k !== kind);
+    $('engine').querySelector('[value=agent]').disabled = (kind === 'code' || kind === 'diff');
+    if ($('engine').querySelector('[value=agent]').disabled) $('engine').value = 'static';
+    $('focus').hidden = $('engine').value !== 'agent';
+  });
+  $('engine').onchange = () => $('focus').hidden = $('engine').value !== 'agent';
+
+  // run
+  $('run').onclick = async () => {
+    const body = { engine: $('engine').value, focus: $('focus').value };
+    if (kind === 'module') body.target = $('target').value.trim();
+    else if (kind === 'path') body.path = $('path').value.trim();
+    else if (kind === 'code') { body.code = $('code').value; body.filename = $('filename').value.trim() || 'snippet.py'; }
+    else body.diff = $('diff').value;
+    if (kind === 'module' && !body.target) return toast('name a module', true);
+    if (kind === 'path' && !body.path) return toast('give a path', true);
+    $('run').disabled = true;
+    $('runmeta').textContent = body.engine === 'agent' ? 'the agent is reading… this takes minutes' : 'reviewing…';
+    try {
+      const r = await post('review', body);
+      show(r); history.replaceState(null, '', BASE + '/?r=' + r.id); loadHistory();
+      toast(`${r.grade} · ${r.score}/100`);
+    } catch (e) { toast(e.message, true); }
+    $('run').disabled = false; $('runmeta').textContent = '';
+  };
+
+  function show(r) {
+    current = r; hide = new Set();
+    $('result').hidden = false;
+    $('ring').className = 'ring ' + r.grade; $('scoren').textContent = r.score;
+    $('rtitle').textContent = `${r.target}  ·  ${r.grade}`;
+    const a = r.meta && r.meta.agent ? r.meta.agent : null;
+    const extra = a && a.cost_usd != null ? ` · agent $${Number(a.cost_usd).toFixed(3)}` : '';
+    const ascore = r.meta && r.meta.agent_score != null ? ` · agent says ${r.meta.agent_score}/100` : '';
+    $('rmeta').textContent = `${r.kind} · ${r.engine} · ${r.meta && r.meta.files != null ? r.meta.files + ' files · ' : ''}${r.findings.length} findings · ${ago(r.ts || Date.now() / 1000)}${extra}${ascore}`;
+    const f = $('filters'); f.replaceChildren();
+    for (const s of ['high', 'medium', 'low', 'info']) {
+      const c = el('span', 'chip on ' + s, `${s} ${r.counts[s]}`); c.onclick = () => { hide.has(s) ? hide.delete(s) : hide.add(s); c.classList.toggle('on', !hide.has(s)); renderFindings(); }; f.appendChild(c);
+    }
+    if (r.summary) { $('summarybox').hidden = false; $('summary').textContent = r.summary; }
+    else if (r.meta && r.meta.agent_error) { $('summarybox').hidden = false; $('summary').textContent = 'agent: ' + r.meta.agent_error; }
+    else $('summarybox').hidden = true;
+    renderFindings();
+  }
+
+  function renderFindings() {
+    const box = $('findings'); box.replaceChildren();
+    const list = current.findings.filter(f => !hide.has(f.severity));
+    if (!list.length) { box.appendChild(el('div', 'empty', current.findings.length ? 'filtered out' : 'clean: nothing to flag')); return; }
+    for (const f of list) {
+      const d = el('div', 'f' + (f.verdict && f.verdict !== 'open' ? ' done' : ''));
+      const h = el('div', 'head');
+      h.appendChild(el('span', 'sev ' + f.severity, f.severity));
+      h.appendChild(el('span', 'loc', f.line ? `${f.file}:${f.line}` : f.file));
+      h.appendChild(el('span', 'rule', f.rule));
+      if (f.verdict && f.verdict !== 'open') h.appendChild(el('span', 'rule', '· ' + f.verdict + (f.note ? ': ' + f.note : '')));
+      const acts = el('span', 'acts');
+      if (current.id) {
+        if (f.verdict === 'open' || !f.verdict) {
+          acts.appendChild(btn('fixed', () => verdict(f, 'fixed')));
+          acts.appendChild(btn('ignore', () => verdict(f, 'ignored')));
+        } else acts.appendChild(btn('reopen', () => verdict(f, 'open')));
+      }
+      h.appendChild(acts); d.appendChild(h);
+      d.appendChild(el('div', 'msg', f.message));
+      if (f.fix) d.appendChild(el('div', 'fix', f.fix));
+      box.appendChild(d);
+    }
+  }
+  function btn(label, fn) { const b = el('button', 'sm', label); b.onclick = fn; return b; }
+  async function verdict(f, v) {
+    try { const r = await post('verdict', { id: current.id, index: f.index, verdict: v }); show(r); loadHistory(); }
+    catch (e) { toast(e.message, true); }
+  }
+
+  async function load(id) { try { show(await get('get', { id })); } catch (e) { toast(e.message, true); } }
+
+  async function loadHistory() {
+    const box = $('history'); let rows;
+    try { rows = (await get('list', { limit: 40 })).reviews; } catch (e) { return; }
+    box.replaceChildren();
+    if (!rows.length) return box.appendChild(el('div', 'empty', 'nothing reviewed yet'));
+    for (const r of rows) {
+      const d = el('div', 'hist');
+      d.appendChild(el('span', 'g', r.grade));
+      const t = el('span', 't', r.target); t.title = r.target; d.appendChild(t);
+      d.appendChild(el('span', 'd', `${r.score} · ${r.engine} · ${ago(r.ts)}`));
+      const x = el('button', 'sm', pendingDelete === r.id ? 'sure?' : 'x');
+      x.onclick = async (ev) => {
+        ev.stopPropagation();
+        if (pendingDelete !== r.id) { pendingDelete = r.id; x.textContent = 'sure?'; setTimeout(() => { if (pendingDelete === r.id) { pendingDelete = null; x.textContent = 'x'; } }, 3000); return; }
+        pendingDelete = null;
+        try { await post('delete', { id: r.id }); if (current && current.id === r.id) $('result').hidden = true; loadHistory(); toast('deleted'); }
+        catch (e) { toast(e.message, true); }
+      };
+      d.appendChild(x);
+      d.onclick = () => { load(r.id); history.replaceState(null, '', BASE + '/?r=' + r.id); };
+      box.appendChild(d);
+    }
+  }
+  $('refresh').onclick = loadHistory;
+
+  async function loadTargets() {
+    try {
+      const t = (await get('targets')).targets; const dl = $('targets'); dl.replaceChildren();
+      for (const x of t) { const o = el('option'); o.value = x.name; o.label = x.description || ''; dl.appendChild(o); }
+    } catch (e) { /* offline console still works for paste */ }
+  }
+  async function loadRules() {
+    try {
+      const rs = (await get('rules')).rules; const box = $('rules'); box.replaceChildren();
+      $('rulesum').textContent = `Rules (${rs.length})`;
+      for (const r of rs) { const d = el('div', 'rl'); const c = el('code', '', r.id); d.appendChild(el('span', 'sev ' + r.severity, r.severity)); d.appendChild(document.createTextNode(' ')); d.appendChild(c); d.appendChild(el('div', 'fix', r.fix)); d.insertBefore(el('div', '', r.what), d.lastChild); box.appendChild(d); }
+    } catch (e) { /* ignore */ }
+  }
+  async function loadHealth() {
+    try {
+      const h = await get('health'); const chip = $('agentchip'); chip.replaceChildren();
+      const dot = el('span', 'dot' + (h.agent ? ' on' : '')); chip.appendChild(dot);
+      chip.appendChild(document.createTextNode(h.agent ? 'agent ready' : 'agent offline (static only)'));
+      const info = await get('info'); const box = $('apilist'); box.replaceChildren();
+      for (const [k, v] of Object.entries(info.endpoints || {})) { const d = el('div'); d.appendChild(el('code', '', k)); d.appendChild(document.createTextNode(' ' + v)); box.appendChild(d); }
+    } catch (e) { /* ignore */ }
+  }
+
+  loadTargets(); loadRules(); loadHealth(); loadHistory();
+  const q = new URLSearchParams(location.search);
+  if (q.get('r')) load(q.get('r'));
+  else if (q.get('target')) { $('target').value = q.get('target'); }
+})();
+</script>
+</body>
+</html>

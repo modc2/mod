@@ -1,0 +1,27 @@
+{
+    "name": "factors_gnark",
+    "title": "FactorsGnark",
+    "description": "FactorsGnark \u2014 a Go project.",
+    "version": "0.1.0",
+    "submod_of": "zkworld",
+    "framework": "gnark",
+    "kind": "gnark-project",
+    "template": "factors",
+    "anchor": "mod.py",
+    "fns": [
+        "forward",
+        "info",
+        "build",
+        "test",
+        "vibe",
+        "abi",
+        "tree",
+        "read",
+        "write",
+        "clean",
+        "app",
+        "witness"
+    ],
+    "statement": "factors",
+    "schema": "QmPBkc4rYZm38RSpqHrQxdJUMebPVswhAQcRL7tzDrNYvv"
+}

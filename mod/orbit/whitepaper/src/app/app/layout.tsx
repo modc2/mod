@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
+import "katex/dist/katex.min.css";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "MOD — Off-Chain Merkle Tree Registry",
+  title: "MOD Whitepaper — Scaling Off-Chain Open-Source Management",
   description:
     "Whitepaper: scaling off-chain open-source management by storing the tree, not the leaves.",
 };
@@ -28,7 +29,7 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: themeBootstrap }} />
       </head>
       <body className="min-h-screen font-serif bg-paper text-ink">
-        <main className="max-w-3xl mx-auto px-6 py-10">{children}</main>
+        {children}
       </body>
     </html>
   );

@@ -1,16 +1,17 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import { WalletProvider } from "@/lib/wallet";
 
 export const metadata: Metadata = {
-  title: "mod — a modular runtime for on-chain software",
+  title: "mod — apps and services, running right now",
   description:
-    "Write a module. Register it on-chain. Set a price. Get paid every time someone calls it. Browse the live mod ecosystem.",
+    "Browse every module in the mod ecosystem: open live apps in your browser, read how they are built, and back the ones you care about on-chain.",
   applicationName: "mod",
   metadataBase: new URL("https://modc2.com"),
   openGraph: {
-    title: "mod — a modular runtime for on-chain software",
+    title: "mod — apps and services, running right now",
     description:
-      "Write a module. Register it on-chain. Get paid every time someone calls it.",
+      "Open live apps, read how they are built, and back the ones you care about on-chain.",
     type: "website",
   },
 };
@@ -28,7 +29,11 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        {/* One wallet connection for the whole explorer: the header chip, the
+            BlocTime console and every module's backing panel read it. */}
+        <WalletProvider>{children}</WalletProvider>
+      </body>
     </html>
   );
 }

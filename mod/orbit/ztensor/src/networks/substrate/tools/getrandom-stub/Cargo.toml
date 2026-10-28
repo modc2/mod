@@ -1,0 +1,17 @@
+[package]
+name = "getrandom"
+version = "0.2.17"
+edition = "2021"
+description = "Stand-in for getrandom 0.2, patched in by contract/Cargo.toml. lambdaworks-math 0.13 depends on getrandom (feature js -> js-sys -> std) for wasm32 but never calls it, and a no_std ink! contract can not link std. In the contract every call fails (a contract has no entropy source anyway); off wasm it forwards to getrandom 0.3, so host builds and tests keep real entropy."
+
+[lib]
+path = "src/lib.rs"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+getrandom03 = { package = "getrandom", version = "0.3" }
+
+[features]
+js = []
+std = []
+custom = []
+rdrand = []

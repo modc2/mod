@@ -1,0 +1,189 @@
+{
+  "netuid": 44,
+  "name": "Score",
+  "symbol": "ף",
+  "owner": "5CaCekuxb9pKQyLoxh3jbkEXig8fxjkeS4AQ6UmZa12xfQ9H",
+  "description": "Making every camera intelligent",
+  "github": "https://github.com/score-technologies/turbovision",
+  "url": "https://www.wearescore.com/",
+  "discord": null,
+  "logo": "https://www.wearescore.com/android-chrome-512x512.png",
+  "registered_at": 3550319,
+  "tempo": 360,
+  "active": true,
+  "block": 9322663,
+  "related": [],
+  "market": {
+    "price": 0.035394981,
+    "moving_price": 0.03542982926592231,
+    "market_cap": 220975.55724794744,
+    "tao_in": 66381.202437508,
+    "alpha_in": 1875441.168995928,
+    "alpha_out": 4367691.360103252,
+    "volume": 2382028.071178268,
+    "vol_24h": 5904.613823509309,
+    "emission": 0.0,
+    "change_1h": -0.18058032241337063,
+    "change_24h": 1.6187988131882491,
+    "change_7d": 3.5151597074972063
+  },
+  "spark_24h": [
+    0.034831135,
+    0.03483758,
+    0.035549092,
+    0.035588219,
+    0.035669831,
+    0.035668913,
+    0.035723037,
+    0.035720613,
+    0.035713542,
+    0.035705942,
+    0.035567971,
+    0.035568924,
+    0.035553233,
+    0.035469391,
+    0.035461699,
+    0.035462978,
+    0.035468708,
+    0.035450661,
+    0.035451692,
+    0.035511399,
+    0.035512526,
+    0.035604861,
+    0.035644496,
+    0.035652271,
+    0.035653408,
+    0.035647751,
+    0.035648211,
+    0.035648884,
+    0.035419437,
+    0.035405575,
+    0.03540792,
+    0.035408778,
+    0.035407604,
+    0.035597987,
+    0.035600103,
+    0.035601359,
+    0.035602031,
+    0.035602299,
+    0.035600419,
+    0.035600538,
+    0.035544192,
+    0.035545127,
+    0.035546231,
+    0.03554688,
+    0.035459113,
+    0.035459013,
+    0.035450686,
+    0.035394981
+  ],
+  "trades_24h": {
+    "trades": 463,
+    "buys": 237,
+    "sells": 226,
+    "buy_tao": 3108.852506264,
+    "sell_tao": 2673.384320265,
+    "net_tao": 435.46818599900007,
+    "traders": 178
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5F1XjkDCLVygZb73otM2ePzRgyZ6U2g2F6CMLD4uwuktzi8g",
+      "net_tao": -1.3559852530000072,
+      "gross_tao": 661.355985253,
+      "trades": 13
+    },
+    {
+      "coldkey": "5Cw2qFy2tZy9ZLt4LsJc9b68nffQndZDHF1KZynmVbA4Z3pC",
+      "net_tao": -0.32004144499999043,
+      "gross_tao": 580.320041445,
+      "trades": 13
+    },
+    {
+      "coldkey": "5Gb23Q7n115ypiHr6jAMRhkhADhEkRFYa5ovgipVApqMt3FV",
+      "net_tao": 0.2835257570000067,
+      "gross_tao": 379.716474243,
+      "trades": 5
+    },
+    {
+      "coldkey": "5FHF8cDs95rTYBz8GBAP6HEgC8h96wszZtfQuFZXQr6syLTa",
+      "net_tao": 357.474399252,
+      "gross_tao": 357.474399252,
+      "trades": 8
+    },
+    {
+      "coldkey": "5Dkushsxtc8AdCf287MtTYHQv9DoZeBRpttUpBtmyFhGy3uR",
+      "net_tao": 340.0,
+      "gross_tao": 340.0,
+      "trades": 2
+    }
+  ],
+  "news": [
+    {
+      "ts": 1792422992,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix backfill + recent batch common",
+      "url": "https://github.com/score-technologies/turbovision/commit/036fb553e774e864df54c5d126469b065463f076",
+      "publisher": "score-technologies/turbovision"
+    },
+    {
+      "ts": 1792260926,
+      "kind": "commit",
+      "source": "github",
+      "title": "historical to 3",
+      "url": "https://github.com/score-technologies/turbovision/commit/39d9ca6c7e0e77387ea5b44b2c2bbf3d39f85173",
+      "publisher": "score-technologies/turbovision"
+    },
+    {
+      "ts": 1792120872,
+      "kind": "commit",
+      "source": "github",
+      "title": "update index once",
+      "url": "https://github.com/score-technologies/turbovision/commit/d56cb8279444897bc3d60b2c7e02106e23a4a56a",
+      "publisher": "score-technologies/turbovision"
+    },
+    {
+      "ts": 1792056947,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix bytes read index",
+      "url": "https://github.com/score-technologies/turbovision/commit/5432c1898dc61f9bfad7bfef9573a6405cc105c2",
+      "publisher": "score-technologies/turbovision"
+    },
+    {
+      "ts": 1791996272,
+      "kind": "commit",
+      "source": "github",
+      "title": "add cricket gt path",
+      "url": "https://github.com/score-technologies/turbovision/commit/215a2de5a14cc0ab0c2f109540b816ef5a783db1",
+      "publisher": "score-technologies/turbovision"
+    },
+    {
+      "ts": 1791803913,
+      "kind": "commit",
+      "source": "github",
+      "title": "add blacklist",
+      "url": "https://github.com/score-technologies/turbovision/commit/6408194c0e4b1222af810fa41cabd9e2c352ed96",
+      "publisher": "score-technologies/turbovision"
+    },
+    {
+      "ts": 1790865012,
+      "kind": "commit",
+      "source": "github",
+      "title": "change cricket weights",
+      "url": "https://github.com/score-technologies/turbovision/commit/bef6ad70de458c16bfaa8dfe9361b65f0d42ec3b",
+      "publisher": "score-technologies/turbovision"
+    },
+    {
+      "ts": 1790648583,
+      "kind": "commit",
+      "source": "github",
+      "title": "room iou",
+      "url": "https://github.com/score-technologies/turbovision/commit/52201651f2175048a7fbdcf2c1da206667a942d2",
+      "publisher": "score-technologies/turbovision"
+    }
+  ],
+  "updated": 1792474861,
+  "updated_day": "2026-10-20"
+}

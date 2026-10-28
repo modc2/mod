@@ -1,0 +1,189 @@
+{
+  "netuid": 30,
+  "name": "Endure Network",
+  "symbol": "ו",
+  "owner": "5HTogQKFuDaLq5ifWNhL2owMpLPHM3TAmujUUaTVj7FWzf6p",
+  "description": "The risk intelligence network",
+  "github": "https://github.com/Endure-Network/endure-subnet",
+  "url": "https://endure.network/",
+  "discord": "https://discord.gg/SqT3X7T8zv",
+  "logo": "https://docs.endure.network/img/favicon.png",
+  "registered_at": 3250216,
+  "tempo": 360,
+  "active": true,
+  "block": 9322663,
+  "related": [],
+  "market": {
+    "price": 0.003301364,
+    "moving_price": 0.0032885984983295202,
+    "market_cap": 20400.851991350683,
+    "tao_in": 8380.430420954,
+    "alpha_in": 2538474.779160536,
+    "alpha_out": 3641047.379362632,
+    "volume": 424593.510649318,
+    "vol_24h": 210.24316178198205,
+    "emission": 0.0,
+    "change_1h": 0.6754667429451189,
+    "change_24h": 0.12461881170853228,
+    "change_7d": -0.15865191238155774
+  },
+  "spark_24h": [
+    0.003297255,
+    0.003297255,
+    0.003296959,
+    0.003296937,
+    0.003296937,
+    0.0032964,
+    0.0032964,
+    0.0032964,
+    0.0032964,
+    0.003296399,
+    0.003296393,
+    0.003296393,
+    0.003296371,
+    0.003296104,
+    0.003296104,
+    0.003286621,
+    0.003286621,
+    0.003283973,
+    0.003283973,
+    0.003283618,
+    0.003283586,
+    0.003275788,
+    0.003275788,
+    0.003275788,
+    0.003275788,
+    0.003275769,
+    0.003275791,
+    0.003275791,
+    0.003275791,
+    0.003275791,
+    0.003275791,
+    0.003275791,
+    0.003275791,
+    0.003275791,
+    0.003275791,
+    0.003275791,
+    0.003275791,
+    0.003275791,
+    0.00327579,
+    0.00327579,
+    0.00327579,
+    0.00327579,
+    0.00327579,
+    0.00327579,
+    0.003275789,
+    0.003279214,
+    0.003325037,
+    0.003301364
+  ],
+  "trades_24h": {
+    "trades": 70,
+    "buys": 7,
+    "sells": 63,
+    "buy_tao": 107.75601384,
+    "sell_tao": 101.343058829,
+    "net_tao": 6.412955010999994,
+    "traders": 16
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5GCcH9R6SS7xtobP3EvrgSBXuowAtpjgMBP6FVTLWfqGbZ9g",
+      "net_tao": 0.03021134700000161,
+      "gross_tao": 59.969788652999995,
+      "trades": 2
+    },
+    {
+      "coldkey": "5DqKWm43cjo2GTKptXhYzA1dXJzM8MZUN68nhdYxwyVyLk6W",
+      "net_tao": -0.07505195199999903,
+      "gross_tao": 40.075051951999995,
+      "trades": 2
+    },
+    {
+      "coldkey": "5HGgoL7fAfy3JFUMLpUPYtrUGPyPFUFfk2FkGUH1bigWo8No",
+      "net_tao": 0.11527776399999823,
+      "gross_tao": 39.884722236,
+      "trades": 2
+    },
+    {
+      "coldkey": "5FkEvA9PGbcawCacKriWEPdUEFEAZqgv1TCZWjcaAYvRa2ir",
+      "net_tao": 28.183341402,
+      "gross_tao": 28.183341402,
+      "trades": 1
+    },
+    {
+      "coldkey": "5GpEjYaqrQNhD2zfbgBgR87vEZpNQBNoNsb2PQTnybSdzTtt",
+      "net_tao": -12.045614321,
+      "gross_tao": 12.045614321,
+      "trades": 1
+    }
+  ],
+  "news": [
+    {
+      "ts": 1791218146,
+      "kind": "release",
+      "source": "github",
+      "title": "v0.1.2 — Owner-controlled burn, protocol 2043",
+      "url": "https://github.com/endure-network/endure-subnet/releases/tag/v0.1.2",
+      "publisher": "Endure-Network/endure-subnet"
+    },
+    {
+      "ts": 1791216937,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #81 from endure-network/staging",
+      "url": "https://github.com/endure-network/endure-subnet/commit/4376ff42a6b619ed995144b63371ec2e82125316",
+      "publisher": "Endure-Network/endure-subnet"
+    },
+    {
+      "ts": 1791215836,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #80 from endure-network/develop",
+      "url": "https://github.com/endure-network/endure-subnet/commit/cd847c4bff4052543a22957dade4470786e3ea66",
+      "publisher": "Endure-Network/endure-subnet"
+    },
+    {
+      "ts": 1791215528,
+      "kind": "commit",
+      "source": "github",
+      "title": "release: prepare v0.1.2 metadata and record the release decision (#79)",
+      "url": "https://github.com/endure-network/endure-subnet/commit/672317e4a0935f4de889c363da654fa08f577dd4",
+      "publisher": "Endure-Network/endure-subnet"
+    },
+    {
+      "ts": 1791018965,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #78 from endure-network/develop",
+      "url": "https://github.com/endure-network/endure-subnet/commit/02ab118662e910d14077c8f6cd491fb60d7c2d24",
+      "publisher": "Endure-Network/endure-subnet"
+    },
+    {
+      "ts": 1790916912,
+      "kind": "commit",
+      "source": "github",
+      "title": "feat(protocol): owner-published burn rate for scored votes (2043) (#77)",
+      "url": "https://github.com/endure-network/endure-subnet/commit/68603ab6156dd9711a653a1f3403fe573003c8a5",
+      "publisher": "Endure-Network/endure-subnet"
+    },
+    {
+      "ts": 1790572662,
+      "kind": "release",
+      "source": "github",
+      "title": "v0.1.1 — Alpha Risk, protocol 2042",
+      "url": "https://github.com/endure-network/endure-subnet/releases/tag/v0.1.1",
+      "publisher": "Endure-Network/endure-subnet"
+    },
+    {
+      "ts": 1789886824,
+      "kind": "release",
+      "source": "github",
+      "title": "v0.1.0 — Alpha Risk",
+      "url": "https://github.com/endure-network/endure-subnet/releases/tag/v0.1.0",
+      "publisher": "Endure-Network/endure-subnet"
+    }
+  ],
+  "updated": 1792474861,
+  "updated_day": "2026-10-20"
+}

@@ -1,0 +1,6 @@
+[package]
+name = "squareroot"
+type = "bin"
+authors = [""]
+
+[dependencies]

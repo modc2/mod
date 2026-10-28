@@ -30,6 +30,20 @@ pub fn tool_list() -> Value {
             }
         },
         {
+            "name": "summarize",
+            "description": "Summarize any X feed (an @handle, x.com profile/search/list/hashtag/status URL, #hashtag, search query, list:<id>, or \"home\" for your own following feed): digest with top posts, topics, hashtags, links, activity, plus what the API calls cost. Set estimate_only to price it without spending anything.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "feed": { "type": "string", "description": "@handle, x.com URL (profile, search, list, hashtag, status=thread), #tag, search query, list:<id>, or home" },
+                    "max_results": { "type": "integer", "default": 50, "description": "5–300 posts to read; cost scales with this" },
+                    "estimate_only": { "type": "boolean", "default": false, "description": "Return only the cost estimate; no API call" },
+                    "exclude": { "type": "string", "description": "Timeline/home only: retweets,replies (timeline default retweets)" }
+                },
+                "required": ["feed"]
+            }
+        },
+        {
             "name": "counts",
             "description": "Volume of posts matching a query over time (last 7 days), bucketed by minute/hour/day.",
             "inputSchema": {
@@ -79,7 +93,8 @@ pub fn tool_list() -> Value {
                 "type": "object",
                 "properties": {
                     "username": { "type": "string" },
-                    "max_results": { "type": "integer", "default": 10 }
+                    "max_results": { "type": "integer", "default": 10 },
+                    "pagination_token": { "type": "string", "description": "Pagination token from a prior call" }
                 }
             }
         },
@@ -164,9 +179,76 @@ pub fn tool_list() -> Value {
             }
         },
         {
+            "name": "unfollow",
+            "description": "Unfollow an account as the authenticated account.",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "username": { "type": "string", "description": "@handle or numeric user id" } },
+                "required": ["username"]
+            }
+        },
+        {
             "name": "auth_status",
             "description": "Which credential rails are configured (never returns the secrets themselves).",
             "inputSchema": { "type": "object", "properties": {} }
+        },
+        {
+            "name": "home_feed",
+            "description": "Reverse-chronological home timeline for the authenticated account. Needs user-context credentials (OAuth 1.0a).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "max_results": { "type": "integer", "default": 50, "description": "5–100" },
+                    "next_token": { "type": "string", "description": "Pagination token from a prior call" }
+                }
+            }
+        },
+        {
+            "name": "bookmarks",
+            "description": "List the authenticated account's bookmarked posts. Needs user-context credentials (OAuth 1.0a).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "max_results": { "type": "integer", "default": 50, "description": "1–500" },
+                    "pagination_token": { "type": "string", "description": "Pagination token from a prior call" }
+                }
+            }
+        },
+        {
+            "name": "bookmark",
+            "description": "Bookmark a post as the authenticated account.",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "id": { "type": "string" } },
+                "required": ["id"]
+            }
+        },
+        {
+            "name": "unbookmark",
+            "description": "Remove a bookmark as the authenticated account.",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "id": { "type": "string" } },
+                "required": ["id"]
+            }
+        },
+        {
+            "name": "unlike",
+            "description": "Remove a like from a post as the authenticated account.",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "id": { "type": "string" } },
+                "required": ["id"]
+            }
+        },
+        {
+            "name": "unrepost",
+            "description": "Remove a repost (undo retweet) as the authenticated account.",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "id": { "type": "string" } },
+                "required": ["id"]
+            }
         }
     ])
 }
@@ -188,11 +270,14 @@ fn q(pairs: Vec<(&str, String)>) -> Vec<(String, String)> {
 }
 
 /// Post ids arrive as bare ids or as pasted x.com/twitter.com status URLs.
-fn post_id(raw: &str) -> String {
-    raw.rsplit(['/', '?'])
+/// Anything without a numeric id in it is refused rather than spliced into an
+/// upstream path as-is.
+fn post_id(raw: &str) -> Result<String, String> {
+    raw.trim()
+        .rsplit(['/', '?', '#'])
         .find(|seg| !seg.is_empty() && seg.chars().all(|c| c.is_ascii_digit()))
-        .unwrap_or(raw)
-        .to_string()
+        .map(String::from)
+        .ok_or_else(|| format!("not a post id or status URL: {raw:?}"))
 }
 
 /// Default read expansions — author objects inline, so a search result is
@@ -200,8 +285,9 @@ fn post_id(raw: &str) -> String {
 fn read_fields() -> Vec<(&'static str, String)> {
     vec![
         ("tweet.fields", TWEET_FIELDS.into()),
-        ("expansions", "author_id".into()),
+        ("expansions", "author_id,attachments.media_keys,referenced_tweets.id,referenced_tweets.id.author_id".into()),
         ("user.fields", USER_FIELDS.into()),
+        ("media.fields", "url,preview_image_url,type,width,height,alt_text".into()),
     ]
 }
 
@@ -244,7 +330,7 @@ pub async fn call_tool(name: &str, args: &Value, header_key: Option<&str>) -> Re
         }
 
         "get_post" => {
-            let id = post_id(s(args, "id").ok_or("get_post requires `id`")?);
+            let id = post_id(s(args, "id").ok_or("get_post requires `id`")?)?;
             if !creds.has_any() {
                 return x::syndication_post(&id).await.map_err(|e| e.to_string());
             }
@@ -254,9 +340,13 @@ pub async fn call_tool(name: &str, args: &Value, header_key: Option<&str>) -> Re
         "user" => {
             let who = s(args, "username")
                 .or_else(|| s(args, "id"))
-                .ok_or("user requires `username`")?
-                .trim_start_matches('@');
-            let params = q(vec![("user.fields", USER_FIELDS.into())]);
+                .ok_or("user requires `username`")?;
+            let who = x::handle(who).map_err(|e| e.to_string())?;
+            let params = q(vec![
+                ("user.fields", format!("{},pinned_tweet_id,entities", USER_FIELDS)),
+                ("expansions", "pinned_tweet_id".to_string()),
+                ("tweet.fields", TWEET_FIELDS.to_string()),
+            ]);
             let path = if who.chars().all(|c| c.is_ascii_digit()) {
                 format!("/2/users/{who}")
             } else {
@@ -273,6 +363,7 @@ pub async fn call_tool(name: &str, args: &Value, header_key: Option<&str>) -> Re
                     let mut params = q(vec![
                         ("max_results", u(args, "max_results", 10).clamp(5, 100).to_string()),
                         ("exclude", s(args, "exclude").unwrap_or("").into()),
+                        ("pagination_token", s(args, "pagination_token").unwrap_or("").into()),
                     ]);
                     params.extend(q(read_fields()));
                     x::get(&format!("/2/users/{id}/tweets"), &params, &creds, Auth::App).await
@@ -288,10 +379,10 @@ pub async fn call_tool(name: &str, args: &Value, header_key: Option<&str>) -> Re
             match id {
                 Err(e) => Err(e),
                 Ok(id) => {
-                    let mut params = q(vec![(
-                        "max_results",
-                        u(args, "max_results", 10).clamp(5, 100).to_string(),
-                    )]);
+                    let mut params = q(vec![
+                        ("max_results", u(args, "max_results", 10).clamp(5, 100).to_string()),
+                        ("pagination_token", s(args, "pagination_token").unwrap_or("").into()),
+                    ]);
                     params.extend(q(read_fields()));
                     x::get(&format!("/2/users/{id}/mentions"), &params, &creds, Auth::User).await
                 }
@@ -306,6 +397,7 @@ pub async fn call_tool(name: &str, args: &Value, header_key: Option<&str>) -> Re
                     let params = q(vec![
                         ("max_results", u(args, "max_results", 20).clamp(1, 1000).to_string()),
                         ("user.fields", USER_FIELDS.into()),
+                        ("pagination_token", s(args, "pagination_token").unwrap_or("").into()),
                     ]);
                     x::get(&format!("/2/users/{id}/{name}"), &params, &creds, Auth::App).await
                 }
@@ -314,14 +406,28 @@ pub async fn call_tool(name: &str, args: &Value, header_key: Option<&str>) -> Re
 
         "me" => x::get("/2/users/me", &q(vec![("user.fields", USER_FIELDS.into())]), &creds, Auth::User).await,
 
+        "home_feed" => {
+            match x::me_id(&creds).await {
+                Err(e) => Err(e),
+                Ok(id) => {
+                    let mut params = q(vec![
+                        ("max_results", u(args, "max_results", 50).clamp(5, 100).to_string()),
+                        ("next_token", s(args, "next_token").unwrap_or("").into()),
+                    ]);
+                    params.extend(q(read_fields()));
+                    x::get(&format!("/2/users/{id}/timelines/reverse_chronological"), &params, &creds, Auth::User).await
+                }
+            }
+        }
+
         "post" => {
             let text = s(args, "text").ok_or("post requires `text`")?;
             let mut body = json!({ "text": text });
             if let Some(reply_to) = s(args, "reply_to") {
-                body["reply"] = json!({ "in_reply_to_tweet_id": post_id(reply_to) });
+                body["reply"] = json!({ "in_reply_to_tweet_id": post_id(reply_to)? });
             }
             if let Some(quote) = s(args, "quote_post_id") {
-                body["quote_tweet_id"] = json!(post_id(quote));
+                body["quote_tweet_id"] = json!(post_id(quote)?);
             }
             if let Some(opts) = args.get("poll_options").and_then(|v| v.as_array()) {
                 if !opts.is_empty() {
@@ -335,12 +441,12 @@ pub async fn call_tool(name: &str, args: &Value, header_key: Option<&str>) -> Re
         }
 
         "delete_post" => {
-            let id = post_id(s(args, "id").ok_or("delete_post requires `id`")?);
+            let id = post_id(s(args, "id").ok_or("delete_post requires `id`")?)?;
             x::delete(&format!("/2/tweets/{id}"), &creds).await
         }
 
         "like" | "repost" => {
-            let id = post_id(s(args, "id").ok_or("requires `id`")?);
+            let id = post_id(s(args, "id").ok_or("requires `id`")?)?;
             match x::me_id(&creds).await {
                 Err(e) => Err(e),
                 Ok(me) => {
@@ -365,6 +471,156 @@ pub async fn call_tool(name: &str, args: &Value, header_key: Option<&str>) -> Re
                         &creds,
                     )
                     .await
+                }
+            }
+        }
+
+        "unfollow" => {
+            let who = s(args, "username").ok_or("unfollow requires `username`")?;
+            match (x::me_id(&creds).await, x::user_id(who, &creds).await) {
+                (Err(e), _) | (_, Err(e)) => Err(e),
+                (Ok(me), Ok(target)) => {
+                    x::delete(&format!("/2/users/{me}/following/{target}"), &creds).await
+                }
+            }
+        }
+
+        "summarize" => {
+            use crate::summary::{digest, estimate, parse_feed, Feed};
+            let feed = parse_feed(s(args, "feed").ok_or("summarize requires `feed`")?)?;
+            let want = u(args, "max_results", 50).clamp(5, 300);
+            let owned = feed == Feed::Home;
+            // Profile reads we always pay for: the handle -> id lookup (timeline)
+            // or /users/me (home). Search/list/thread may bring one author per post.
+            let lookups = u64::from(matches!(feed, Feed::Timeline(_) | Feed::Home));
+            let max_users = match feed {
+                Feed::Timeline(_) => 1,
+                _ => want,
+            };
+            let est = estimate(want, lookups, max_users, owned);
+            let label = feed.label();
+            if args.get("estimate_only").and_then(|v| v.as_bool()).unwrap_or(false) {
+                return Ok(json!({ "feed": label, "estimate": est, "fetched": false }));
+            }
+            let missing = if owned && !creds.has_user() {
+                Some("the home feed acts as your account: it needs the OAuth 1.0a user keys (Auth tab).")
+            } else if !creds.has_any() {
+                Some("no X credentials: reading a feed needs a bearer token (Auth tab).")
+            } else {
+                None
+            };
+            if let Some(why) = missing {
+                return Ok(json!({ "feed": label, "error": format!("{why} Estimate below."), "estimate": est, "fetched": false }));
+            }
+            let (path, base, auth): (String, Vec<(String, String)>, Auth) = match &feed {
+                Feed::Timeline(h) => {
+                    let id = x::user_id(h, &creds).await.map_err(|e| e.to_string())?;
+                    let ex = s(args, "exclude").unwrap_or("retweets").into();
+                    (format!("/2/users/{id}/tweets"), q(vec![("exclude", ex)]), Auth::App)
+                }
+                Feed::Home => {
+                    let me = x::get("/2/users/me", &[], &creds, Auth::User).await.map_err(|e| e.to_string())?;
+                    let id = me["data"]["id"].as_str().ok_or("couldn't resolve the signed-in account")?.to_string();
+                    let ex = s(args, "exclude").unwrap_or("").into();
+                    (format!("/2/users/{id}/timelines/reverse_chronological"), q(vec![("exclude", ex)]), Auth::User)
+                }
+                Feed::List(id) => (format!("/2/lists/{id}/tweets"), vec![], Auth::App),
+                Feed::Search(query) | Feed::Thread(query) => {
+                    let query = match &feed {
+                        Feed::Thread(_) => format!("conversation_id:{query}"),
+                        _ if query.contains("is:retweet") => query.clone(),
+                        _ => format!("{query} -is:retweet"),
+                    };
+                    (
+                        "/2/tweets/search/recent".into(),
+                        q(vec![("query", query), ("sort_order", "recency".into())]),
+                        Auth::App,
+                    )
+                }
+            };
+            let paged_by_next = matches!(feed, Feed::Search(_) | Feed::Thread(_));
+            let (mut posts, mut users_seen, mut token): (Vec<Value>, Vec<Value>, Option<String>) =
+                (vec![], vec![], None);
+            while (posts.len() as u64) < want {
+                // Lists cap pages at 100 like the rest; search needs >= 10.
+                let page = (want - posts.len() as u64).clamp(10, 100);
+                let mut params = base.clone();
+                params.extend(q(vec![("max_results", page.to_string())]));
+                params.extend(q(read_fields()));
+                if let Some(t) = &token {
+                    let key = if paged_by_next { "next_token" } else { "pagination_token" };
+                    params.push((key.into(), t.clone()));
+                }
+                let v = x::get(&path, &params, &creds, auth).await.map_err(|e| e.to_string())?;
+                posts.extend(v["data"].as_array().cloned().unwrap_or_default());
+                users_seen.extend(v["includes"]["users"].as_array().cloned().unwrap_or_default());
+                token = v["meta"]["next_token"].as_str().map(String::from);
+                if token.is_none() {
+                    break;
+                }
+            }
+            posts.truncate(want as usize);
+            // Billing dedupes within a UTC day, so count each author once.
+            let mut ids: Vec<&str> = users_seen.iter().filter_map(|u| u["id"].as_str()).collect();
+            ids.sort();
+            ids.dedup();
+            let billed_users = match feed {
+                Feed::Timeline(_) => 1,
+                _ => ids.len() as u64 + lookups,
+            };
+            let actual = estimate(posts.len() as u64, billed_users, billed_users, owned);
+            let mut out = digest(&posts, &users_seen);
+            out["feed"] = json!(label);
+            out["cost"] = actual;
+            out["fetched"] = json!(true);
+            Ok(out)
+        }
+
+        "bookmarks" => {
+            match x::me_id(&creds).await {
+                Err(e) => Err(e),
+                Ok(id) => {
+                    let mut params = q(vec![
+                        ("max_results", u(args, "max_results", 50).clamp(1, 500).to_string()),
+                        ("pagination_token", s(args, "pagination_token").unwrap_or("").into()),
+                    ]);
+                    params.extend(q(read_fields()));
+                    x::get(&format!("/2/users/{id}/bookmarks"), &params, &creds, Auth::User).await
+                }
+            }
+        }
+
+        "bookmark" => {
+            let id = post_id(s(args, "id").ok_or("bookmark requires `id`")?)?;
+            match x::me_id(&creds).await {
+                Err(e) => Err(e),
+                Ok(me) => {
+                    x::post(&format!("/2/users/{me}/bookmarks"), &json!({ "tweet_id": id }), &creds).await
+                }
+            }
+        }
+
+        "unbookmark" => {
+            let id = post_id(s(args, "id").ok_or("unbookmark requires `id`")?)?;
+            match x::me_id(&creds).await {
+                Err(e) => Err(e),
+                Ok(me) => {
+                    x::delete(&format!("/2/users/{me}/bookmarks/{id}"), &creds).await
+                }
+            }
+        }
+
+        "unlike" | "unrepost" => {
+            let id = post_id(s(args, "id").ok_or("requires `id`")?)?;
+            match x::me_id(&creds).await {
+                Err(e) => Err(e),
+                Ok(me) => {
+                    let path = if name == "unlike" {
+                        format!("/2/users/{me}/likes/{id}")
+                    } else {
+                        format!("/2/users/{me}/retweets/{id}")
+                    };
+                    x::delete(&path, &creds).await
                 }
             }
         }

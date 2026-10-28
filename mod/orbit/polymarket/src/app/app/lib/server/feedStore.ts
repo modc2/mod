@@ -50,16 +50,38 @@ export const FEED_IDLE_TTL_MS = 7 * 86400_000;
     inside a Next server that also has an app to serve. */
 const MEM_LIMIT = 4;
 
+/** Bumped whenever stored rows mean something different from what an older
+    sync wrote, so `feedFetcher` knows to throw the payload away and cold-walk
+    it again instead of incrementally topping up a feed that is wrong.
+    1 → 2: rows are aggregated per leader action instead of per fill (feeds
+    written before this are missing the 2nd..Nth fill of every book-walking
+    order), and `coveredFromMs` reflects the window actually held. */
+export const FEED_FORMAT = 2;
+
 export interface FeedMeta {
   address: string;
+  /** `FEED_FORMAT` this payload was written under. Absent = 1. */
+  format?: number;
   /** ms epoch of the last successful trades sync. 0 = never fetched. */
   tradesAt: number;
   /** ms epoch of the last successful positions sync. */
   positionsAt: number;
   /** Left edge of the window actually walked (ms epoch). A feed backfilled to
       the 30-day ceiling sits at ~now-30d; a replay asking for a window older
-      than this is asking for data that was never fetched. */
+      than this is asking for data that was never fetched.
+
+      This used to be set to the 30-day cutoff unconditionally, on every sync,
+      whether or not the walk got that far. It usually didn't: the cold walk
+      stops after `maxTrades` rows, and 133 of 169 stored feeds turned out to
+      hold a median of 12.9 days while this field claimed 30. A 30-day card
+      over one of those replays an empty first half as if the trader had gone
+      quiet — which reads as a real (and flattering) change in behaviour. */
   coveredFromMs: number;
+  /** True when the last full walk stopped on the row cap instead of reaching
+      its cutoff, i.e. `coveredFromMs` is the trader's activity ceiling and not
+      the requested window. Purely informational — `coveredFromMs` is already
+      honest — but it distinguishes "quiet trader" from "we ran out of pages".*/
+  truncated?: boolean;
   /** Consecutive failed syncs — feedFetcher's backoff exponent. Reset on any
       success, INCLUDING one that returned nothing (an inactive trader is a
       real answer, not a failure). */
@@ -92,6 +114,12 @@ function slug(address: string): string {
 const payloadPath = (addr: string) => join(feedsDir(), `${slug(addr)}.json`);
 const metaPath = (addr: string) => join(feedsDir(), `${slug(addr)}.meta.json`);
 
+// NOTE: no `format` here on purpose. `readMeta` builds its result as
+// `{...emptyMeta(), ...rawFileContents}`, so any field defaulted here is
+// silently claimed by a file that never recorded it — a `format: FEED_FORMAT`
+// default made every pre-existing feed read back as already-current and the
+// one-time rebuild never ran. Absent means "unknown", which is what a file
+// written before the field existed actually is.
 export function emptyMeta(address: string): FeedMeta {
   return {
     address: address.toLowerCase(),
@@ -116,7 +144,7 @@ function readJsonFile<T>(path: string): T | null {
 
 /** Write via tmp + rename: the fetch loop and a replay pass live in the same
     process but not the same tick, and a reader must never see a truncation. */
-function writeAtomic(path: string, body: string): void {
+export function writeAtomic(path: string, body: string): void {
   const tmp = `${path}.${process.pid}.tmp`;
   try {
     writeFileSync(tmp, body);

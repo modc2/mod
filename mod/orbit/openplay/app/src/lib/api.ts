@@ -90,4 +90,4 @@ export type ChatMessage = { id: string; handle: string; text: string; ts: number
 
 export type Sport = { key: string; label: string; emoji: string; color: string }
 export type Venue = { id: string; builtin: boolean; name: string; city: string; neighborhood: string; lat: number; lng: number; sports: string[] }
-export type City = { key: string; label: string; country: string; lat: number | null; lng: number | null; zoom: number; venues: number; default: boolean }
+export type City = { key: string; label: string; country: string; lat: number | null; lng: number | null; zoom: number; tz?: string | null; venues: number; default: boolean }

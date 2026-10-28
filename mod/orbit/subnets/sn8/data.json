@@ -1,0 +1,189 @@
+{
+  "netuid": 8,
+  "name": "Vanta",
+  "symbol": "θ",
+  "owner": "5F6tnxzAAxbhaWRmeUmB63JEM3VXBNSmqb3AwYJVDStQjw8y",
+  "description": "The first decentralized & trustless liquidity and execution engine for prop firms and traders",
+  "github": "https://github.com/taoshidev/vanta-network",
+  "url": "https://www.vantanetwork.io/",
+  "discord": "tl_arrash",
+  "logo": "https://website-git-ken-vanta-taoshi.vercel.app/black-white.png",
+  "registered_at": 1477264,
+  "tempo": 360,
+  "active": true,
+  "block": 9322663,
+  "related": [],
+  "market": {
+    "price": 0.030677148,
+    "moving_price": 0.030056776013225317,
+    "market_cap": 194112.66580826166,
+    "tao_in": 84224.67377785,
+    "alpha_in": 2745518.388454372,
+    "alpha_out": 3582079.790107131,
+    "volume": 1460603.681231975,
+    "vol_24h": 5230.326427245978,
+    "emission": 0.0,
+    "change_1h": -0.07587512909423832,
+    "change_24h": 3.5549136294345196,
+    "change_7d": 4.49907265482945
+  },
+  "spark_24h": [
+    0.029624039,
+    0.029624559,
+    0.029700587,
+    0.030133663,
+    0.030146852,
+    0.030076273,
+    0.030074079,
+    0.030002065,
+    0.029995376,
+    0.029995884,
+    0.029996363,
+    0.029996901,
+    0.029821995,
+    0.029780726,
+    0.029781103,
+    0.029781872,
+    0.029782879,
+    0.029811973,
+    0.02981253,
+    0.029903261,
+    0.029903484,
+    0.029908321,
+    0.02990887,
+    0.029909553,
+    0.029910414,
+    0.029911924,
+    0.029974426,
+    0.030131393,
+    0.030715153,
+    0.03048153,
+    0.030484409,
+    0.030485116,
+    0.030365464,
+    0.03058941,
+    0.03054244,
+    0.030553297,
+    0.030553679,
+    0.030545554,
+    0.03054773,
+    0.030549137,
+    0.030539058,
+    0.030550488,
+    0.030593432,
+    0.030593803,
+    0.030594651,
+    0.030700442,
+    0.030682397,
+    0.030677148
+  ],
+  "trades_24h": {
+    "trades": 272,
+    "buys": 148,
+    "sells": 124,
+    "buy_tao": 3236.476650006,
+    "sell_tao": 1874.443226546,
+    "net_tao": 1362.03342346,
+    "traders": 146
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5Gb23Q7n115ypiHr6jAMRhkhADhEkRFYa5ovgipVApqMt3FV",
+      "net_tao": -0.4894697949999909,
+      "gross_tao": 398.489469795,
+      "trades": 4
+    },
+    {
+      "coldkey": "5G77RdddzCq241C5CMhxhjHytaFuHTfFVKJqfG9dZnkdhp1m",
+      "net_tao": -1.8996565300000157,
+      "gross_tao": 337.460831482,
+      "trades": 2
+    },
+    {
+      "coldkey": "5DqKWm43cjo2GTKptXhYzA1dXJzM8MZUN68nhdYxwyVyLk6W",
+      "net_tao": -0.4725610029999956,
+      "gross_tao": 300.472561003,
+      "trades": 8
+    },
+    {
+      "coldkey": "5F1XjkDCLVygZb73otM2ePzRgyZ6U2g2F6CMLD4uwuktzi8g",
+      "net_tao": -0.4203893640000018,
+      "gross_tao": 300.420389364,
+      "trades": 6
+    },
+    {
+      "coldkey": "5CUK3oMpcW4oTxpQPTJ5oM5Kcwb2g9afWZu5hnQpaEGBQrne",
+      "net_tao": 79.83770854900001,
+      "gross_tao": 260.162291451,
+      "trades": 6
+    }
+  ],
+  "news": [
+    {
+      "ts": 1792083254,
+      "kind": "commit",
+      "source": "github",
+      "title": "Lazy check unrealized pnl on payout (#958)",
+      "url": "https://github.com/taoshidev/vanta-network/commit/4b630b1d7126241be1ac5523a5bdbce2410a1706",
+      "publisher": "taoshidev/vanta-network"
+    },
+    {
+      "ts": 1792020527,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #955 from taoshidev/development",
+      "url": "https://github.com/taoshidev/vanta-network/commit/80a7331857f89facaa4e62375548cc0116c2249e",
+      "publisher": "taoshidev/vanta-network"
+    },
+    {
+      "ts": 1792020367,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix bugs update docs",
+      "url": "https://github.com/taoshidev/vanta-network/commit/f925f14e481ef07e7bee9233e647045730a7c36c",
+      "publisher": "taoshidev/vanta-network"
+    },
+    {
+      "ts": 1792017215,
+      "kind": "commit",
+      "source": "github",
+      "title": "allow order type patch (#957)",
+      "url": "https://github.com/taoshidev/vanta-network/commit/e3db33d464a153f8ac4cace540839faf65e2b8cc",
+      "publisher": "taoshidev/vanta-network"
+    },
+    {
+      "ts": 1792016986,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix: Adds better state shutdown handling, fixes rest broken pipe erro…",
+      "url": "https://github.com/taoshidev/vanta-network/commit/d8ef8025e73e77226aafafd29310a3f9ad4c9b8d",
+      "publisher": "taoshidev/vanta-network"
+    },
+    {
+      "ts": 1791565740,
+      "kind": "commit",
+      "source": "github",
+      "title": "Fix Restore (#953)",
+      "url": "https://github.com/taoshidev/vanta-network/commit/fbd8d19a3e3425d4c3b2b6423fd83186706dd095",
+      "publisher": "taoshidev/vanta-network"
+    },
+    {
+      "ts": 1791565720,
+      "kind": "commit",
+      "source": "github",
+      "title": "Sync price updates and challenge loop (#954)",
+      "url": "https://github.com/taoshidev/vanta-network/commit/52756b4e103c1059c3ff26ae2853a77754d74e54",
+      "publisher": "taoshidev/vanta-network"
+    },
+    {
+      "ts": 1791230428,
+      "kind": "commit",
+      "source": "github",
+      "title": "account size endpoint added (#946)",
+      "url": "https://github.com/taoshidev/vanta-network/commit/618d5e43f059a4dd08eee67275db0e20eb275837",
+      "publisher": "taoshidev/vanta-network"
+    }
+  ],
+  "updated": 1792474861,
+  "updated_day": "2026-10-20"
+}

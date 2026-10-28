@@ -1,5 +1,5 @@
 {
-  "comment": "Playbook parity fixture \u2014 asserted by BOTH app/lib/strats/__test__.ts (npx tsx) and live_engine.rs (cargo test). statsFromReturns / stats_from_returns, scoreCandidate / candidate_score, copyRatio / copy_ratio_for, stopLossTriggered / stop_loss_hit, takeProfitTriggered / take_profit_hit, traderScore+rankTraders / trader_score+select_top_traders, sizeAndPrice / plan_mirror, and the shared defaults must reproduce these EXACT values in each language. Edit only by regenerating every expected value in both.",
+  "comment": "Playbook parity fixture \u2014 asserted by BOTH app/lib/strats/__test__.ts (npx tsx) and live_engine.rs (cargo test). statsFromReturns / stats_from_returns, scoreCandidate / candidate_score, copyRatio / copy_ratio_for, stopLossTriggered / stop_loss_hit, takeProfitTriggered / take_profit_hit, traderScore+rankTraders / trader_score+select_top_traders, proposeMomentum / propose_momentum, sizeAndPrice / plan_mirror, and the shared defaults must reproduce these EXACT values in each language. Edit only by regenerating every expected value in both.",
   "statsCases": [
     {
       "name": "empty",
@@ -73,6 +73,22 @@
       "expected": {
         "roi": 0.10000000000000002,
         "stdev": 1.6996749443881478e-17,
+        "sharpe": 0.0,
+        "sampleSize": 3,
+        "wins": 3,
+        "successProb": 0.7142857142857143
+      }
+    },
+    {
+      "name": "tickNoiseDegenerate",
+      "returns": [
+        0.1,
+        0.10001,
+        0.09999
+      ],
+      "expected": {
+        "roi": 0.09999999999999999,
+        "stdev": 1.0000000000003062e-05,
         "sharpe": 0.0,
         "sampleSize": 3,
         "wins": 3,
@@ -580,6 +596,7 @@
       "expected": 500.0
     }
   ],
+  "traderFilterNowMs": 1700000000000,
   "traderFilterTraders": [
     {
       "address": "0x1111111111111111111111111111111111111111",
@@ -590,7 +607,8 @@
         0.1,
         0.09,
         0.14
-      ]
+      ],
+      "lastTradeMinutesAgo": 30
     },
     {
       "address": "0x2222222222222222222222222222222222222222",
@@ -602,7 +620,8 @@
         0.5,
         -0.3,
         0.4
-      ]
+      ],
+      "lastTradeMinutesAgo": 120
     },
     {
       "address": "0x3333333333333333333333333333333333333333",
@@ -612,18 +631,21 @@
         -0.3,
         -0.05,
         -0.15
-      ]
+      ],
+      "lastTradeMinutesAgo": 10
     },
     {
       "address": "0x4444444444444444444444444444444444444444",
       "returns": [
         0.5,
         0.25
-      ]
+      ],
+      "lastTradeMinutesAgo": 2880
     },
     {
       "address": "0x5555555555555555555555555555555555555555",
-      "returns": []
+      "returns": [],
+      "lastTradeMinutesAgo": null
     },
     {
       "address": "0x6666666666666666666666666666666666666666",
@@ -632,7 +654,8 @@
         -0.05,
         0.05,
         -0.05
-      ]
+      ],
+      "lastTradeMinutesAgo": 300
     }
   ],
   "traderFilterCases": [
@@ -755,6 +778,649 @@
         "0x1111111111111111111111111111111111111111",
         "0x5555555555555555555555555555555555555555",
         "0x6666666666666666666666666666666666666666"
+      ]
+    },
+    {
+      "name": "stale-6h-promotes-fresh",
+      "why": "0x4444 has the best score but last traded 48h ago; the freshness gate sinks them below every active trader, so the #3 fresh name takes the vacated top-2 slot instead of the strat copying one trader",
+      "filter": {
+        "metric": "score",
+        "topN": 2,
+        "maxStaleHours": 6
+      },
+      "expectedOrder": [
+        "0x2222222222222222222222222222222222222222",
+        "0x1111111111111111111111111111111111111111",
+        "0x6666666666666666666666666666666666666666",
+        "0x3333333333333333333333333333333333333333",
+        "0x4444444444444444444444444444444444444444",
+        "0x5555555555555555555555555555555555555555"
+      ],
+      "expectedKept": [
+        "0x2222222222222222222222222222222222222222",
+        "0x1111111111111111111111111111111111111111"
+      ]
+    },
+    {
+      "name": "stale-24h-with-sharpe-and-samples",
+      "why": "freshness runs before the sort and before the quality thresholds: 0x5555 (never traded) and 0x4444 (48h) sort last as stale, and the surviving top 3 by sharpe all clear minSamples",
+      "filter": {
+        "metric": "sharpe",
+        "topN": 3,
+        "minSamples": 3,
+        "maxStaleHours": 24
+      },
+      "expectedOrder": [
+        "0x1111111111111111111111111111111111111111",
+        "0x2222222222222222222222222222222222222222",
+        "0x6666666666666666666666666666666666666666",
+        "0x3333333333333333333333333333333333333333",
+        "0x4444444444444444444444444444444444444444",
+        "0x5555555555555555555555555555555555555555"
+      ],
+      "expectedKept": [
+        "0x1111111111111111111111111111111111111111",
+        "0x2222222222222222222222222222222222222222",
+        "0x6666666666666666666666666666666666666666"
+      ]
+    }
+  ],
+  "momentumCases": [
+    {
+      "name": "riseIntoBand",
+      "why": "Up rose 58\u00a2\u219266\u00a2 over the 2-minute lookback, inside the 60\u201390\u00a2 band and with 2 minutes left to run: BUY the rising side, sized capital/maxPositions clamped into the trade band, limit 2\u00a2 past the last print.",
+      "momentum": {
+        "lookbackMinutes": 2,
+        "minRiseCents": 5,
+        "exitDropCents": 5,
+        "minPrice": 0.6,
+        "maxPrice": 0.9,
+        "maxPositions": 1,
+        "minMinutesToClose": 1
+      },
+      "now": 1787000000000,
+      "series": [
+        {
+          "conditionId": "0xcid1",
+          "market": "Bitcoin Up or Down - 5m candle",
+          "outcomes": [
+            "Up",
+            "Down"
+          ],
+          "tokenIds": [
+            "0xcid1-tokUp",
+            "0xcid1-tokDown"
+          ],
+          "endDateMs": 1787000120000,
+          "points": [
+            {
+              "t": 1786999820000,
+              "p": 0.55
+            },
+            {
+              "t": 1786999880000,
+              "p": 0.58
+            },
+            {
+              "t": 1786999940000,
+              "p": 0.62
+            },
+            {
+              "t": 1787000000000,
+              "p": 0.66
+            }
+          ]
+        }
+      ],
+      "positions": [],
+      "userFloor": 1,
+      "userCeiling": 10,
+      "minShares": 5,
+      "capital": 100,
+      "expected": [
+        {
+          "side": "BUY",
+          "conditionId": "0xcid1",
+          "outcomeIndex": 0,
+          "notional": 10,
+          "limitPrice": 0.68
+        }
+      ]
+    },
+    {
+      "name": "flipExitsHeldSide",
+      "why": "Holding Up while it fell 72\u00a2\u219264\u00a2 (\u22128\u00a2, past the 5\u00a2 exit drop): SELL the whole position at size \u00d7 the price just measured \u2014 NOT the position's reported value \u2014 with a limit 3% under it.",
+      "momentum": {
+        "lookbackMinutes": 2,
+        "minRiseCents": 5,
+        "exitDropCents": 5,
+        "minPrice": 0.6,
+        "maxPrice": 0.9,
+        "maxPositions": 1,
+        "minMinutesToClose": 1
+      },
+      "now": 1787000000000,
+      "series": [
+        {
+          "conditionId": "0xcid2",
+          "market": "Bitcoin Up or Down - 5m candle",
+          "outcomes": [
+            "Up",
+            "Down"
+          ],
+          "tokenIds": [
+            "0xcid2-tokUp",
+            "0xcid2-tokDown"
+          ],
+          "endDateMs": 1787000120000,
+          "points": [
+            {
+              "t": 1786999820000,
+              "p": 0.75
+            },
+            {
+              "t": 1786999880000,
+              "p": 0.72
+            },
+            {
+              "t": 1786999940000,
+              "p": 0.68
+            },
+            {
+              "t": 1787000000000,
+              "p": 0.64
+            }
+          ]
+        }
+      ],
+      "positions": [
+        {
+          "conditionId": "0xcid2",
+          "outcomeIndex": 0,
+          "size": 20,
+          "entryPrice": 0.7,
+          "staleValue": 999
+        }
+      ],
+      "userFloor": 1,
+      "userCeiling": 10,
+      "minShares": 5,
+      "capital": 100,
+      "expected": [
+        {
+          "side": "SELL",
+          "conditionId": "0xcid2",
+          "outcomeIndex": 0,
+          "notional": 12.8,
+          "limitPrice": 0.62
+        }
+      ]
+    },
+    {
+      "name": "heldSideBlocksTheOtherSide",
+      "why": "The complement of a falling Up is a rising Down. With a wider band it would qualify as an entry \u2014 holding either side of the market blocks it, so the only proposal is the exit.",
+      "momentum": {
+        "lookbackMinutes": 2,
+        "minRiseCents": 5,
+        "exitDropCents": 5,
+        "minPrice": 0.3,
+        "maxPrice": 0.9,
+        "maxPositions": 2,
+        "minMinutesToClose": 1
+      },
+      "now": 1787000000000,
+      "series": [
+        {
+          "conditionId": "0xcid3",
+          "market": "Bitcoin Up or Down - 5m candle",
+          "outcomes": [
+            "Up",
+            "Down"
+          ],
+          "tokenIds": [
+            "0xcid3-tokUp",
+            "0xcid3-tokDown"
+          ],
+          "endDateMs": 1787000120000,
+          "points": [
+            {
+              "t": 1786999820000,
+              "p": 0.75
+            },
+            {
+              "t": 1786999880000,
+              "p": 0.72
+            },
+            {
+              "t": 1786999940000,
+              "p": 0.68
+            },
+            {
+              "t": 1787000000000,
+              "p": 0.64
+            }
+          ]
+        }
+      ],
+      "positions": [
+        {
+          "conditionId": "0xcid3",
+          "outcomeIndex": 0,
+          "size": 20,
+          "entryPrice": 0.7,
+          "staleValue": 999
+        }
+      ],
+      "userFloor": 1,
+      "userCeiling": 10,
+      "minShares": 5,
+      "capital": 100,
+      "expected": [
+        {
+          "side": "SELL",
+          "conditionId": "0xcid3",
+          "outcomeIndex": 0,
+          "notional": 12.8,
+          "limitPrice": 0.62
+        }
+      ]
+    },
+    {
+      "name": "tooCloseToResolution",
+      "why": "Same rise, but the market resolves in 30 seconds and the strat needs a minute \u2014 no entry.",
+      "momentum": {
+        "lookbackMinutes": 2,
+        "minRiseCents": 5,
+        "exitDropCents": 5,
+        "minPrice": 0.6,
+        "maxPrice": 0.9,
+        "maxPositions": 1,
+        "minMinutesToClose": 1
+      },
+      "now": 1787000000000,
+      "series": [
+        {
+          "conditionId": "0xcid4",
+          "market": "Bitcoin Up or Down - 5m candle",
+          "outcomes": [
+            "Up",
+            "Down"
+          ],
+          "tokenIds": [
+            "0xcid4-tokUp",
+            "0xcid4-tokDown"
+          ],
+          "endDateMs": 1787000030000,
+          "points": [
+            {
+              "t": 1786999820000,
+              "p": 0.55
+            },
+            {
+              "t": 1786999880000,
+              "p": 0.58
+            },
+            {
+              "t": 1786999940000,
+              "p": 0.62
+            },
+            {
+              "t": 1787000000000,
+              "p": 0.66
+            }
+          ]
+        }
+      ],
+      "positions": [],
+      "userFloor": 1,
+      "userCeiling": 10,
+      "minShares": 5,
+      "capital": 100,
+      "expected": []
+    },
+    {
+      "name": "riseAboveBand",
+      "why": "88\u00a2\u219295\u00a2 is a rise, but past the 90\u00a2 ceiling there is no move left to ride.",
+      "momentum": {
+        "lookbackMinutes": 2,
+        "minRiseCents": 5,
+        "exitDropCents": 5,
+        "minPrice": 0.6,
+        "maxPrice": 0.9,
+        "maxPositions": 1,
+        "minMinutesToClose": 1
+      },
+      "now": 1787000000000,
+      "series": [
+        {
+          "conditionId": "0xcid5",
+          "market": "Bitcoin Up or Down - 5m candle",
+          "outcomes": [
+            "Up",
+            "Down"
+          ],
+          "tokenIds": [
+            "0xcid5-tokUp",
+            "0xcid5-tokDown"
+          ],
+          "endDateMs": 1787000120000,
+          "points": [
+            {
+              "t": 1786999820000,
+              "p": 0.85
+            },
+            {
+              "t": 1786999880000,
+              "p": 0.88
+            },
+            {
+              "t": 1786999940000,
+              "p": 0.92
+            },
+            {
+              "t": 1787000000000,
+              "p": 0.95
+            }
+          ]
+        }
+      ],
+      "positions": [],
+      "userFloor": 1,
+      "userCeiling": 10,
+      "minShares": 5,
+      "capital": 100,
+      "expected": []
+    },
+    {
+      "name": "partialWindowRefuses",
+      "why": "The series starts INSIDE the lookback, so the full-window move is unknown. Both languages refuse rather than price a partial window as a rise.",
+      "momentum": {
+        "lookbackMinutes": 2,
+        "minRiseCents": 5,
+        "exitDropCents": 5,
+        "minPrice": 0.6,
+        "maxPrice": 0.9,
+        "maxPositions": 1,
+        "minMinutesToClose": 1
+      },
+      "now": 1787000000000,
+      "series": [
+        {
+          "conditionId": "0xcid6",
+          "market": "Bitcoin Up or Down - 5m candle",
+          "outcomes": [
+            "Up",
+            "Down"
+          ],
+          "tokenIds": [
+            "0xcid6-tokUp",
+            "0xcid6-tokDown"
+          ],
+          "endDateMs": 1787000120000,
+          "points": [
+            {
+              "t": 1786999940000,
+              "p": 0.55
+            },
+            {
+              "t": 1787000000000,
+              "p": 0.66
+            }
+          ]
+        }
+      ],
+      "positions": [],
+      "userFloor": 1,
+      "userCeiling": 10,
+      "minShares": 5,
+      "capital": 100,
+      "expected": []
+    },
+    {
+      "name": "floorBeatsTinyCeiling",
+      "why": "A $2 ceiling cannot buy 5 shares at 68\u00a2 \u2014 the order has to be placeable, so both languages keep the $3.40 CLOB floor instead of proposing an unplaceable $2.",
+      "momentum": {
+        "lookbackMinutes": 2,
+        "minRiseCents": 5,
+        "exitDropCents": 5,
+        "minPrice": 0.6,
+        "maxPrice": 0.9,
+        "maxPositions": 1,
+        "minMinutesToClose": 1
+      },
+      "now": 1787000000000,
+      "series": [
+        {
+          "conditionId": "0xcid7",
+          "market": "Bitcoin Up or Down - 5m candle",
+          "outcomes": [
+            "Up",
+            "Down"
+          ],
+          "tokenIds": [
+            "0xcid7-tokUp",
+            "0xcid7-tokDown"
+          ],
+          "endDateMs": 1787000120000,
+          "points": [
+            {
+              "t": 1786999820000,
+              "p": 0.55
+            },
+            {
+              "t": 1786999880000,
+              "p": 0.58
+            },
+            {
+              "t": 1786999940000,
+              "p": 0.62
+            },
+            {
+              "t": 1787000000000,
+              "p": 0.66
+            }
+          ]
+        }
+      ],
+      "positions": [],
+      "userFloor": 1,
+      "userCeiling": 2,
+      "minShares": 5,
+      "capital": 100,
+      "expected": [
+        {
+          "side": "BUY",
+          "conditionId": "0xcid7",
+          "outcomeIndex": 0,
+          "notional": 3.4000000000000004,
+          "limitPrice": 0.68
+        }
+      ]
+    },
+    {
+      "name": "confirmedRiseStillEnters",
+      "why": "Yes ran 58\u00a2\u219270\u00a2 over the 60-minute lookback AND is still up over the last 15 (64\u00a2\u219270\u00a2): the move is intact, so confirmMinutes lets the entry through unchanged \u2014 capital/maxPositions, limit 2\u00a2 past the last print.",
+      "momentum": {
+        "lookbackMinutes": 60,
+        "minRiseCents": 6,
+        "confirmMinutes": 15,
+        "exitDropCents": 6,
+        "minPrice": 0.55,
+        "maxPrice": 0.85,
+        "maxPositions": 4,
+        "minMinutesToClose": 240
+      },
+      "now": 1787000000000,
+      "series": [
+        {
+          "conditionId": "0xcid-conf",
+          "market": "Will Ethereum close above $4,000 in September?",
+          "outcomes": [
+            "Yes",
+            "No"
+          ],
+          "tokenIds": [
+            "0xcid-conf-tokYes",
+            "0xcid-conf-tokNo"
+          ],
+          "endDateMs": 1787018000000,
+          "points": [
+            {
+              "t": 1786996100000,
+              "p": 0.58
+            },
+            {
+              "t": 1786998800000,
+              "p": 0.64
+            },
+            {
+              "t": 1786999400000,
+              "p": 0.67
+            },
+            {
+              "t": 1787000000000,
+              "p": 0.7
+            }
+          ]
+        }
+      ],
+      "positions": [],
+      "userFloor": 1,
+      "userCeiling": 25,
+      "minShares": 5,
+      "capital": 100,
+      "expected": [
+        {
+          "side": "BUY",
+          "conditionId": "0xcid-conf",
+          "outcomeIndex": 0,
+          "notional": 25,
+          "limitPrice": 0.72
+        }
+      ]
+    },
+    {
+      "name": "peakedRiseRefused",
+      "why": "Same +12\u00a2 over the 60-minute lookback and the same 70\u00a2 entry price \u2014 but the move peaked at 74\u00a2 twenty minutes ago and has given ground back since, so the 15-minute confirmation window reads \u22124\u00a2 and the entry is refused. Without confirmMinutes this is byte-identical to confirmedRiseStillEnters, which is the whole point of the gate.",
+      "momentum": {
+        "lookbackMinutes": 60,
+        "minRiseCents": 6,
+        "confirmMinutes": 15,
+        "exitDropCents": 6,
+        "minPrice": 0.55,
+        "maxPrice": 0.85,
+        "maxPositions": 4,
+        "minMinutesToClose": 240
+      },
+      "now": 1787000000000,
+      "series": [
+        {
+          "conditionId": "0xcid-conf",
+          "market": "Will Solana close above $250 in September?",
+          "outcomes": [
+            "Yes",
+            "No"
+          ],
+          "tokenIds": [
+            "0xcid-conf-tokYes",
+            "0xcid-conf-tokNo"
+          ],
+          "endDateMs": 1787018000000,
+          "points": [
+            {
+              "t": 1786996100000,
+              "p": 0.58
+            },
+            {
+              "t": 1786998800000,
+              "p": 0.74
+            },
+            {
+              "t": 1786999400000,
+              "p": 0.71
+            },
+            {
+              "t": 1787000000000,
+              "p": 0.7
+            }
+          ]
+        }
+      ],
+      "positions": [],
+      "userFloor": 1,
+      "userCeiling": 25,
+      "minShares": 5,
+      "capital": 100,
+      "expected": []
+    },
+    {
+      "name": "confirmNeverGatesExits",
+      "why": "Yes fell 80\u00a2\u219270\u00a2 over the lookback while we hold it. The confirmation window is set and is negative, which is exactly the shape that blocks an ENTRY \u2014 the SELL still fires, sized size\u00d7the price just measured (not the position's stale reported value). A gate that makes us slower to buy must never make us slower to sell.",
+      "momentum": {
+        "lookbackMinutes": 60,
+        "minRiseCents": 6,
+        "confirmMinutes": 15,
+        "exitDropCents": 6,
+        "minPrice": 0.55,
+        "maxPrice": 0.85,
+        "maxPositions": 4,
+        "minMinutesToClose": 240
+      },
+      "now": 1787000000000,
+      "series": [
+        {
+          "conditionId": "0xcid-conf",
+          "market": "Will XRP close above $3 in September?",
+          "outcomes": [
+            "Yes",
+            "No"
+          ],
+          "tokenIds": [
+            "0xcid-conf-tokYes",
+            "0xcid-conf-tokNo"
+          ],
+          "endDateMs": 1787018000000,
+          "points": [
+            {
+              "t": 1786996100000,
+              "p": 0.8
+            },
+            {
+              "t": 1786998800000,
+              "p": 0.74
+            },
+            {
+              "t": 1786999400000,
+              "p": 0.71
+            },
+            {
+              "t": 1787000000000,
+              "p": 0.7
+            }
+          ]
+        }
+      ],
+      "positions": [
+        {
+          "conditionId": "0xcid-conf",
+          "outcomeIndex": 0,
+          "size": 30,
+          "entryPrice": 0.78,
+          "staleValue": 999
+        }
+      ],
+      "userFloor": 1,
+      "userCeiling": 25,
+      "minShares": 5,
+      "capital": 100,
+      "expected": [
+        {
+          "side": "SELL",
+          "conditionId": "0xcid-conf",
+          "outcomeIndex": 0,
+          "notional": 21,
+          "limitPrice": 0.68
+        }
       ]
     }
   ]

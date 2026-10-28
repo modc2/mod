@@ -1,0 +1,14 @@
+{
+  "name": "bundler",
+  "mod": "polymarket.agents.bundler",
+  "title": "BUNDLER",
+  "glyph": "◆",
+  "kind": "background",
+  "route": "/_api/bundler",
+  "query": "run=1",
+  "tools": "bundle forge (block replays + holdout) + a no-tool reviewer turn",
+  "description": "Forges copy-trade bundles with a high probability of consistent success: replays every cached trader in 3-day blocks, picks 3-5 legs on OLDER blocks only, proves each bundle on the most recent 9 days it never saw, grades A/B/C/F, and a reviewer names it and writes the thesis and risks. Proposes only — money moves through COPY ALL / pm_copy_allocate.",
+  "default_enabled": true,
+  "order": 8,
+  "version": "0.1.0"
+}

@@ -1,0 +1,189 @@
+{
+  "netuid": 62,
+  "name": "Ridges",
+  "symbol": "ز",
+  "owner": "5DhsVYewpCdQQUenHU52k5Cys1WsTWTt5V5m84D3n4L8FWDS",
+  "description": "Software Engineering Agents",
+  "github": "https://github.com/ridgesai/ridges",
+  "url": "https://www.ridges.ai/",
+  "discord": "https://discord.gg/WeDvTnYDad",
+  "logo": "https://www.ridges.ai/logo.png",
+  "registered_at": 4474225,
+  "tempo": 360,
+  "active": true,
+  "block": 9322663,
+  "related": [],
+  "market": {
+    "price": 0.0085724,
+    "moving_price": 0.008573574712499976,
+    "market_cap": 49544.24127392975,
+    "tao_in": 27100.203581354,
+    "alpha_in": 3161332.139089738,
+    "alpha_out": 2618174.332135327,
+    "volume": 4403142.299402775,
+    "vol_24h": 78.57985384110361,
+    "emission": 0.0,
+    "change_1h": -0.004164354594438091,
+    "change_24h": -0.04723398991027805,
+    "change_7d": -4.521814945358759
+  },
+  "spark_24h": [
+    0.008576451,
+    0.008573749,
+    0.008573048,
+    0.00857372,
+    0.008573847,
+    0.008573901,
+    0.008573983,
+    0.008573973,
+    0.008574062,
+    0.008574117,
+    0.008574506,
+    0.00857455,
+    0.008568044,
+    0.008567751,
+    0.008566407,
+    0.00856647,
+    0.008566593,
+    0.008566713,
+    0.008566676,
+    0.008566633,
+    0.008566703,
+    0.008567136,
+    0.008567215,
+    0.008567294,
+    0.008567199,
+    0.008567306,
+    0.008568586,
+    0.008568628,
+    0.00856816,
+    0.008568296,
+    0.008569232,
+    0.008569286,
+    0.008569353,
+    0.008569443,
+    0.008569518,
+    0.008569596,
+    0.008569639,
+    0.0085697,
+    0.008569765,
+    0.008569853,
+    0.008570028,
+    0.008570113,
+    0.00857018,
+    0.008570221,
+    0.008573471,
+    0.008572757,
+    0.008572078,
+    0.0085724
+  ],
+  "trades_24h": {
+    "trades": 203,
+    "buys": 99,
+    "sells": 104,
+    "buy_tao": 22.731693670000002,
+    "sell_tao": 39.295627073,
+    "net_tao": -16.563933402999997,
+    "traders": 67
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5HBUnAiZAKQPYCmYxRmkD1u16M2u8mDALwfaSzpzueDMhJpJ",
+      "net_tao": -6.496911994,
+      "gross_tao": 6.496911994,
+      "trades": 2
+    },
+    {
+      "coldkey": "5Enog7nS4yzm3ZKa2S77h3czBsQBXwxceKT5aSdpdLywPaHE",
+      "net_tao": -5.468272385,
+      "gross_tao": 5.468272385,
+      "trades": 7
+    },
+    {
+      "coldkey": "5DeiMkSePD7q3ZQXYkgBfGnuhmv2CxVVKVo5o5TqYwGqVpk7",
+      "net_tao": 5.152433538,
+      "gross_tao": 5.152433538,
+      "trades": 2
+    },
+    {
+      "coldkey": "5F5S3KoLricw2ouqqWSwf8PGQysPxLuQPVhmibTYW91UV7XL",
+      "net_tao": -4.760354317,
+      "gross_tao": 4.760354317,
+      "trades": 1
+    },
+    {
+      "coldkey": "5E7dEEzTu8QPPFihEAXuaK54V8pRfcQw8P8v2R1BU5BZwEbL",
+      "net_tao": 4.207690741,
+      "gross_tao": 4.207690741,
+      "trades": 1
+    }
+  ],
+  "news": [
+    {
+      "ts": 1791900735,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #521 from ridgesai/docs/agent-mining-llms",
+      "url": "https://github.com/ridgesai/ridges/commit/801d21ed80b6fafce4d0c3039dba3fba3c732ae5",
+      "publisher": "ridgesai/ridges"
+    },
+    {
+      "ts": 1791589710,
+      "kind": "release",
+      "source": "github",
+      "title": "v0.3.11",
+      "url": "https://github.com/ridgesai/ridges/releases/tag/v0.3.11",
+      "publisher": "ridgesai/ridges"
+    },
+    {
+      "ts": 1791587458,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #522 from ridgesai/feat/validator-scheduling",
+      "url": "https://github.com/ridgesai/ridges/commit/55d67a36c46631168054833105eaa402d2b04e4e",
+      "publisher": "ridgesai/ridges"
+    },
+    {
+      "ts": 1791585153,
+      "kind": "commit",
+      "source": "github",
+      "title": "core scheduling queries",
+      "url": "https://github.com/ridgesai/ridges/commit/ccc2e72f447dab1a063543958aed34161281f555",
+      "publisher": "ridgesai/ridges"
+    },
+    {
+      "ts": 1791585144,
+      "kind": "commit",
+      "source": "github",
+      "title": "new admin events",
+      "url": "https://github.com/ridgesai/ridges/commit/539d893e498d495a78a14608eb9f98debb7a0dfc",
+      "publisher": "ridgesai/ridges"
+    },
+    {
+      "ts": 1791585124,
+      "kind": "commit",
+      "source": "github",
+      "title": "add new admin endpoints",
+      "url": "https://github.com/ridgesai/ridges/commit/659de2dd2ccd734133b885dd42c4c34d609cfacb",
+      "publisher": "ridgesai/ridges"
+    },
+    {
+      "ts": 1791504717,
+      "kind": "release",
+      "source": "github",
+      "title": "v0.3.10",
+      "url": "https://github.com/ridgesai/ridges/releases/tag/v0.3.10",
+      "publisher": "ridgesai/ridges"
+    },
+    {
+      "ts": 1791502814,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #520 from ridgesai/feat/dynamic-submission-pricing",
+      "url": "https://github.com/ridgesai/ridges/commit/75740b3aaafd714a39e1c25cbd84641152bb6244",
+      "publisher": "ridgesai/ridges"
+    }
+  ],
+  "updated": 1792474861,
+  "updated_day": "2026-10-20"
+}

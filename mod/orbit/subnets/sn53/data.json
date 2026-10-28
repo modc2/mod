@@ -1,0 +1,189 @@
+{
+  "netuid": 53,
+  "name": "engy",
+  "symbol": "ب",
+  "owner": "5H8SFVCxk52ag1YSC5bQw7B84NRNhAtYWAP81jEPfuJ3VL8Q",
+  "description": "Verified inference for frontier open models.",
+  "github": "https://github.com/hanlinai/engy",
+  "url": "https://engy.ai",
+  "discord": null,
+  "logo": "https://engy.ai/icon.svg",
+  "registered_at": 4203869,
+  "tempo": 360,
+  "active": true,
+  "block": 9322663,
+  "related": [],
+  "market": {
+    "price": 0.035556841,
+    "moving_price": 0.036110052140429616,
+    "market_cap": 222986.98571293545,
+    "tao_in": 39383.057191247,
+    "alpha_in": 1107608.502016857,
+    "alpha_out": 5163673.744708477,
+    "volume": 1914834.330956519,
+    "vol_24h": 14569.763518146006,
+    "emission": 0.0,
+    "change_1h": 0.9056118380403877,
+    "change_24h": -6.209659448565096,
+    "change_7d": -9.424813534439325
+  },
+  "spark_24h": [
+    0.037910984,
+    0.037908419,
+    0.037498658,
+    0.037360432,
+    0.037016939,
+    0.036837478,
+    0.036837331,
+    0.036894055,
+    0.036820802,
+    0.036822466,
+    0.036954152,
+    0.036724262,
+    0.036796606,
+    0.036610634,
+    0.036538889,
+    0.036544934,
+    0.036184908,
+    0.035618457,
+    0.035397088,
+    0.035844349,
+    0.035927659,
+    0.034643763,
+    0.034825595,
+    0.034757622,
+    0.034582764,
+    0.034523731,
+    0.033928457,
+    0.033941859,
+    0.033747859,
+    0.03413536,
+    0.034413124,
+    0.034608914,
+    0.034839549,
+    0.034753526,
+    0.035006357,
+    0.034999873,
+    0.03500123,
+    0.034944546,
+    0.034947428,
+    0.03495173,
+    0.034776334,
+    0.034777957,
+    0.034923714,
+    0.034968287,
+    0.03528035,
+    0.035237724,
+    0.035239475,
+    0.035556841
+  ],
+  "trades_24h": {
+    "trades": 767,
+    "buys": 394,
+    "sells": 373,
+    "buy_tao": 6491.299735478,
+    "sell_tao": 7906.238374857,
+    "net_tao": -1414.938639379,
+    "traders": 307
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5CXwAFZG5JGxidYjeAwn2mzgHwktUPNczqtGi6HpNaJvWszN",
+      "net_tao": -0.6966983920000089,
+      "gross_tao": 1500.696698392,
+      "trades": 34
+    },
+    {
+      "coldkey": "5Cw2qFy2tZy9ZLt4LsJc9b68nffQndZDHF1KZynmVbA4Z3pC",
+      "net_tao": -0.7434244319999976,
+      "gross_tao": 960.743424432,
+      "trades": 25
+    },
+    {
+      "coldkey": "5Gb23Q7n115ypiHr6jAMRhkhADhEkRFYa5ovgipVApqMt3FV",
+      "net_tao": 96.893959367,
+      "gross_tao": 883.106040633,
+      "trades": 8
+    },
+    {
+      "coldkey": "5D31yczGiq9tVJwGgX87sWBks1g6RST5Tju5aajGycvvrijb",
+      "net_tao": 75.489531626,
+      "gross_tao": 574.510468374,
+      "trades": 18
+    },
+    {
+      "coldkey": "5Gp5B45qzEuaS6QCn5qC6WYmxdLwrawzDWLR7HEyHR1dXfE1",
+      "net_tao": 2.877679681999996,
+      "gross_tao": 523.708230268,
+      "trades": 14
+    }
+  ],
+  "news": [
+    {
+      "ts": 1792394166,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #56 from hanlinai/fix/tee-miner-prefix-continuation",
+      "url": "https://github.com/hanlinai/engy/commit/ed84d0b43a9de19f8611a2321c45acc09e570b4c",
+      "publisher": "hanlinai/engy"
+    },
+    {
+      "ts": 1792393722,
+      "kind": "commit",
+      "source": "github",
+      "title": "tee_miner: forward prefix continuation to the serve",
+      "url": "https://github.com/hanlinai/engy/commit/8d7ba516a3a3e0ecdcaf3d3a9a927d2b1516ba5e",
+      "publisher": "hanlinai/engy"
+    },
+    {
+      "ts": 1792296831,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #55 from hanlinai/feat/multi-entrance-legs",
+      "url": "https://github.com/hanlinai/engy/commit/70a4f104d7fc02c0f29e9bdbbf0146c70921e353",
+      "publisher": "hanlinai/engy"
+    },
+    {
+      "ts": 1792296358,
+      "kind": "commit",
+      "source": "github",
+      "title": "tee_miner: default to half the legs on the LB, half on Cloudflare, sh…",
+      "url": "https://github.com/hanlinai/engy/commit/1829b9874e1b90f000570b05654578ae94d5f895",
+      "publisher": "hanlinai/engy"
+    },
+    {
+      "ts": 1792227295,
+      "kind": "commit",
+      "source": "github",
+      "title": "tee_miner: Cloudflare is a backup door, not a second home",
+      "url": "https://github.com/hanlinai/engy/commit/01ff05a8bb46d0d4dec44d29604bf067df3a92eb",
+      "publisher": "hanlinai/engy"
+    },
+    {
+      "ts": 1792225607,
+      "kind": "commit",
+      "source": "github",
+      "title": "tee_miner: spread the legs across several gateway doors",
+      "url": "https://github.com/hanlinai/engy/commit/a4c161396491c40008dd0160a5aa8c1bae9abd65",
+      "publisher": "hanlinai/engy"
+    },
+    {
+      "ts": 1791892650,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #53 from hanlinai/fix/tee-miner-no-body-in-logs",
+      "url": "https://github.com/hanlinai/engy/commit/29ad734b006442bbedd28d06ed06ff8dbe42a0aa",
+      "publisher": "hanlinai/engy"
+    },
+    {
+      "ts": 1791892591,
+      "kind": "commit",
+      "source": "github",
+      "title": "tee_miner: never write the request to the miner log",
+      "url": "https://github.com/hanlinai/engy/commit/fe55344aba142cf9d8496df3cf3549bb80028715",
+      "publisher": "hanlinai/engy"
+    }
+  ],
+  "updated": 1792474861,
+  "updated_day": "2026-10-20"
+}

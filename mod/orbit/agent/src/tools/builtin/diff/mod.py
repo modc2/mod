@@ -1,7 +1,7 @@
 """diff - compare files or strings"""
 import difflib
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 
 
 class Tool:

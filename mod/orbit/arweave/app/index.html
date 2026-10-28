@@ -45,27 +45,69 @@
   }
   .pill.warn { background: #2a1f12; color: #f5a142; }
   .pill.bad  { background: #2a1418; color: #ff6b6b; }
+  .tag-row input { font-size: 12px; }
   table { width: 100%; border-collapse: collapse; font-size: 12px; }
   th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #20262d; }
   th { color: #7a8896; font-weight: normal; }
   td button { padding: 2px 8px; font-size: 11px; }
   a { color: #c0a8ff; text-decoration: none; }
   a:hover { text-decoration: underline; }
+  #drop-zone {
+    border: 2px dashed #20262d; border-radius: 6px;
+    padding: 14px; text-align: center;
+    color: #7a8896; font-size: 12px;
+    cursor: pointer; margin-top: 8px;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  #drop-zone.drag-over { border-color: #5d3aa8; background: #1a1428; color: #c0a8ff; }
+  #drop-zone input[type=file] { display: none; }
+  #upload-queue { margin-top: 8px; }
+  .q-item { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 12px; border-bottom: 1px solid #20262d; }
+  .q-item:last-child { border-bottom: 0; }
+  .q-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .grid-view { display: flex; flex-wrap: wrap; gap: 10px; padding: 4px 0; }
+  .gc {
+    width: 140px; border: 1px solid #20262d; border-radius: 8px;
+    overflow: hidden; cursor: pointer; background: #14181d;
+    text-decoration: none; display: block; transition: border-color 0.15s;
+  }
+  .gc:hover { border-color: #5d3aa8; }
+  .gc img { width: 140px; height: 140px; object-fit: cover; display: block; }
+  .gc-body {
+    width: 140px; height: 140px; display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    font-size: 11px; color: #7a8896; padding: 8px; text-align: center; gap: 4px;
+  }
+  .gc-label { font-size: 10px; color: #7a8896; padding: 3px 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>
 </head>
 <body>
   <h1>arweave</h1>
-  <div class="sub" id="sub">Store and retrieve data on Arweave · <span id="status-pill" class="pill">…</span></div>
+  <div class="sub" id="sub">Store and retrieve data on Arweave · <span id="status-pill" class="pill">…</span> <span id="wallet-gen-wrap"></span></div>
 
   <div class="card">
     <h2 style="margin-top:0">Store</h2>
     <textarea id="data" placeholder='{"hello":"arweave"} or any text'></textarea>
+    <div id="drop-zone" onclick="document.getElementById('file').click()" ondragover="dzOver(event)" ondragleave="dzLeave()" ondrop="dzDrop(event)">
+      <span id="dz-label">Paste (Ctrl+V) or drop files here or click to browse</span>
+      <input id="file" type="file" multiple />
+    </div>
     <div class="row" style="margin-top:8px">
       <input id="name" type="text" placeholder="optional filename" />
-      <input id="file" type="file" />
       <button onclick="putData()">Store</button>
     </div>
+    <div id="tag-rows"></div>
+    <button class="ghost" style="font-size:11px;padding:2px 8px;margin-top:6px" onclick="addTagRow()">+ Add tag</button>
+    <div id="upload-estimate" style="margin-top:6px;min-height:20px"></div>
+    <div id="upload-queue"></div>
+    <div id="manifest-wrap" style="margin-top:6px"></div>
+    <div class="row" style="margin-top:10px">
+      <input id="url-to-archive" type="text" placeholder="https://example.com/article" />
+      <button onclick="archiveUrl()">Archive URL</button>
+      <span style="font-size:11px;color:#7a8896;white-space:nowrap">auto-tags: Source-URL · App-Name</span>
+    </div>
     <pre id="put-result" hidden></pre>
+    <div id="put-link" class="row" style="margin-top:6px"></div>
   </div>
 
   <div class="card">
@@ -76,16 +118,69 @@
       <button class="ghost" onclick="getMeta()">Tx info</button>
     </div>
     <pre id="get-result" hidden></pre>
+    <div id="retrieve-save" hidden style="margin-top:6px"></div>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0">Archives
+      <button class="ghost" style="float:right" onclick="refreshArchives()">refresh</button>
+      <span id="archives-note" style="float:right;margin-right:8px;font-size:11px;color:#7a8896;line-height:2"></span>
+    </h2>
+    <table id="archives-table">
+      <thead><tr><th>source url</th><th>size</th><th>permalink</th></tr></thead>
+      <tbody></tbody>
+    </table>
   </div>
 
   <div class="card">
     <h2 style="margin-top:0">Stored
       <button class="ghost" style="float:right" onclick="refresh()">refresh</button>
+      <span id="push-all-wrap" style="float:right;margin-right:6px"></span>
     </h2>
     <table id="list">
-      <thead><tr><th>tx id</th><th>name</th><th>size</th><th>backend</th><th></th></tr></thead>
+      <thead><tr><th>tx id</th><th>name</th><th>size</th><th>backend</th><th>confs</th><th>tags</th><th>when</th><th></th></tr></thead>
       <tbody></tbody>
     </table>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0">Search</h2>
+    <div class="row">
+      <input id="q-owner" type="text" placeholder="owner wallet address (optional)" />
+    </div>
+    <div class="row" style="margin-top:8px">
+      <input id="q-tag-name" type="text" placeholder="tag name (optional)" style="flex:1;min-width:120px" />
+      <input id="q-tag-value" type="text" placeholder="tag value" style="flex:1;min-width:120px" />
+      <input id="q-first" type="number" placeholder="limit" min="1" max="100" value="10" style="width:70px;flex:none" />
+      <button onclick="queryTxs()">Search</button>
+      <button id="search-grid-btn" class="ghost" onclick="toggleSearchGrid()" title="Toggle grid view">⊞</button>
+    </div>
+    <div id="q-results" hidden style="margin-top:10px">
+      <table id="q-table">
+        <thead><tr><th>tx id</th><th>tags</th><th>data size</th><th>when</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div id="q-grid" class="grid-view" hidden></div>
+    </div>
+    <div id="q-load-more" hidden style="margin-top:8px">
+      <button class="ghost" onclick="queryTxs(true)">Load more →</button>
+    </div>
+    <pre id="q-error" hidden></pre>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0">Permaweb Feed
+      <button class="ghost" style="float:right" onclick="refreshFeed()">refresh</button>
+      <button id="feed-grid-btn" class="ghost" style="float:right;margin-right:6px" onclick="toggleFeedGrid()" title="Toggle grid view">⊞</button>
+    </h2>
+    <div id="feed-results">
+      <table id="feed-table">
+        <thead><tr><th>tx id</th><th>app</th><th>data size</th><th>when</th></tr></thead>
+        <tbody><tr><td colspan="4" style="color:#7a8896">loading…</td></tr></tbody>
+      </table>
+      <div id="feed-grid" class="grid-view" hidden></div>
+    </div>
+    <pre id="feed-error" hidden></pre>
   </div>
 
   <div class="card">
@@ -98,8 +193,86 @@
     <pre id="net-result" hidden></pre>
   </div>
 
+  <div class="card">
+    <h2 style="margin-top:0">Agents · MCP</h2>
+    <div class="sub" style="margin-bottom:8px">Any MCP client can drive this module as tools (no auth). Endpoint:</div>
+    <div class="row">
+      <input id="mcp-url" type="text" readonly value="…" />
+      <button class="ghost" onclick="copyText('mcp-url')">copy</button>
+      <button class="ghost" onclick="mcpTools()">tools</button>
+    </div>
+    <div class="sub" style="margin:8px 0 0">Claude Code: <code id="mcp-cmd">…</code> <button class="ghost" onclick="copyText('mcp-cmd')">copy</button></div>
+    <pre id="mcp-result" hidden></pre>
+  </div>
+
 <script>
-const API = location.origin + '/api';
+const API = location.origin + location.pathname.replace(/\/$/, '') + '/api';
+const BASE = API.replace(/\/api$/, '');
+let walletConfigured = false;
+let walletAddress = null;
+let searchCursor = null;
+let searchGrid = false;
+let feedGrid = false;
+
+function isImageTx(node) {
+  const ct = ((node.tags || []).find(t => t.name === 'Content-Type') || {}).value || '';
+  return ct.startsWith('image/');
+}
+
+function makeGridCard(id, node) {
+  const a = document.createElement('a');
+  a.className = 'gc';
+  a.href = `${BASE}/view/${id}`;
+  a.target = '_blank';
+  if (isImageTx(node)) {
+    const img = document.createElement('img');
+    img.src = `https://arweave.net/${id}`;
+    img.loading = 'lazy';
+    img.alt = id.slice(0, 8);
+    img.title = id;
+    a.appendChild(img);
+  } else {
+    const appTag = (node.tags || []).find(t => t.name === 'App-Name');
+    const app = appTag ? appTag.value : '';
+    const size = node.data?.size ?? '';
+    const div = document.createElement('div');
+    div.className = 'gc-body';
+    div.innerHTML = `<span class="txid">${id.slice(0, 8)}…</span>${app ? `<span>${app}</span>` : ''}${size ? `<span>${size}b</span>` : ''}`;
+    a.appendChild(div);
+  }
+  const label = document.createElement('div');
+  label.className = 'gc-label';
+  label.title = id;
+  label.textContent = id.slice(0, 14) + '…';
+  a.appendChild(label);
+  return a;
+}
+
+function toggleSearchGrid() {
+  searchGrid = !searchGrid;
+  document.getElementById('search-grid-btn').textContent = searchGrid ? '☰' : '⊞';
+  document.getElementById('q-table').hidden = searchGrid;
+  document.getElementById('q-grid').hidden = !searchGrid;
+}
+
+function toggleFeedGrid() {
+  feedGrid = !feedGrid;
+  document.getElementById('feed-grid-btn').textContent = feedGrid ? '☰' : '⊞';
+  document.getElementById('feed-table').hidden = feedGrid;
+  document.getElementById('feed-grid').hidden = !feedGrid;
+}
+
+function timeAgo(ms) {
+  const diff = Date.now() - ms;
+  const m = Math.floor(diff / 60000);
+  if (m < 2) return 'just now';
+  if (m < 60) return m + 'm ago';
+  const h = Math.floor(m / 60);
+  if (h < 24) return h + 'h ago';
+  const d = Math.floor(h / 24);
+  if (d < 30) return d + 'd ago';
+  return new Date(ms).toISOString().slice(0, 10);
+}
 
 function show(id, val) {
   const el = document.getElementById(id);
@@ -113,58 +286,427 @@ async function jpost(path, body, opts={}) {
   return r.json();
 }
 
+async function updateEstimate(bytes) {
+  const el = document.getElementById('upload-estimate');
+  if (!bytes) { el.innerHTML = ''; return; }
+  if (bytes <= 100 * 1024) {
+    el.innerHTML = '<span class="pill" style="background:#0f2010;color:#6abf6a">free · bundler (&lt;100 KiB)</span>';
+    return;
+  }
+  if (!walletConfigured) {
+    el.innerHTML = '<span class="pill warn">configure a wallet — files over 100 KiB need funded upload</span>';
+    return;
+  }
+  el.innerHTML = '<span class="pill">fetching price…</span>';
+  try {
+    const r = await jget(`/price/${bytes}`);
+    if (r.ar != null) {
+      el.innerHTML = `<span class="pill">~${Number(r.ar).toFixed(3)} AR</span>`;
+    } else {
+      el.innerHTML = '';
+    }
+  } catch { el.innerHTML = ''; }
+}
+
+document.getElementById('data').addEventListener('input', function() {
+  const bytes = new TextEncoder().encode(this.value).length;
+  updateEstimate(bytes);
+});
+
 async function statusCheck() {
   try {
     const s = await jget('/status');
+    walletConfigured = !!s.wallet_configured;
+    walletAddress = s.wallet_address || null;
     const pill = document.getElementById('status-pill');
+    const genWrap = document.getElementById('wallet-gen-wrap');
     if (s.arweave?.ok) {
       pill.className = 'pill';
-      pill.textContent = `gateway ✓ height ${s.arweave.height}` +
-        (s.wallet_configured ? ' · wallet ✓' : ' · wallet off');
+      if (!s.wallet_configured) {
+        pill.textContent = `gateway ✓ height ${s.arweave.height} · no wallet: stores stay local`;
+        genWrap.innerHTML = '<button class="ghost" style="font-size:11px;padding:2px 8px" onclick="generateWallet()">Generate wallet</button>';
+      } else {
+        const addrSlug = s.wallet_address ? s.wallet_address.slice(0,6)+'…' : '✓';
+        const base = `gateway ✓ height ${s.arweave.height} · wallet ${addrSlug}`;
+        pill.textContent = base + ' → stores on Arweave';
+        genWrap.innerHTML = '';
+        const ctrl = new AbortController();
+        const t = setTimeout(() => ctrl.abort(), 5000);
+        fetch(API + '/wallet/balance', {signal: ctrl.signal})
+          .then(r => r.json())
+          .then(b => {
+            clearTimeout(t);
+            if (b && b.ar != null && !b.error) {
+              pill.textContent = base + ` · ${b.ar.toFixed(3)} AR → stores on Arweave`;
+            }
+          })
+          .catch(() => {});
+      }
     } else {
       pill.className = 'pill warn';
       pill.textContent = 'gateway offline';
+      genWrap.innerHTML = '';
     }
   } catch (e) {
     document.getElementById('status-pill').className = 'pill bad';
     document.getElementById('status-pill').textContent = 'api unreachable';
+    document.getElementById('wallet-gen-wrap').innerHTML = '';
+  }
+}
+
+async function generateWallet() {
+  const genWrap = document.getElementById('wallet-gen-wrap');
+  genWrap.innerHTML = '<span style="font-size:11px;color:#7a8896">generating…</span>';
+  try {
+    const r = await jpost('/wallet/generate', '{}', {headers:{'Content-Type':'application/json'}});
+    if (r.address) {
+      genWrap.innerHTML = `<span class="pill" style="background:#0f2010;color:#6abf6a">wallet ${r.created ? 'created' : 'found'} · addr: ${r.address.slice(0,8)}…</span>`;
+      setTimeout(statusCheck, 1200);
+    } else {
+      genWrap.innerHTML = `<span class="pill bad">error: ${r.detail || 'unknown'}</span>`;
+    }
+  } catch (e) {
+    genWrap.innerHTML = `<span class="pill bad">error: ${e}</span>`;
+  }
+}
+
+function addTagRow() {
+  const div = document.createElement('div');
+  div.className = 'row tag-row';
+  div.style.marginTop = '4px';
+  div.innerHTML = `
+    <input type="text" placeholder="key" class="tag-key" style="flex:1;min-width:80px" />
+    <input type="text" placeholder="value" class="tag-val" style="flex:1;min-width:120px" />
+    <button class="ghost" style="flex:none;padding:2px 8px;font-size:11px" onclick="this.parentElement.remove()">×</button>`;
+  document.getElementById('tag-rows').appendChild(div);
+}
+
+function getTags() {
+  const tags = [];
+  document.querySelectorAll('.tag-row').forEach(row => {
+    const k = row.querySelector('.tag-key').value.trim();
+    const v = row.querySelector('.tag-val').value.trim();
+    if (k) tags.push({name: k, value: v});
+  });
+  return tags.length ? tags : undefined;
+}
+
+function renderTags(tags) {
+  if (!tags || !tags.length) return '';
+  return tags.map(t => `<span class="pill" title="${t[0]}=${t[1]}" style="margin:1px 2px">${t[0]}</span>`).join('');
+}
+
+function dzOver(e) {
+  e.preventDefault();
+  document.getElementById('drop-zone').classList.add('drag-over');
+}
+function dzLeave() {
+  document.getElementById('drop-zone').classList.remove('drag-over');
+}
+function dzDrop(e) {
+  e.preventDefault();
+  dzLeave();
+  if (e.dataTransfer.files.length) {
+    const bytes = Array.from(e.dataTransfer.files).reduce((s, f) => s + f.size, 0);
+    updateEstimate(bytes);
+    putFiles(e.dataTransfer.files);
+  }
+}
+
+document.addEventListener('paste', function(e) {
+  const items = e.clipboardData && e.clipboardData.items;
+  if (!items) return;
+  const imageItem = Array.from(items).find(it => it.type.startsWith('image/'));
+  if (!imageItem) return;
+  const file = imageItem.getAsFile();
+  if (!file) return;
+  const ext = file.type.split('/')[1] || 'png';
+  const named = new File([file], `clipboard-${Date.now()}.${ext}`, {type: file.type});
+  const bytes = named.size;
+  updateEstimate(bytes);
+  putFiles([named]);
+});
+
+document.getElementById('file').addEventListener('change', function() {
+  const n = this.files.length;
+  document.getElementById('dz-label').textContent = n
+    ? `${n} file${n > 1 ? 's' : ''} selected · click Store to upload`
+    : 'Paste (Ctrl+V) or drop files here or click to browse';
+  const bytes = Array.from(this.files).reduce((s, f) => s + f.size, 0);
+  updateEstimate(bytes);
+});
+
+function addQueueRow(name) {
+  const queue = document.getElementById('upload-queue');
+  const row = document.createElement('div');
+  row.className = 'q-item';
+  row.innerHTML = `<span class="q-name" title="${name}">${name}</span><span class="q-status"><span class="pill">pending</span></span>`;
+  queue.appendChild(row);
+  return row;
+}
+
+function setQueueRow(row, status, result) {
+  const s = row.querySelector('.q-status');
+  if (status === 'uploading') {
+    s.innerHTML = '<span class="pill">uploading…</span>';
+  } else if (status === 'done') {
+    const txid = result.txid || '';
+    const link = result.url ? `<a href="${result.url}" target="_blank" style="margin-left:4px">↗</a>` : '';
+    s.innerHTML = `<span class="pill" style="background:#0f2010;color:#6abf6a">✓ ${txid.slice(0,8)}…</span>${link}`;
+  } else {
+    s.innerHTML = `<span class="pill bad">✗ ${String(result).slice(0,40)}</span>`;
+  }
+}
+
+async function putFiles(files) {
+  const fileArr = Array.from(files);
+  const rows = fileArr.map(f => addQueueRow(f.name));
+  const successes = [];
+  for (let i = 0; i < fileArr.length; i++) {
+    setQueueRow(rows[i], 'uploading');
+    try {
+      const fd = new FormData();
+      fd.append('file', fileArr[i]);
+      fd.append('tags', JSON.stringify(getTags() || []));
+      const result = await jpost('/put', fd);
+      setQueueRow(rows[i], 'done', result);
+      if (result.txid) {
+        document.getElementById('txid').value = result.txid;
+        successes.push({path: fileArr[i].name, txid: result.txid});
+      }
+    } catch (e) {
+      setQueueRow(rows[i], 'error', e);
+    }
+  }
+  document.getElementById('file').value = '';
+  document.getElementById('dz-label').textContent = 'Paste (Ctrl+V) or drop files here or click to browse';
+  document.getElementById('upload-estimate').innerHTML = '';
+  if (successes.length >= 2) showManifestBtn(successes);
+  refresh();
+}
+
+function showManifestBtn(paths) {
+  const wrap = document.getElementById('manifest-wrap');
+  wrap.innerHTML = '';
+  const btn = document.createElement('button');
+  btn.className = 'ghost';
+  btn.style.cssText = 'font-size:12px;padding:4px 10px';
+  btn.textContent = 'Create Site Manifest →';
+  btn.onclick = () => createManifest(paths, wrap);
+  wrap.appendChild(btn);
+}
+
+async function createManifest(paths, wrap) {
+  wrap.innerHTML = '<span style="font-size:12px;color:#7a8896">creating manifest…</span>';
+  const indexPath = (paths.find(p => p.path === 'index.html') || paths[0]).path;
+  try {
+    const result = await jpost('/manifest',
+      JSON.stringify({paths, index: indexPath}),
+      {headers: {'Content-Type': 'application/json'}});
+    if (result.txid) {
+      const siteUrl = 'https://arweave.net/' + result.txid + '/';
+      const div = document.createElement('div');
+      div.style.cssText = 'padding:10px;background:#0f2010;border:1px solid #1a4020;border-radius:6px;font-size:12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap';
+      const lbl = document.createElement('span');
+      lbl.style.color = '#6abf6a';
+      lbl.textContent = 'Site deployed: ';
+      const a = document.createElement('a');
+      a.href = siteUrl;
+      a.target = '_blank';
+      a.className = 'txid';
+      a.textContent = siteUrl;
+      lbl.appendChild(a);
+      const copyBtn = document.createElement('button');
+      copyBtn.className = 'ghost';
+      copyBtn.style.cssText = 'font-size:11px;padding:2px 8px';
+      copyBtn.textContent = 'copy link';
+      copyBtn.onclick = () => navigator.clipboard.writeText(siteUrl).then(() => {
+        copyBtn.textContent = 'copied!';
+        setTimeout(() => { copyBtn.textContent = 'copy link'; }, 1500);
+      }).catch(() => {});
+      div.appendChild(lbl);
+      div.appendChild(copyBtn);
+      wrap.innerHTML = '';
+      wrap.appendChild(div);
+    } else {
+      wrap.innerHTML = '<span class="pill bad">manifest failed: ' + String(result.detail || result.warning || 'unknown') + '</span>';
+    }
+  } catch (e) {
+    wrap.innerHTML = '<span class="pill bad">manifest error: ' + String(e) + '</span>';
   }
 }
 
 async function putData() {
-  const file = document.getElementById('file').files[0];
-  let result;
-  if (file) {
-    const fd = new FormData();
-    fd.append('file', file);
-    result = await jpost('/put', fd);
-  } else {
-    const data = document.getElementById('data').value;
-    const name = document.getElementById('name').value || undefined;
-    let parsed;
-    try { parsed = JSON.parse(data); } catch { parsed = data; }
-    result = await jpost('/put', JSON.stringify({data: parsed, name}),
-                         {headers:{'Content-Type':'application/json'}});
+  const fileInput = document.getElementById('file');
+  if (fileInput.files.length) {
+    await putFiles(fileInput.files);
+    return;
   }
+  const data = document.getElementById('data').value;
+  const name = document.getElementById('name').value || undefined;
+  const tags = getTags();
+  let parsed;
+  try { parsed = JSON.parse(data); } catch { parsed = data; }
+  const result = await jpost('/put', JSON.stringify({data: parsed, name, tags}),
+                             {headers:{'Content-Type':'application/json'}});
   show('put-result', result);
+  const linkDiv = document.getElementById('put-link');
+  if (result.url) {
+    linkDiv.innerHTML = `<a href="${result.url}" target="_blank">View on Arweave ↗</a>`;
+  } else {
+    linkDiv.innerHTML = '';
+  }
   if (result.txid) document.getElementById('txid').value = result.txid;
+  document.getElementById('upload-estimate').innerHTML = '';
   refresh();
+}
+
+async function archiveUrl() {
+  const url = document.getElementById('url-to-archive').value.trim();
+  if (!url) return;
+  const btn = document.querySelector('[onclick="archiveUrl()"]');
+  btn.disabled = true;
+  btn.textContent = 'fetching…';
+  try {
+    const result = await jpost('/archive', JSON.stringify({url}),
+                                {headers:{'Content-Type':'application/json'}});
+    show('put-result', result);
+    const linkDiv = document.getElementById('put-link');
+    if (result.url) {
+      linkDiv.innerHTML = `<a href="${result.url}" target="_blank">View on Arweave ↗</a>`;
+    } else {
+      linkDiv.innerHTML = '';
+    }
+    if (result.txid) document.getElementById('txid').value = result.txid;
+    refresh();
+    refreshArchives();
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Archive URL';
+  }
+}
+
+async function bookmarkTx(txid, btn) {
+  if (btn) btn.disabled = true;
+  try {
+    const r = await fetch(API + '/index/' + txid, {method: 'POST'});
+    if (r.ok) {
+      if (btn) { btn.textContent = '★'; btn.title = 'saved'; btn.style.color = '#6abf6a'; }
+      refresh();
+    } else {
+      if (btn) { btn.disabled = false; btn.title = 'save failed'; }
+    }
+  } catch(e) {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function showSaveButton(txid) {
+  const div = document.getElementById('retrieve-save');
+  if (!txid || txid.startsWith('sha256-')) { div.hidden = true; return; }
+  div.hidden = false;
+  div.innerHTML = '';
+  const btn = document.createElement('button');
+  btn.className = 'ghost';
+  btn.style.cssText = 'font-size:11px;padding:2px 8px';
+  btn.textContent = 'Save to index';
+  btn.onclick = () => bookmarkTx(txid, btn);
+  div.appendChild(btn);
 }
 
 async function getTx() {
   const txid = document.getElementById('txid').value.trim();
   if (!txid) return;
+  showSaveButton(txid);
+  const el = document.getElementById('get-result');
+  el.hidden = false;
+  el.textContent = '';
   try {
     const r = await fetch(`${API}/get/${txid}`);
     const ct = r.headers.get('content-type') || '';
-    if (ct.includes('application/json')) show('get-result', await r.json());
-    else show('get-result', await r.text());
-  } catch (e) { show('get-result', String(e)); }
+    if (ct.startsWith('image/')) {
+      const blob = await r.blob();
+      const img = document.createElement('img');
+      img.src = URL.createObjectURL(blob);
+      img.style.cssText = 'max-width:100%;max-height:280px;display:block;border-radius:4px';
+      el.appendChild(img);
+    } else if (ct.includes('application/json')) {
+      el.textContent = JSON.stringify(await r.json(), null, 2);
+    } else if (ct.startsWith('video/')) {
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const video = document.createElement('video');
+      video.controls = true;
+      video.src = url;
+      video.style.cssText = 'max-width:100%;border-radius:6px;display:block';
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = txid;
+      a.textContent = 'Download video';
+      a.className = 'txid';
+      a.style.cssText = 'display:block;margin-top:4px;font-size:12px';
+      el.appendChild(video);
+      el.appendChild(a);
+    } else if (ct.startsWith('audio/')) {
+      const blob = await r.blob();
+      const audio = document.createElement('audio');
+      audio.controls = true;
+      audio.src = URL.createObjectURL(blob);
+      audio.style.cssText = 'width:100%';
+      el.appendChild(audio);
+    } else if (ct === 'application/pdf') {
+      const iframe = document.createElement('iframe');
+      iframe.src = `${API}/get/${txid}`;
+      iframe.style.cssText = 'width:100%;height:620px;border:1px solid #20262d;border-radius:6px;display:block';
+      const a = document.createElement('a');
+      a.href = `${API}/get/${txid}`;
+      a.download = txid;
+      a.textContent = 'Download PDF';
+      a.className = 'txid';
+      a.style.cssText = 'display:block;margin-top:4px;font-size:12px';
+      el.appendChild(iframe);
+      el.appendChild(a);
+    } else if (ct.startsWith('application/octet-stream') || (ct && !ct.startsWith('text/'))) {
+      const blob = await r.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = txid;
+      a.textContent = `Download binary (${blob.size} bytes)`;
+      a.className = 'txid';
+      el.appendChild(a);
+    } else if (ct === 'text/html') {
+      const text = await r.text();
+      const iframe = document.createElement('iframe');
+      iframe.setAttribute('sandbox', 'allow-same-origin allow-popups');
+      iframe.srcdoc = text;
+      iframe.style.cssText = 'width:100%;height:420px;border:1px solid #20262d;border-radius:6px;background:#fff;display:block;margin-top:6px';
+      const toggleBtn = document.createElement('button');
+      toggleBtn.className = 'ghost';
+      toggleBtn.style.cssText = 'font-size:11px;padding:2px 8px';
+      toggleBtn.textContent = 'show source';
+      let srcPre = null;
+      toggleBtn.onclick = () => {
+        if (!srcPre) { srcPre = document.createElement('pre'); srcPre.textContent = text; }
+        const showingSrc = !iframe.hidden;
+        iframe.hidden = showingSrc;
+        srcPre.hidden = !showingSrc;
+        if (!el.contains(srcPre)) el.appendChild(srcPre);
+        toggleBtn.textContent = showingSrc ? 'show preview' : 'show source';
+      };
+      el.appendChild(toggleBtn);
+      el.appendChild(iframe);
+    } else {
+      el.textContent = await r.text();
+    }
+  } catch (e) {
+    el.textContent = String(e);
+  }
 }
 
 async function getMeta() {
   const txid = document.getElementById('txid').value.trim();
   if (!txid) return;
+  showSaveButton(txid);
   show('get-result', await jget(`/tx/${txid}`));
 }
 
@@ -178,23 +720,92 @@ async function getPrice() {
   show('net-result', await jget(`/price/${n}`));
 }
 
+const MCP_URL = API + '/mcp';
+document.getElementById('mcp-url').value = MCP_URL;
+document.getElementById('mcp-cmd').textContent = `claude mcp add --transport http arweave ${MCP_URL}`;
+
+async function copyText(id) {
+  const el = document.getElementById(id);
+  const txt = 'value' in el && el.tagName === 'INPUT' ? el.value : el.textContent;
+  try { await navigator.clipboard.writeText(txt); } catch {}
+}
+
+async function mcpTools() {
+  const r = await fetch(MCP_URL, {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({jsonrpc:'2.0', id:1, method:'tools/list'})});
+  const j = await r.json();
+  const tools = (j.result?.tools || []).map(t => `${t.name} — ${t.description}`).join('\n');
+  show('mcp-result', tools || j);
+}
+
 async function refresh() {
   const r = await jget('/list');
+  const items = r.items || [];
   const tbody = document.querySelector('#list tbody');
   tbody.innerHTML = '';
-  for (const item of (r.items || [])) {
+  for (const item of items) {
+    const tags = renderTags((item.metadata || {}).tags);
+    let confsCell = '';
+    let needsAutoCheck = false;
+    if (item.backend === 'arweave') {
+      let cached = null;
+      try { cached = localStorage.getItem('arweave-conf:' + item.txid); } catch {}
+      if (cached) {
+        confsCell = cached;
+      } else {
+        confsCell = '<span class="pill" style="color:#7a8896">checking…</span>';
+        needsAutoCheck = true;
+      }
+    }
+    const pushCell = walletConfigured && item.backend === 'local'
+      ? `<button class="ghost" onclick="pushToArweave('${item.txid}')">push →</button>`
+      : '';
     const tr = document.createElement('tr');
     tr.innerHTML = `
-      <td><span class="txid">${item.txid}</span></td>
+      <td>${item.url ? `<a class="txid" href="${item.url}" target="_blank">${item.txid}</a>` : `<span class="txid">${item.txid}</span>`}</td>
       <td>${item.name || ''}</td>
       <td>${item.size ?? ''}</td>
-      <td>${item.backend}</td>
+      <td><span class="pill${item.backend === 'local' ? ' warn' : ''}">${item.backend}</span></td>
+      <td>${confsCell}</td>
+      <td>${tags}</td>
+      <td style="font-size:11px;color:#7a8896">${item.created ? timeAgo(item.created * 1000) : '—'}</td>
       <td>
+        ${pushCell}
         <button class="ghost" onclick="document.getElementById('txid').value='${item.txid}';getTx()">get</button>
+        <a href="${BASE}/view/${item.txid}" target="_blank" style="font-size:11px;color:#c0a8ff">view ↗</a>
         <button class="ghost" onclick="rm('${item.txid}')">rm</button>
       </td>`;
     tbody.appendChild(tr);
+    if (needsAutoCheck) {
+      const confTd = tr.querySelectorAll('td')[4];
+      checkConf(item.txid, confTd);
+    }
   }
+  const localItems = items.filter(i => i.backend === 'local');
+  const pushAllWrap = document.getElementById('push-all-wrap');
+  if (walletConfigured && localItems.length > 0) {
+    pushAllWrap.innerHTML = `<button class="ghost" onclick="pushAllLocal()" style="font-size:11px;padding:2px 8px">Push all local (${localItems.length})</button>`;
+  } else {
+    pushAllWrap.innerHTML = '';
+  }
+}
+
+async function pushToArweave(txid) {
+  await fetch(API + '/push/' + txid, {method: 'POST'});
+  refresh();
+}
+
+async function pushAllLocal() {
+  const r = await jget('/list');
+  const locals = (r.items || []).filter(i => i.backend === 'local').map(i => i.txid);
+  if (!locals.length) return;
+  const wrap = document.getElementById('push-all-wrap');
+  let done = 0;
+  for (const txid of locals) {
+    wrap.innerHTML = `<span style="font-size:11px;color:#7a8896">pushing ${++done}/${locals.length}…</span>`;
+    await fetch(API + '/push/' + txid, {method: 'POST'});
+  }
+  refresh();
 }
 
 async function rm(txid) {
@@ -202,7 +813,189 @@ async function rm(txid) {
   refresh();
 }
 
-statusCheck();
+async function queryTxs(append = false) {
+  const owner = document.getElementById('q-owner').value.trim();
+  const tagName = document.getElementById('q-tag-name').value.trim();
+  const tagValue = document.getElementById('q-tag-value').value.trim();
+  const first = parseInt(document.getElementById('q-first').value, 10) || 10;
+  const params = new URLSearchParams();
+  if (owner) params.set('owner', owner);
+  if (tagName) params.set('tag_name', tagName);
+  if (tagValue) params.set('tag_value', tagValue);
+  params.set('first', first);
+  if (!append) {
+    searchCursor = null;
+  } else if (searchCursor) {
+    params.set('after', searchCursor);
+  }
+  document.getElementById('q-error').hidden = true;
+  if (!append) {
+    document.getElementById('q-results').hidden = true;
+    document.getElementById('q-load-more').hidden = true;
+  }
+  try {
+    const data = await jget('/query?' + params);
+    const edges = data.edges || [];
+    const tbody = document.querySelector('#q-table tbody');
+    const qGrid = document.getElementById('q-grid');
+    if (!append) { tbody.innerHTML = ''; qGrid.innerHTML = ''; }
+    for (const edge of edges) {
+      const node = edge.node || {};
+      const id = node.id || '';
+      const tags = (node.tags || []).map(t => `${t.name}=${t.value}`).join(', ');
+      const size = node.data?.size ?? '';
+      const when = node.block?.timestamp ? timeAgo(node.block.timestamp * 1000) : '—';
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><a class="txid" href="${BASE}/view/${id}" target="_blank">${id}</a></td>
+        <td style="font-size:11px;color:#7a8896">${tags}</td>
+        <td>${size}</td>
+        <td style="font-size:11px;color:#7a8896">${when}</td>
+        <td></td>`;
+      const saveTd = tr.querySelector('td:last-child');
+      const saveBtn = document.createElement('button');
+      saveBtn.className = 'ghost';
+      saveBtn.style.cssText = 'padding:2px 6px;font-size:11px';
+      saveBtn.title = 'Save to index';
+      saveBtn.textContent = '☆';
+      saveBtn.onclick = () => bookmarkTx(id, saveBtn);
+      saveTd.appendChild(saveBtn);
+      tbody.appendChild(tr);
+      if (id) qGrid.appendChild(makeGridCard(id, node));
+    }
+    if (!append && !edges.length) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = '<td colspan="4" style="color:#7a8896">no results</td>';
+      tbody.appendChild(tr);
+    }
+    searchCursor = edges.length ? edges[edges.length - 1].cursor : null;
+    document.getElementById('q-load-more').hidden = !(edges.length >= first && searchCursor);
+    document.getElementById('q-results').hidden = false;
+  } catch (e) {
+    const el = document.getElementById('q-error');
+    el.hidden = false;
+    el.textContent = String(e);
+  }
+}
+
+async function refreshArchives() {
+  const params = new URLSearchParams({tag_name: 'App-Name', tag_value: 'mod-arweave', first: 20});
+  const noteEl = document.getElementById('archives-note');
+  if (walletAddress) {
+    params.set('owner', walletAddress);
+    noteEl.textContent = '';
+  } else {
+    noteEl.textContent = 'showing community archives (all mod-arweave uploads)';
+  }
+  const tbody = document.querySelector('#archives-table tbody');
+  try {
+    const [graphqlData, listData] = await Promise.all([
+      jget('/query?' + params),
+      jget('/list')
+    ]);
+    const rows = [];
+    const seen = new Set();
+    for (const edge of (graphqlData.edges || [])) {
+      const node = edge.node || {};
+      const id = node.id || '';
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      const tags = node.tags || [];
+      const sourceUrl = (tags.find(t => t.name === 'Source-URL') || {}).value || '';
+      rows.push({ txid: id, sourceUrl, size: node.data?.size ?? '', backend: 'arweave', url: `${BASE}/view/${id}` });
+    }
+    for (const item of (listData.items || [])) {
+      if (item.backend !== 'local') continue;
+      const tags = item.metadata?.tags || [];
+      if (!tags.some(t => t[0] === 'Source-URL')) continue;
+      const txid = item.txid || '';
+      if (!txid || seen.has(txid)) continue;
+      seen.add(txid);
+      const sourceUrl = (tags.find(t => t[0] === 'Source-URL') || [])[1] || '';
+      rows.push({ txid, sourceUrl, size: item.size ?? '', backend: 'local', url: item.url || `${BASE}/view/${txid}` });
+    }
+    tbody.innerHTML = '';
+    if (!rows.length) {
+      tbody.innerHTML = '<tr><td colspan="3" style="color:#7a8896">no archives yet</td></tr>';
+      return;
+    }
+    for (const row of rows) {
+      const shortUrl = row.sourceUrl.length > 60 ? row.sourceUrl.slice(0, 57) + '…' : row.sourceUrl;
+      const backendBadge = row.backend === 'local' ? ' <span class="pill warn">local</span>' : '';
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${row.sourceUrl ? `<a href="${row.sourceUrl}" target="_blank" title="${row.sourceUrl}">${shortUrl}</a>` : '—'}</td>
+        <td>${row.size}</td>
+        <td>${row.txid ? `<a class="txid" href="${row.url}" target="_blank">${row.txid.slice(0, 8)}…</a>` : '—'}${backendBadge}</td>`;
+      tbody.appendChild(tr);
+    }
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="3" style="color:#7a8896">error: ${String(e)}</td></tr>`;
+  }
+}
+
+const _CONF_DELAYS = [15000, 30000, 60000, 60000, 60000];
+
+async function checkConf(txid, td, attempt = 0) {
+  try {
+    const r = await jget(`/tx/${txid}/confirm`);
+    if (r.status === 'confirmed') {
+      const html = `<span class="pill" style="background:#0f2010;color:#6abf6a">✓ ${r.confirmations} confs</span>`;
+      td.innerHTML = html;
+      try { localStorage.setItem('arweave-conf:' + txid, html); } catch {}
+    } else if (r.status === 'bundler_accepted') {
+      td.innerHTML = `<span class="pill" style="background:#0f1a10;color:#7abf5a">✓ turbo (pending chain)</span>`;
+      if (attempt < _CONF_DELAYS.length) setTimeout(() => checkConf(txid, td, attempt + 1), _CONF_DELAYS[attempt]);
+    } else if (r.status === 'pending') {
+      td.innerHTML = `<span class="pill warn">⏳ pending</span>`;
+      if (attempt < _CONF_DELAYS.length) setTimeout(() => checkConf(txid, td, attempt + 1), _CONF_DELAYS[attempt]);
+    } else {
+      td.innerHTML = `<span class="pill bad">${r.status}</span>`;
+    }
+  } catch {
+    if (attempt < _CONF_DELAYS.length) setTimeout(() => checkConf(txid, td, attempt + 1), _CONF_DELAYS[attempt]);
+  }
+}
+
+async function refreshFeed() {
+  document.getElementById('feed-error').hidden = true;
+  try {
+    const data = await jget('/query?first=10');
+    const edges = data.edges || [];
+    const tbody = document.querySelector('#feed-table tbody');
+    const fGrid = document.getElementById('feed-grid');
+    tbody.innerHTML = '';
+    fGrid.innerHTML = '';
+    for (const edge of edges) {
+      const node = edge.node || {};
+      const id = node.id || '';
+      const appTag = (node.tags || []).find(t => t.name === 'App-Name');
+      const app = appTag ? appTag.value : '—';
+      const size = node.data?.size ?? '';
+      const when = node.block?.timestamp ? timeAgo(node.block.timestamp * 1000) : '—';
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><a class="txid" href="${BASE}/view/${id}" target="_blank">${id}</a></td>
+        <td style="font-size:11px;color:#7a8896">${app}</td>
+        <td>${size}</td>
+        <td style="font-size:11px;color:#7a8896">${when}</td>`;
+      tbody.appendChild(tr);
+      if (id) fGrid.appendChild(makeGridCard(id, node));
+    }
+    if (!edges.length) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = '<td colspan="4" style="color:#7a8896">no results</td>';
+      tbody.appendChild(tr);
+    }
+  } catch (e) {
+    const el = document.getElementById('feed-error');
+    el.hidden = false;
+    el.textContent = String(e);
+    document.querySelector('#feed-table tbody').innerHTML = '';
+  }
+}
+
+statusCheck().then(() => { refreshArchives(); refreshFeed(); });
 refresh();
 </script>
 </body>

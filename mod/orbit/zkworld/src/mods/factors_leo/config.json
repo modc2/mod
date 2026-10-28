@@ -1,0 +1,27 @@
+{
+    "name": "factors_leo",
+    "title": "FactorsLeo",
+    "description": "FactorsLeo \u2014 a Leo project.",
+    "version": "0.1.0",
+    "submod_of": "zkworld",
+    "framework": "leo",
+    "kind": "leo-project",
+    "template": "factors",
+    "anchor": "mod.py",
+    "fns": [
+        "forward",
+        "info",
+        "build",
+        "test",
+        "vibe",
+        "abi",
+        "tree",
+        "read",
+        "write",
+        "clean",
+        "app",
+        "witness"
+    ],
+    "statement": "factors",
+    "schema": "QmPBkc4rYZm38RSpqHrQxdJUMebPVswhAQcRL7tzDrNYvv"
+}

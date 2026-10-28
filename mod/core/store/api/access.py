@@ -66,8 +66,10 @@ def infer_scheme(cid: str) -> str:
             if pre and pre.isalnum() and len(pre) <= 12:
                 return pre
             break
-    # IPFS v0 (Qm…, base58, 46 chars) / v1 (bafy…, bafk…).
-    if (c.startswith('Qm') and len(c) == 46) or c.startswith(('bafy', 'bafk', 'bafz')):
+    # IPFS v0 (Qm…, base58, 46 chars) / v1 (b + base32lower, >=59 chars — ALL CIDv1s
+    # start with 'ba' since varint(1) encodes as 0x01 whose top 5 bits are 0 = 'a').
+    if (c.startswith('Qm') and len(c) == 46) or (
+            len(c) >= 59 and c[0] == 'b' and all(x in 'abcdefghijklmnopqrstuvwxyz234567' for x in c)):
         return 'ipfs'
     # Arweave tx ids: 43-char base64url.
     if len(c) == 43 and all(ch.isalnum() or ch in '-_' for ch in c):

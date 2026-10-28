@@ -12,6 +12,14 @@ module.exports = {
         runs: 200,
       },
     },
+    // Yuma's epoch maths holds too many locals for the legacy pipeline;
+    // viaIR only here so the deployed contracts keep identical bytecode.
+    overrides: {
+      'contracts/yuma/YumaBlocTime.sol': {
+        version: '0.8.20',
+        settings: { optimizer: { enabled: true, runs: 200 }, viaIR: true },
+      },
+    },
   },
   networks: {
     ganache: {

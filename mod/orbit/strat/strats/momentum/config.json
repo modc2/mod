@@ -1,0 +1,11 @@
+{
+    "name": "momentum",
+    "description": "Buy what is rising, exit what is falling — price momentum read off the flow tape, no watchlist needed.",
+    "version": "1.0.0",
+    "strat": {
+        "protocol": 1,
+        "class": "strat.py:Momentum",
+        "venues": ["raydium", "uniswap", "hyperliquid", "bittensor", "polymarket"],
+        "params": {"rise_pct": 2.0, "drop_pct": 2.0, "window": 20, "stake": 25.0}
+    }
+}

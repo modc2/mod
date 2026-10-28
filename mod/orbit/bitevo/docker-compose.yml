@@ -8,10 +8,10 @@ services:
     container_name: bitevo
     image: mod:latest
     ports:
-      - "${GATEWAY_PORT:-50121}:${GATEWAY_PORT:-50121}"
+      - "${GATEWAY_PORT:-51461}:${GATEWAY_PORT:-51461}"
     restart: unless-stopped
     environment:
-      - GATEWAY_PORT=${GATEWAY_PORT:-50121}
+      - GATEWAY_PORT=${GATEWAY_PORT:-51461}
     volumes:
       - ~/mod:/root/mod:ro
       - ~/.mod:/root/.mod

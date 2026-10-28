@@ -1,0 +1,5 @@
+# zkworld circom project. main.circom is the entry; lib/ is on the include path.
+[package]
+name = "agecheck"
+description = "Prove you are old enough without saying your age."
+circom = "2.1.6"

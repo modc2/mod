@@ -1,0 +1,189 @@
+{
+  "netuid": 90,
+  "name": "KubeTEE",
+  "symbol": "テ",
+  "owner": "5C9y6fnLPSzBeh1Np7f4DnGen42xV29nL9qZTDuwpVC4iTEE",
+  "description": "KubeTEE AI Factory: Confidential Computing TEE Multi-Cluster K8s",
+  "github": "https://github.com/KubeTEE-AI/kubetee-subnet",
+  "url": "https://kubetee.ai",
+  "discord": "https://discord.gg/KUeXm9XQG4",
+  "logo": "https://kubetee.ai/logo.png",
+  "registered_at": 8618670,
+  "tempo": 360,
+  "active": true,
+  "block": 9322663,
+  "related": [],
+  "market": {
+    "price": 0.02153366,
+    "moving_price": 0.020940658170729876,
+    "market_cap": 16463.095360638068,
+    "tao_in": 5096.811149391,
+    "alpha_in": 236690.44532703,
+    "alpha_out": 527837.988791372,
+    "volume": 123470.924786544,
+    "vol_24h": 1148.577011389003,
+    "emission": 0.0,
+    "change_1h": 0.48536963767997765,
+    "change_24h": 7.466831930180495,
+    "change_7d": 1.8176732246971028
+  },
+  "spark_24h": [
+    0.020037494,
+    0.020054977,
+    0.020074547,
+    0.020100017,
+    0.020100302,
+    0.020100417,
+    0.020100571,
+    0.020100702,
+    0.020100871,
+    0.020100706,
+    0.020099183,
+    0.020099463,
+    0.021654938,
+    0.021371291,
+    0.021371403,
+    0.021370816,
+    0.021217421,
+    0.021221834,
+    0.021224364,
+    0.021323,
+    0.021323247,
+    0.021400469,
+    0.021382755,
+    0.021421067,
+    0.021399941,
+    0.021459135,
+    0.021374864,
+    0.021375021,
+    0.021376869,
+    0.0213772,
+    0.021377625,
+    0.021377825,
+    0.021381903,
+    0.02143266,
+    0.0214384,
+    0.02143845,
+    0.021438611,
+    0.021423098,
+    0.021423304,
+    0.021423601,
+    0.021424059,
+    0.021428996,
+    0.021429285,
+    0.021429328,
+    0.021429291,
+    0.021429647,
+    0.021429915,
+    0.02153366
+  ],
+  "trades_24h": {
+    "trades": 151,
+    "buys": 75,
+    "sells": 76,
+    "buy_tao": 660.561012454,
+    "sell_tao": 458.757128169,
+    "net_tao": 201.80388428499998,
+    "traders": 65
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5FRu1T5Rr6LVw3nu2RmRhxRyYnvJJ9o98a1DNvnZAyGuNMKu",
+      "net_tao": 250.0,
+      "gross_tao": 250.0,
+      "trades": 1
+    },
+    {
+      "coldkey": "5Gy3ybnsXLe4HSArvQLdBDK2zn53xH77cQ7Bt78dnihQ268b",
+      "net_tao": -0.06807016399999988,
+      "gross_tao": 76.068070164,
+      "trades": 8
+    },
+    {
+      "coldkey": "5GW9Nb89AR9SVvAuQW2b62KZkTYAcbJ2yAW4UGWx8bxrVoPD",
+      "net_tao": 0.5321438959999991,
+      "gross_tao": 63.467856104,
+      "trades": 8
+    },
+    {
+      "coldkey": "5ESESQ6B9csJuHE8sjbLSwmzesDLNiATrChRJZmKNAeGvyKs",
+      "net_tao": -2.2991169740000004,
+      "gross_tao": 52.299116974,
+      "trades": 4
+    },
+    {
+      "coldkey": "5GFASTQftoZcMXRuaML9brsMMZQJMqyTViMnYHQsN5mTi1hN",
+      "net_tao": -0.008294007999998965,
+      "gross_tao": 48.210072712,
+      "trades": 10
+    }
+  ],
+  "news": [
+    {
+      "ts": 1792417857,
+      "kind": "commit",
+      "source": "github",
+      "title": "docs: fix broken anchors, table render, and fleet count (README/docs …",
+      "url": "https://github.com/KubeTEE-AI/kubetee-subnet/commit/fa976a3909b7af6459597f5a5fe855fda6b2ca68",
+      "publisher": "KubeTEE-AI/kubetee-subnet"
+    },
+    {
+      "ts": 1792415913,
+      "kind": "commit",
+      "source": "github",
+      "title": "docs: Early Access → Phase 1 transition",
+      "url": "https://github.com/KubeTEE-AI/kubetee-subnet/commit/202d481f6029a1e634a19fda4b1af178a2045314",
+      "publisher": "KubeTEE-AI/kubetee-subnet"
+    },
+    {
+      "ts": 1792152712,
+      "kind": "commit",
+      "source": "github",
+      "title": "docs(subnet): sync east-west/model catalogue + fix stale CPU-GPU refe…",
+      "url": "https://github.com/KubeTEE-AI/kubetee-subnet/commit/6cc7b6ee996c528000cb7ed53dd2500fad58c855",
+      "publisher": "KubeTEE-AI/kubetee-subnet"
+    },
+    {
+      "ts": 1792150478,
+      "kind": "commit",
+      "source": "github",
+      "title": "docs(subnet): hardware policy — Blackwell/Vera Rubin + 6th Gen CPUs o…",
+      "url": "https://github.com/KubeTEE-AI/kubetee-subnet/commit/e5c4e41f2c7f1f28b1fa8cceddd40e754d133130",
+      "publisher": "KubeTEE-AI/kubetee-subnet"
+    },
+    {
+      "ts": 1792145768,
+      "kind": "commit",
+      "source": "github",
+      "title": "docs(subnet): sync east-west attested mTLS rows with live backends",
+      "url": "https://github.com/KubeTEE-AI/kubetee-subnet/commit/375914721d9760e723ed3253ea5047987d4ac613",
+      "publisher": "KubeTEE-AI/kubetee-subnet"
+    },
+    {
+      "ts": 1792145768,
+      "kind": "commit",
+      "source": "github",
+      "title": "docs(subnet): README model lists + validator stats sync",
+      "url": "https://github.com/KubeTEE-AI/kubetee-subnet/commit/e988375e768d48b415078af131e74b572e8c6ed9",
+      "publisher": "KubeTEE-AI/kubetee-subnet"
+    },
+    {
+      "ts": 1792145768,
+      "kind": "commit",
+      "source": "github",
+      "title": "docs(subnet): SN28 sayGM GLM-5.2 H200 + GLM-5.3 RadixArk updates",
+      "url": "https://github.com/KubeTEE-AI/kubetee-subnet/commit/890f0c413ca8a688dfb8ef116786d0ea1be88365",
+      "publisher": "KubeTEE-AI/kubetee-subnet"
+    },
+    {
+      "ts": 1791482499,
+      "kind": "commit",
+      "source": "github",
+      "title": "docs(nemotron-omni): 256k context verified + NIM 2.0.13 + gateway mod…",
+      "url": "https://github.com/KubeTEE-AI/kubetee-subnet/commit/feeb7495bb93a900a76f63af170bd0404187f871",
+      "publisher": "KubeTEE-AI/kubetee-subnet"
+    }
+  ],
+  "updated": 1792474861,
+  "updated_day": "2026-10-20"
+}

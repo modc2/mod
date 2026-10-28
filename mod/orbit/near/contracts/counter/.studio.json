@@ -1,0 +1,12 @@
+{
+  "name": "counter",
+  "template": "counter",
+  "desc": "The smallest real contract: one number in storage, a view that reads it, two changes that move it, an owner-only reset, and a log line per change",
+  "created": 1792025194,
+  "init": {
+    "method": "new",
+    "args": {}
+  },
+  "cairo_twin": "counter",
+  "deployed": []
+}

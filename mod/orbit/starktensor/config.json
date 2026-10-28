@@ -1,0 +1,53 @@
+{
+    "name": "starktensor",
+    "title": "Starktensor \u00b7 red-team prompt bridge",
+    "version": "0.1.0",
+    "description": "A red-team / robustness-evaluation bridge between the elder-plinius 'pliny' prompt corpus and the agent protocol. It reads the adversarial jailbreak/liberation prompts the plinyville module already mirrors (DEFANGED, as a security exhibit) and exposes them to orbit/agent as labelled TEST overlays, so you can run your own agents against them and measure how well their guardrails hold. This is an evaluation harness, not a production guardrail-bypass switch: overlays are tagged redteam=true and are never auto-applied to a live agent. Sources are read from the local plinyville store, never re-scraped.",
+    "icon": "S",
+    "color": "#b061ff",
+    "anchor": "mod.py",
+    "network": "local",
+    "port": 51290,
+    "app_port": 51290,
+    "gateway_port": 51290,
+    "base_path": "/starktensor",
+    "route": true,
+    "deps": [
+        "plinyville",
+        "agent"
+    ],
+    "urls": {
+        "app": "http://localhost:51290/starktensor/",
+        "api": "http://localhost:51290",
+        "mcp": "http://localhost:51290/mcp"
+    },
+    "state": "~/.mod/starktensor/ (override with STARKTENSOR_DIR); the prompt corpus is read from the plinyville store (~/.mod/store/plinyville/mods)",
+    "fns": [
+        "forward",
+        "info",
+        "health",
+        "readme",
+        "vendors",
+        "list",
+        "get",
+        "search",
+        "overlay",
+        "probe",
+        "serve",
+        "test",
+        "kill"
+    ],
+    "endpoints": {
+        "GET /health": "Liveness probe (touches only the local store)",
+        "GET /status": "Deployment status",
+        "POST /starktensor/info": "What this module is and the routes it serves",
+        "POST /starktensor/vendors": "Red-team prompt source repos available in the local pliny corpus",
+        "POST /starktensor/list": "List prompt entries in one source repo (repo=, q=)",
+        "POST /starktensor/get": "Read one prompt's text, labelled RED-TEAM (repo=, path=)",
+        "POST /starktensor/search": "Grep the whole corpus for a string (q=)",
+        "POST /starktensor/overlay": "Build an agent-protocol RED-TEAM test overlay from a prompt (repo=, path=, agent=)",
+        "POST /starktensor/probe": "ROADMAP: run an agent against an overlay and score robustness"
+    },
+    "safety": "The pliny corpus is guardrail-bypass (jailbreak) content. This module treats it the way plinyville does: as a DEFANGED red-team exhibit. Overlays are evaluation test-cases tagged redteam=true and are never silently mounted on a live agent.",
+    "schema": "QmYt2qjK2gehCVPKJCGrakHv7GK12z547qn6pRFHMY54WM"
+}

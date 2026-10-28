@@ -1,0 +1,157 @@
+{
+  "netuid": 36,
+  "name": "Epago",
+  "symbol": "כ",
+  "owner": "5DCjvVt6LbtM5YhMd3McczwSQpu4w85Gq5ENqSsyXjwgJxpZ",
+  "description": "THE OPEN INTELLIGENCE LAYER FOR HUMANS AND AGENTS",
+  "github": "https://github.com/EpagoFoundation/epago",
+  "url": "https://epago.ai/",
+  "discord": null,
+  "logo": "https://epago.ai/assets/epago-logo.png",
+  "registered_at": 8884359,
+  "tempo": 360,
+  "active": true,
+  "block": 9322663,
+  "related": [],
+  "market": {
+    "price": 0.001057447,
+    "moving_price": 0.001269353087991476,
+    "market_cap": 407.6697473445147,
+    "tao_in": 225.319276747,
+    "alpha_in": 213078.477020984,
+    "alpha_out": 172444.151862085,
+    "volume": 23024.371390339,
+    "vol_24h": 106.64630576900163,
+    "emission": 0.0,
+    "change_1h": -3.4993835514554372,
+    "change_24h": -23.682546785124025,
+    "change_7d": -34.73214147941722
+  },
+  "spark_24h": [
+    0.00138559,
+    0.00138559,
+    0.001374734,
+    0.001380682,
+    0.001380678,
+    0.001380676,
+    0.001380676,
+    0.001377624,
+    0.001377624,
+    0.001377603,
+    0.0013774,
+    0.0013774,
+    0.00134611,
+    0.001229525,
+    0.001229525,
+    0.001229484,
+    0.001229484,
+    0.001229484,
+    0.001229484,
+    0.001243095,
+    0.001243095,
+    0.001243093,
+    0.001243093,
+    0.001243093,
+    0.001243093,
+    0.001148336,
+    0.001148336,
+    0.001148336,
+    0.001146554,
+    0.001145272,
+    0.001145272,
+    0.001145272,
+    0.001145272,
+    0.001145272,
+    0.001141141,
+    0.001140862,
+    0.001140862,
+    0.001140862,
+    0.001140806,
+    0.001140806,
+    0.001140806,
+    0.001140806,
+    0.001140806,
+    0.001140801,
+    0.001095793,
+    0.001095793,
+    0.001095793,
+    0.001057447
+  ],
+  "trades_24h": {
+    "trades": 46,
+    "buys": 16,
+    "sells": 30,
+    "buy_tao": 37.029247143,
+    "sell_tao": 64.228469433,
+    "net_tao": -27.19922229,
+    "traders": 19
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5GFASTQftoZcMXRuaML9brsMMZQJMqyTViMnYHQsN5mTi1hN",
+      "net_tao": 0.02358807999999879,
+      "gross_tao": 48.334303766,
+      "trades": 4
+    },
+    {
+      "coldkey": "5E55pM4zoP6SwCSTpkVrthGFAcj6Zy7U2tRSKqoWn6PBVcbY",
+      "net_tao": -7.949468754,
+      "gross_tao": 10.947909438,
+      "trades": 3
+    },
+    {
+      "coldkey": "5HJuegWz9iKL2P5PrNNWDKVwciaDXy1TC3iTGhK1xxoewo2Z",
+      "net_tao": -10.487915339999999,
+      "gross_tao": 10.487915339999999,
+      "trades": 4
+    },
+    {
+      "coldkey": "5CyEHfJ1JtLTPYfAGSYz18daGhQgBQbv8Ft7T83ajMJm8qAw",
+      "net_tao": -6.143611614,
+      "gross_tao": 6.143611614,
+      "trades": 1
+    },
+    {
+      "coldkey": "5DqKWm43cjo2GTKptXhYzA1dXJzM8MZUN68nhdYxwyVyLk6W",
+      "net_tao": 4.418265736,
+      "gross_tao": 4.418265736,
+      "trades": 1
+    }
+  ],
+  "news": [
+    {
+      "ts": 1789996742,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #12 from EpagoFoundation/staging",
+      "url": "https://github.com/EpagoFoundation/epago/commit/4dcb572f2a5a8ef3a174154d97beecf61c6030e9",
+      "publisher": "EpagoFoundation/epago"
+    },
+    {
+      "ts": 1789996727,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #13 from EpagoFoundation/feat/transcripts-and-atte…",
+      "url": "https://github.com/EpagoFoundation/epago/commit/0a6d6aecdcbbfb5740280c969e9cf7395d758b45",
+      "publisher": "EpagoFoundation/epago"
+    },
+    {
+      "ts": 1789994810,
+      "kind": "commit",
+      "source": "github",
+      "title": "Allow three attempts per hotkey, one model per round, from round 4",
+      "url": "https://github.com/EpagoFoundation/epago/commit/e5c4ccbfcc929634e75500236cfd16ed463f234a",
+      "publisher": "EpagoFoundation/epago"
+    },
+    {
+      "ts": 1789991705,
+      "kind": "commit",
+      "source": "github",
+      "title": "Write full episode transcripts when a transcript directory is set",
+      "url": "https://github.com/EpagoFoundation/epago/commit/f163c55786d7c59a66f747a91a531049eee453cf",
+      "publisher": "EpagoFoundation/epago"
+    }
+  ],
+  "updated": 1792474861,
+  "updated_day": "2026-10-20"
+}

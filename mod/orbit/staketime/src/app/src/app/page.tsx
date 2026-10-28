@@ -412,7 +412,6 @@ function StakeTimeApp() {
   const defaultSubnetParams = useMemo(() => ({
     name: '',
     symbol: '',
-    initialSupply: '1000000',
     emissionRate: '100',
     epochLength: 43200,
     decayBps: 500,
@@ -470,7 +469,6 @@ function StakeTimeApp() {
       const result = await api('deploy_subnet', {
         name: llmParams.name,
         symbol: llmParams.symbol,
-        initial_supply: llmParams.initialSupply || '1000000',
         max_lock_blocks: llmParams.maxLockBlocks || 100000,
         max_stakers_per_validator: llmParams.maxStakersPerValidator || 100,
         default_commission_bps: llmParams.defaultCommissionBps || 1000,
@@ -711,7 +709,6 @@ function StakeTimeApp() {
                     {[
                       { label: 'Name', key: 'name', type: 'text' },
                       { label: 'Symbol', key: 'symbol', type: 'text' },
-                      { label: 'Initial Supply', key: 'initialSupply', type: 'text' },
                       { label: 'Emission Rate/Epoch', key: 'emissionRate', type: 'text' },
                       { label: 'Epoch Length (blocks)', key: 'epochLength', type: 'number' },
                       { label: 'Decay (bps)', key: 'decayBps', type: 'number' },

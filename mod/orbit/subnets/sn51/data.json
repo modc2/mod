@@ -1,0 +1,191 @@
+{
+  "netuid": 51,
+  "name": "lium.io",
+  "symbol": "ת",
+  "owner": "5FqACMtcegZxxopgu1g7TgyrnyD8skurr9QDPLPhxNQzsThe",
+  "description": "Agent-first GPU cloud. Rent NVIDIA GPUs via web, CLI, SDK, or API. Providers earn 95% rental revenue + bonuses.",
+  "github": "https://github.com/Datura-ai/lium-io",
+  "url": "https://lium.io",
+  "discord": "https://discord.gg/lium",
+  "logo": "https://lium.io/web-app-manifest-512x512.png",
+  "registered_at": 3966206,
+  "tempo": 360,
+  "active": true,
+  "block": 9322663,
+  "related": [
+    "lium"
+  ],
+  "market": {
+    "price": 0.110218834,
+    "moving_price": 0.11046709609217942,
+    "market_cap": 681138.2959822833,
+    "tao_in": 179694.135254195,
+    "alpha_in": 1630339.700358601,
+    "alpha_out": 4549532.389218061,
+    "volume": 2305091.6466272,
+    "vol_24h": 8164.912233307958,
+    "emission": 0.0,
+    "change_1h": -0.6156466855535614,
+    "change_24h": 0.2913365849168459,
+    "change_7d": 2.8787259898446216
+  },
+  "spark_24h": [
+    0.109898659,
+    0.109906607,
+    0.111013954,
+    0.110947607,
+    0.111179798,
+    0.110825773,
+    0.11042186,
+    0.110669625,
+    0.110685085,
+    0.110431723,
+    0.110527579,
+    0.110528284,
+    0.110133402,
+    0.110120344,
+    0.110094616,
+    0.110225817,
+    0.110229058,
+    0.110248134,
+    0.110251952,
+    0.110806315,
+    0.110801911,
+    0.111014449,
+    0.11101788,
+    0.110972279,
+    0.110977824,
+    0.111142295,
+    0.111148163,
+    0.111154282,
+    0.110982499,
+    0.111050562,
+    0.111003336,
+    0.111012351,
+    0.111163116,
+    0.111167059,
+    0.110928367,
+    0.110921545,
+    0.110923985,
+    0.110934377,
+    0.110932627,
+    0.110937511,
+    0.110944197,
+    0.110923058,
+    0.110925637,
+    0.110909368,
+    0.110914773,
+    0.110901596,
+    0.110570504,
+    0.110218834
+  ],
+  "trades_24h": {
+    "trades": 576,
+    "buys": 218,
+    "sells": 358,
+    "buy_tao": 3827.046020109,
+    "sell_tao": 3919.818286536,
+    "net_tao": -92.77226642699998,
+    "traders": 263
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5CXwAFZG5JGxidYjeAwn2mzgHwktUPNczqtGi6HpNaJvWszN",
+      "net_tao": -101.37027141899999,
+      "gross_tao": 901.370271419,
+      "trades": 9
+    },
+    {
+      "coldkey": "5G77RdddzCq241C5CMhxhjHytaFuHTfFVKJqfG9dZnkdhp1m",
+      "net_tao": 627.067028261,
+      "gross_tao": 627.067028261,
+      "trades": 5
+    },
+    {
+      "coldkey": "5GHfXPxrFpyPDVM7tUdqa7oeVpFfdH9CWiHyDMnsjjvd4pjR",
+      "net_tao": -100.21467393100001,
+      "gross_tao": 500.214673931,
+      "trades": 5
+    },
+    {
+      "coldkey": "5Gb23Q7n115ypiHr6jAMRhkhADhEkRFYa5ovgipVApqMt3FV",
+      "net_tao": -0.5368060549999996,
+      "gross_tao": 400.536806055,
+      "trades": 2
+    },
+    {
+      "coldkey": "5F1XjkDCLVygZb73otM2ePzRgyZ6U2g2F6CMLD4uwuktzi8g",
+      "net_tao": 0.43107811800000206,
+      "gross_tao": 399.568921882,
+      "trades": 4
+    }
+  ],
+  "news": [
+    {
+      "ts": 1792438966,
+      "kind": "commit",
+      "source": "github",
+      "title": "DAH-4195 - [P2] Skip could-not-reach rows when the miner reached almo…",
+      "url": "https://github.com/Datura-ai/lium-io/commit/46d1c4b88d848daa7ce569bba52e914a119d3ee4",
+      "publisher": "Datura-ai/lium-io"
+    },
+    {
+      "ts": 1792426314,
+      "kind": "commit",
+      "source": "github",
+      "title": "DAH-4124 - [P2] validator: record EXECUTOR_UNREACHABLE_BY_MINER for a…",
+      "url": "https://github.com/Datura-ai/lium-io/commit/4ff83f8bb0afa2fa8e730fd742beb234a781e255",
+      "publisher": "Datura-ai/lium-io"
+    },
+    {
+      "ts": 1792422115,
+      "kind": "commit",
+      "source": "github",
+      "title": "DAH-4547 - [P0] Validator: host hardware fingerprint a provider canno…",
+      "url": "https://github.com/Datura-ai/lium-io/commit/33671b1e1d630dbae961d9107c9b07d5e17d96ae",
+      "publisher": "Datura-ai/lium-io"
+    },
+    {
+      "ts": 1792422070,
+      "kind": "commit",
+      "source": "github",
+      "title": "DAH-4551 - [P0] Validator: verify each GPU's NVIDIA-signed identity s…",
+      "url": "https://github.com/Datura-ai/lium-io/commit/2686e964665f801801321fc4184a3d7d9142c75e",
+      "publisher": "Datura-ai/lium-io"
+    },
+    {
+      "ts": 1792418123,
+      "kind": "commit",
+      "source": "github",
+      "title": "DAH-4556 - [P0] Validator: a node of a banned pool account fails the …",
+      "url": "https://github.com/Datura-ai/lium-io/commit/213cdc5429903d49e63a07373e296125a344fb3a",
+      "publisher": "Datura-ai/lium-io"
+    },
+    {
+      "ts": 1792416089,
+      "kind": "commit",
+      "source": "github",
+      "title": "DAH-2865 - [P2] The verified-job reset carries the address its cycle …",
+      "url": "https://github.com/Datura-ai/lium-io/commit/e940f770435fcfe621f77c3a24449000d212302b",
+      "publisher": "Datura-ai/lium-io"
+    },
+    {
+      "ts": 1792414298,
+      "kind": "release",
+      "source": "github",
+      "title": "miner-v1.008",
+      "url": "https://github.com/Datura-ai/lium-io/releases/tag/miner-v1.008",
+      "publisher": "Datura-ai/lium-io"
+    },
+    {
+      "ts": 1792414177,
+      "kind": "commit",
+      "source": "github",
+      "title": "DAH-4535 - [P2] Miner: sign a fresh portal handshake on every reconne…",
+      "url": "https://github.com/Datura-ai/lium-io/commit/bddd465655a8a9e2fe941d14c601b655dbe4c35d",
+      "publisher": "Datura-ai/lium-io"
+    }
+  ],
+  "updated": 1792474861,
+  "updated_day": "2026-10-20"
+}

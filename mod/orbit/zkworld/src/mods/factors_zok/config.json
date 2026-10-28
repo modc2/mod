@@ -1,0 +1,27 @@
+{
+    "name": "factors_zok",
+    "title": "FactorsZok",
+    "description": "FactorsZok \u2014 a ZoKrates DSL project.",
+    "version": "0.1.0",
+    "submod_of": "zkworld",
+    "framework": "zokrates",
+    "kind": "zokrates-project",
+    "template": "factors",
+    "anchor": "mod.py",
+    "fns": [
+        "forward",
+        "info",
+        "build",
+        "test",
+        "vibe",
+        "abi",
+        "tree",
+        "read",
+        "write",
+        "clean",
+        "app",
+        "witness"
+    ],
+    "statement": "factors",
+    "schema": "QmPBkc4rYZm38RSpqHrQxdJUMebPVswhAQcRL7tzDrNYvv"
+}

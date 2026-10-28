@@ -1,0 +1,139 @@
+/* The one wire this console speaks: bt.server on the same origin.
+ *
+ * Every tool goes through POST {base}/api/call — the same registry the MCP
+ * server publishes — so nothing here knows about the chain, a key, or a
+ * third-party API. BASE is baked at build time (next.config.mjs) and matches
+ * the gateway prefix; bt.server strips it, so the bare port works too. */
+
+export const BASE: string = process.env.NEXT_PUBLIC_BASE ?? '/bt';
+
+/* /{mod}/_api is the one path the gateway forwards untouched (/{mod}/api gets
+ * its prefix stripped); bt.server maps it back onto /api. */
+export const api = (p: string) => `${BASE}/_api/${p.replace(/^\//, '')}`;
+
+export interface CallReply<T = any> { ok: boolean; tool: string; ms: number; result: T; error?: string }
+
+/* Identical reads already in flight share one request — chain reads queue
+ * behind one websocket lock server-side, so a duplicate costs real seconds. */
+const INFLIGHT = new Map<string, Promise<CallReply<any>>>();
+
+export function call<T = any>(tool: string, args: Record<string, unknown> = {},
+                              signal?: AbortSignal): Promise<CallReply<T>> {
+  if (WRITE_TOOLS.test(tool) || signal) return send<T>(tool, args, signal);
+  const key = tool + JSON.stringify(args);
+  const hit = INFLIGHT.get(key);
+  if (hit) return hit as Promise<CallReply<T>>;
+  const p = send<T>(tool, args).finally(() => INFLIGHT.delete(key));
+  INFLIGHT.set(key, p);
+  return p;
+}
+
+async function send<T>(tool: string, args: Record<string, unknown>,
+                       signal?: AbortSignal): Promise<CallReply<T>> {
+  const r = await fetch(api('call'), {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ tool, args }), signal,
+  });
+  let j: CallReply<T>;
+  try { j = await r.json(); } catch { throw new Error(`HTTP ${r.status}`); }
+  if (!j.ok) throw new Error(j.error || 'call failed');
+  return j;
+}
+
+export async function getJSON<T = any>(path: string, init?: RequestInit): Promise<T> {
+  const r = await fetch(api(path), init);
+  if (!r.ok && r.status >= 500) throw new Error(`HTTP ${r.status}`);
+  return r.json();
+}
+
+export const postJSON = <T = any>(path: string, body: unknown) =>
+  getJSON<T>(path, { method: 'POST', headers: { 'content-type': 'application/json' },
+                     body: JSON.stringify(body) });
+
+/* tools that sign or touch key material — always confirmed in the browser */
+export const WRITE_TOOLS = /^bt_(buy|sell|sell_all|swap|transfer|create_wallet)$/;
+
+/* ------------------------------------------------------------ row shapes */
+
+export interface SubnetRow {
+  netuid: number; name?: string; symbol?: string; price?: number;
+  market_cap?: number; tao_in?: number; alpha_in?: number; alpha_out?: number;
+  vol_24h?: number | null; emission?: number; registered_at?: number;
+  tempo?: number; owner?: string;
+  change_1h?: number | null; change_24h?: number | null; change_7d?: number | null;
+  spark?: number[]; logo?: string | null; github?: string | null; url?: string | null;
+  discord?: string | null; description?: string | null;
+}
+
+export interface TraderRow {
+  ss58: string; label?: string | null; total_tao?: number | null; free_tao?: number;
+  staked_tao?: number; subnets?: number; change_24h?: number | null;
+  change_7d?: number | null; flows_24h?: number; spark?: number[]; warming?: boolean;
+}
+
+export interface BoardRow {
+  ss58: string; label?: string | null; pnl_tao: number; pnl_pct: number;
+  market_pnl_tao: number; market_pct: number; flow_tao: number; num_subnets: number;
+  top_subnet: number | null; top_subnet_name: string | null; baseline: boolean;
+  window_days: number; total_stake_tao: number; free_tao: number; spark?: number[];
+}
+
+export interface IndexMember { ss58: string; weight: number }
+
+export interface IndexRow extends BoardRow { weight: number; tracked?: boolean }
+
+export interface TraderIndex {
+  id: number; name: string; note?: string | null; members: IndexMember[];
+  days: number; priced: number; member_count: number; book_tao: number;
+  market_pnl_tao: number; flow_tao: number;
+  market_pct: number | null; pnl_pct: number | null;
+  created_ts: number; updated_ts?: number;
+  spark?: number[]; curve?: { t: number; v: number }[]; rows?: IndexRow[];
+}
+
+export interface Flow {
+  ts: number; ss58?: string; label?: string | null; side: 'buy' | 'sell';
+  netuid: number; name?: string; alpha: number; tao_value: number;
+}
+
+export interface Position {
+  netuid: number; name?: string; hotkey?: string; alpha: number; price?: number;
+  value_tao?: number | null; pct_of_total?: number;
+}
+
+export interface Stats {
+  subnets?: number; total_market_cap_tao?: number; total_tao_in_pools?: number;
+  volume_24h_tao?: number | null; updated_at?: number; block?: number; warming?: boolean;
+}
+
+export interface Usd {
+  usd: number; change_24h?: number | null; sources?: Record<string, number>;
+  ts: number; age_sec?: number; stale?: boolean;
+}
+
+export interface NetworkInfo {
+  block?: number; total_issuance_tao?: number; total_staked_tao?: number;
+  staked_pct?: number | null; max_supply_tao?: number; pct_issued?: number;
+  halvings?: number; block_emission_tao?: number; daily_emission_tao?: number;
+  next_halving_at_tao?: number; tao_to_halving?: number;
+  est_days_to_halving?: number | null; ts?: number; usd?: Usd & { error?: string };
+}
+
+export interface FlowRow {
+  netuid: number; name?: string; symbol?: string; logo?: string | null;
+  trades: number; buys: number; sells: number;
+  buy_tao: number; sell_tao: number; net_tao: number;
+  traders: number; buyers: number; sellers: number; biggest_tao?: number;
+}
+
+export interface ToolSchema {
+  name: string; description: string;
+  inputSchema: { properties?: Record<string, { type: string; description?: string; default?: unknown }>;
+                 required?: string[] };
+}
+
+/* what bt_view hands the console (see bt/tools.py _view) */
+export interface ViewAction {
+  view: string; netuid?: number; address?: string; search?: string; sort_by?: string;
+  tab?: string;
+}

@@ -1,0 +1,34 @@
+{
+  "name": "evolver",
+  "title": "Evolver \u00b7 build agent",
+  "version": "0.1.0",
+  "description": "The meta agent: improves your most recently updated mods one run at a time \u2014 standing timers, a task queue, a focus list and a rotation \u2014 inside a weekly budget. App for build's EVOLVER.",
+  "icon": "\u2726",
+  "color": "#5ee08a",
+  "anchor": "mod.py",
+  "port": 51482,
+  "app_port": 51482,
+  "gateway_port": 51482,
+  "base_path": "/evolver",
+  "route": true,
+  "deps": [
+    "build"
+  ],
+  "urls": {
+    "app": "http://localhost:51482/evolver/"
+  },
+  "agent": {
+    "of": "build",
+    "status": "/evolver",
+    "console": "build \u25b8 ACCOUNT \u25b8 AGENT \u25b8 AGENTS"
+  },
+  "fns": [
+    "forward",
+    "info",
+    "status",
+    "serve",
+    "kill"
+  ],
+  "schema": "QmXC4YJEfv5AxDKbvuDkWyKL9RTGquamXPtaPHE24oyq4G",
+  "always_on": true
+}

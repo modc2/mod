@@ -1,0 +1,189 @@
+{
+  "netuid": 45,
+  "name": "AlphaRidge.ai",
+  "symbol": "פ",
+  "owner": "5FbcZiAHA75i2bPVrF7wa9mFaxV1eM27HR63kJtbpb8spvmf",
+  "description": "Real-time market intelligence across equities, FX, crypto, commodities and indices. AlphaRidge reads the conversations of 1,000+ news sources, X posts, Telegram feeds, scoring every post into structured signals: sentiment, impact, market outlook and more. See the why behind every move, screen any market, and get alerted the moment sentiment turns.",
+  "github": "https://github.com/Team-Rizzo/alpharidge-ai",
+  "url": "https://alpharidge.ai",
+  "discord": "canti_dev",
+  "logo": "https://alpharidge.ai/logo.png",
+  "registered_at": 3633154,
+  "tempo": 360,
+  "active": true,
+  "block": 9322663,
+  "related": [],
+  "market": {
+    "price": 0.002334003,
+    "moving_price": 0.0023324417416006327,
+    "market_cap": 13900.510080290875,
+    "tao_in": 6122.272761537,
+    "alpha_in": 2623077.567860919,
+    "alpha_out": 3332574.622942125,
+    "volume": 755357.801270117,
+    "vol_24h": 98.59880387806334,
+    "emission": 0.0,
+    "change_1h": 0.0,
+    "change_24h": -0.23577496057950453,
+    "change_7d": -3.8382259452702683
+  },
+  "spark_24h": [
+    0.002339519,
+    0.002346398,
+    0.00232298,
+    0.002322234,
+    0.002322202,
+    0.002322209,
+    0.002322209,
+    0.002322209,
+    0.002322209,
+    0.002322222,
+    0.002322019,
+    0.002322019,
+    0.00233346,
+    0.002329683,
+    0.002329683,
+    0.002329681,
+    0.002329689,
+    0.002329696,
+    0.002329696,
+    0.002329361,
+    0.002329361,
+    0.002333955,
+    0.002333955,
+    0.002333955,
+    0.002333955,
+    0.002333942,
+    0.002333961,
+    0.002333961,
+    0.00233397,
+    0.002333992,
+    0.002334006,
+    0.002334006,
+    0.002334006,
+    0.002334006,
+    0.002334006,
+    0.002334006,
+    0.002334006,
+    0.002334018,
+    0.002334031,
+    0.002334031,
+    0.002334039,
+    0.002334039,
+    0.002334039,
+    0.002334039,
+    0.002334023,
+    0.002334003,
+    0.002334003,
+    0.002334003
+  ],
+  "trades_24h": {
+    "trades": 378,
+    "buys": 8,
+    "sells": 370,
+    "buy_tao": 45.159484443,
+    "sell_tao": 51.939315051,
+    "net_tao": -6.779830608000005,
+    "traders": 23
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5D31yczGiq9tVJwGgX87sWBks1g6RST5Tju5aajGycvvrijb",
+      "net_tao": 0.01006019899999977,
+      "gross_tao": 19.989939801,
+      "trades": 2
+    },
+    {
+      "coldkey": "5G1sRKrcfSuEbpJbNSd5ToVF5gMvnt8UqWXNUMTChDrF4tFs",
+      "net_tao": 0.013301900000000089,
+      "gross_tao": 17.986698099999998,
+      "trades": 2
+    },
+    {
+      "coldkey": "5HRM7UHPbG9FyYUFtXBq6epqoj3QkNTe4FuBUHsJL6zYU224",
+      "net_tao": 15.0,
+      "gross_tao": 15.0,
+      "trades": 1
+    },
+    {
+      "coldkey": "5Fsn8wRnx8jNU8EP2zjWqyrD2oakzENygiYWgNARNi7hN62q",
+      "net_tao": -11.994830683,
+      "gross_tao": 11.994830683,
+      "trades": 1
+    },
+    {
+      "coldkey": "5Chesb141SUvMvGTkuotDDs6FW7b8TephbpSTrEihzoCHFor",
+      "net_tao": 10.0,
+      "gross_tao": 10.0,
+      "trades": 1
+    }
+  ],
+  "news": [
+    {
+      "ts": 1792033365,
+      "kind": "commit",
+      "source": "github",
+      "title": "3.9.14: skip canaries in the overrule check",
+      "url": "https://github.com/Team-Rizzo/alpharidge-ai/commit/a0ab38ad7fcddfb1d6e4ae6a2903bf1516eaa83f",
+      "publisher": "Team-Rizzo/alpharidge-ai"
+    },
+    {
+      "ts": 1792032348,
+      "kind": "commit",
+      "source": "github",
+      "title": "3.9.14: published check overrules gazetteer false negatives",
+      "url": "https://github.com/Team-Rizzo/alpharidge-ai/commit/8d6faa69e8d53712eee4bb647e8805e973cbe18a",
+      "publisher": "Team-Rizzo/alpharidge-ai"
+    },
+    {
+      "ts": 1791914113,
+      "kind": "commit",
+      "source": "github",
+      "title": "3.9.13: tidy comments",
+      "url": "https://github.com/Team-Rizzo/alpharidge-ai/commit/9292a03c2e754f9eac72b938cde6db9144234912",
+      "publisher": "Team-Rizzo/alpharidge-ai"
+    },
+    {
+      "ts": 1791873995,
+      "kind": "commit",
+      "source": "github",
+      "title": "soak report: read rotated validator logs",
+      "url": "https://github.com/Team-Rizzo/alpharidge-ai/commit/0eb7589dbdf666cd93f6bf82503c8cf9a02be96f",
+      "publisher": "Team-Rizzo/alpharidge-ai"
+    },
+    {
+      "ts": 1791872092,
+      "kind": "commit",
+      "source": "github",
+      "title": "3.9.13: judge calls in LLM spend, soak report script",
+      "url": "https://github.com/Team-Rizzo/alpharidge-ai/commit/bb4bfed1180696801c69116e3a37f6497d4ca22a",
+      "publisher": "Team-Rizzo/alpharidge-ai"
+    },
+    {
+      "ts": 1791858476,
+      "kind": "commit",
+      "source": "github",
+      "title": "3.9.13: shadow on by default",
+      "url": "https://github.com/Team-Rizzo/alpharidge-ai/commit/04260241c4b54616e9395ac89636a1bdab176810",
+      "publisher": "Team-Rizzo/alpharidge-ai"
+    },
+    {
+      "ts": 1791854794,
+      "kind": "commit",
+      "source": "github",
+      "title": "3.9.13: record judged ids",
+      "url": "https://github.com/Team-Rizzo/alpharidge-ai/commit/b966589bc8aa3490c43275b1cf5fef1a95bfbb0a",
+      "publisher": "Team-Rizzo/alpharidge-ai"
+    },
+    {
+      "ts": 1791303551,
+      "kind": "commit",
+      "source": "github",
+      "title": "3.9.12: clean no-reference on an empty error body",
+      "url": "https://github.com/Team-Rizzo/alpharidge-ai/commit/9f9e0144b42782a4e063d6e2e84e51392ad58c98",
+      "publisher": "Team-Rizzo/alpharidge-ai"
+    }
+  ],
+  "updated": 1792474861,
+  "updated_day": "2026-10-20"
+}

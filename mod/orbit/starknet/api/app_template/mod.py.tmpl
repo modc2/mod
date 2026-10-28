@@ -1,0 +1,37 @@
+"""starknet.{{name}} — {{title}}.
+
+Every fn listed in config.json "fns" is live at
+    GET|POST /starknet/_api/apps/{{name}}/<fn>      (query string or JSON body = kwargs)
+    m starknet.{{name}}/<fn>
+and app/index.html calls them with api('<fn>', {...}). Saving this file is
+enough: the server reloads it on the next call. Put a fn in "write_fns" too
+if it changes anything — then only the owner may call it.
+
+The chain helpers live next door in ../../api (chain.py, abi.py, stables.py,
+strk20.py): chain.block_number(), chain.balance(addr, 'strk'),
+abi.read(contract, fn, args), stables.stables() ...
+"""
+import os
+import sys
+
+_API = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'api')
+if _API not in sys.path:
+    sys.path.insert(0, _API)
+import chain  # noqa: E402
+
+
+class Mod:
+
+    def facts(self):
+        """The numbers on this app's card in the Apps tab: [[label, value], ...]."""
+        return [['block', f'{chain.block_number():,}'], ['made', '{{created}}']]
+
+    def hello(self, who='starknet'):
+        """The smallest possible fn — try it from the app."""
+        return {'hello': who, 'from': 'starknet.{{name}}'}
+
+    def head(self, network=None):
+        """The newest block: number, time, how many transactions."""
+        b = chain.block('latest', network=network)
+        return {'block': b.get('block_number'), 'timestamp': b.get('timestamp'),
+                'txs': len(b.get('transactions') or [])}

@@ -5,9 +5,17 @@ This anchor exposes:
   - serve()/kill()/status()/logs() lifecycle for the FastAPI BYOK gateway in `app/server.py`
   - providers()/models() introspection across known back-ends
   - forward() — one-shot completion against any registered provider (BYOK)
+  - market() — the same model across providers, cheapest offer first
 
-Per-provider classes still live under `model/openrouter/`, `model/grok/`, etc.
-This module just unifies them behind one CLI / API surface.
+The HTTP gateway also exposes one OpenAI-standard API at /v1 for every
+provider (app/adapters.py translates Anthropic messages / Gemini
+generateContent / responses-only models both ways).
+
+Every provider (17 built in: openrouter, huggingface, together, anthropic, saygm, …)
+is registered once in providers.json; models from all of them combine into
+one catalog addressed as '<provider>:<model>'. The richer per-provider
+clients (model.openrouter, model.grok, model.hf) stay as submodules and are
+reachable through client().
 """
 
 import json
@@ -32,33 +40,44 @@ LOG_FILE = LOG_DIR / 'api.log'
 DEFAULT_PORT = 50110
 
 
-# Mirrors app/server.py PROVIDERS — kept in sync so CLI users see the same
-# list the web UI does without booting the server.
-PROVIDERS = {
-    'openrouter': {
-        'label': 'OpenRouter',
-        'url': 'https://openrouter.ai/api/v1',
-        'default_model': 'anthropic/claude-opus-4',
-        'env': 'OPENROUTER_API_KEY',
-    },
-    'chutes': {
-        'label': 'Chutes',
-        'url': 'https://llm.chutes.ai/v1',
-        'default_model': 'deepseek-ai/DeepSeek-V3',
-        'env': 'CHUTES_API_KEY',
-    },
-    'targon': {
-        'label': 'Targon',
-        'url': 'https://api.targon.com/v1',
-        'default_model': 'deepseek-ai/DeepSeek-V3',
-        'env': 'TARGON_API_KEY',
-    },
-    'venice': {
-        'label': 'Venice',
-        'url': 'https://api.venice.ai/api/v1',
-        'default_model': 'llama-3.3-70b',
-        'env': 'VENICE_API_KEY',
-    },
+def _load_adapters():
+    """app/adapters.py, wired to the catalog loaded above (its ProviderError)."""
+    import importlib.util
+    prev = sys.modules.get('catalog')
+    sys.modules['catalog'] = catalog  # adapters' fallback `from catalog import …`, only while loading
+    try:
+        spec = importlib.util.spec_from_file_location('model_gateway_adapters', APP_DIR / 'adapters.py')
+        mod_ = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod_)
+    finally:
+        if prev is None:
+            sys.modules.pop('catalog', None)
+        else:
+            sys.modules['catalog'] = prev
+    return mod_
+
+
+def _load_catalog():
+    """app/catalog.py by file path — `import app` would hit whichever module's
+    app package is first on sys.path in a fleet process."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location('model_gateway_catalog', APP_DIR / 'catalog.py')
+    mod_ = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod_)
+    return mod_
+
+
+catalog = _load_catalog()
+adapters = _load_adapters()
+PROVIDERS = catalog.PROVIDERS
+
+# Rich per-provider clients that live as submodules here (key store, history,
+# pricing, free models, local inference). The gateway itself only needs the
+# registry above; these are for callers who want the full client.
+CLIENTS = {
+    'openrouter': 'model.openrouter',   # OpenRouter: free_models, pricing, history
+    'grok': 'model.grok',               # Grok via chutes / targon / venice
+    'hf': 'model.hf',                   # local transformers (torch) — no key
 }
 
 
@@ -153,28 +172,46 @@ class Model:
     # ── introspection ────────────────────────────────────────────
 
     def providers(self):
-        return [{'id': k, **v} for k, v in PROVIDERS.items()]
+        return [{**catalog.public_info(cfg), 'env': cfg['env']} for cfg in PROVIDERS.values()]
 
-    def models(self, provider: str, api_key: str = None):
-        """List models for a provider. BYOK: pass api_key or set the env var."""
+    def env_keys(self):
+        """CLI-only fallback: {provider: key} from each provider's env var."""
+        return {pid: os.environ[cfg['env']] for pid, cfg in PROVIDERS.items() if os.environ.get(cfg['env'])}
+
+    def models(self, provider: str = None, api_key: str = None, search: str = None, refresh: bool = False):
+        """List model refs. provider=None combines every provider into one list
+        of '<provider>:<model>' refs (keys from env vars, or api_key as a
+        {provider: key} dict). BYOK: pass api_key or set the env vars."""
+        if provider in (None, 'all'):
+            keys = api_key if isinstance(api_key, dict) else self.env_keys()
+            res = catalog.catalog(keys, search=search, refresh=refresh)
+            return {k: res[k] for k in ('count', 'counts', 'errors', 'missing')} | {
+                'models': [x['ref'] for x in res['models']]}
         cfg = PROVIDERS.get(provider)
         if not cfg:
             return {'error': f'unknown provider {provider!r}; choose from {list(PROVIDERS)}'}
-        key = api_key or os.environ.get(cfg['env'])
-        if not key:
-            return {'error': f'no key — pass api_key= or set {cfg["env"]}'}
-        import requests
-        r = requests.get(cfg['url'].rstrip('/') + '/models',
-                         headers={'Authorization': f'Bearer {key}'}, timeout=15)
-        if r.status_code >= 400:
-            return {'error': f'{provider}: {r.status_code} {r.text[:200]}'}
-        data = r.json().get('data') or r.json().get('models') or []
-        ids = []
-        for x in data:
-            if isinstance(x, str): ids.append(x)
-            elif isinstance(x, dict) and (x.get('id') or x.get('name')):
-                ids.append(x.get('id') or x.get('name'))
+        try:
+            rows = catalog.list_models(provider, api_key or os.environ.get(cfg['env']), refresh=refresh)
+        except catalog.ProviderError as e:
+            return {'error': e.detail + ('' if api_key else f' (set {cfg["env"]})')}
+        ids = [x['id'] for x in rows]
+        if search:
+            ids = [i for i in ids if any(t.strip().lower() in i.lower() for t in search.split(','))]
         return ids
+
+    def market(self, search: str = None, kind: str = 'chat', min_offers: int = 2, top: int = 25, api_key: dict = None):
+        """The model market: same model across providers, cheapest offer first.
+        Returns [{name, n, best, spread, offers:[(ref, usd_blended_per_1M)]}]."""
+        keys = api_key if isinstance(api_key, dict) else self.env_keys()
+        rows = catalog.market(catalog.catalog(keys, search=search, kind=kind)['models'], min_offers=min_offers)
+        return [{'name': r['name'], 'key': r['key'], 'n': r['n'], 'best': r['best'], 'spread': r['spread'],
+                 'offers': [(o['ref'], o['cost']) for o in r['offers']]} for r in rows[:top]]
+
+    def client(self, name: str = 'openrouter', **kwargs):
+        """Full client for a submodule: openrouter | grok | hf."""
+        if name not in CLIENTS:
+            return {'error': f'unknown client {name!r}; choose from {list(CLIENTS)}'}
+        return m.mod(CLIENTS[name])(**kwargs)
 
     # ── one-shot forward (BYOK) ──────────────────────────────────
 
@@ -188,24 +225,27 @@ class Model:
         max_tokens: int = 4096,
         system: str = None,
     ):
-        """One-shot chat completion. BYOK: api_key or env var per provider."""
-        cfg = PROVIDERS.get(provider)
-        if not cfg:
-            raise ValueError(f'unknown provider {provider!r}; choose from {list(PROVIDERS)}')
+        """One-shot chat completion against any provider. BYOK: api_key or env var.
+
+        model may be a combined ref '<provider>:<model>' (e.g.
+        'chutes:deepseek-ai/DeepSeek-V3'), which overrides provider=.
+        """
+        try:
+            provider, model = catalog.parse_ref(model, provider)
+        except catalog.ProviderError as e:
+            raise ValueError(e.detail)
+        cfg = PROVIDERS[provider]
         key = api_key or os.environ.get(cfg['env'])
         if not key:
             raise ValueError(f'no key — pass api_key= or set {cfg["env"]}')
 
-        import openai
-        client = openai.OpenAI(base_url=cfg['url'], api_key=key, timeout=120, max_retries=2)
         msgs = []
         if system:
             msgs.append({'role': 'system', 'content': system})
         msgs.append({'role': 'user', 'content': message})
-        res = client.chat.completions.create(
-            model=model or cfg['default_model'],
-            messages=msgs,
-            max_tokens=max_tokens,
-            temperature=temperature,
-        )
-        return res.choices[0].message.content
+        shapes = None
+        if cfg.get('model_shapes'):  # SayGM: Claude/Gemini ids need a translated wire shape
+            shapes = next((r.get('shapes') for r in catalog.list_models(provider) if r['id'] == model), None)
+        res = adapters.chat(cfg, key, model, {'messages': msgs, 'max_tokens': max_tokens,
+                                              'temperature': temperature}, shapes)
+        return res['choices'][0]['message']['content']

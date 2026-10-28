@@ -2,7 +2,7 @@
 import re
 import ast
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any
 
 
 class Tool:
@@ -69,7 +69,6 @@ class Tool:
             return {"success": False, "error": f"syntax error: {e}"}
 
         symbols = []
-        lines = content.splitlines()
 
         for node in ast.walk(tree):
             sym = None

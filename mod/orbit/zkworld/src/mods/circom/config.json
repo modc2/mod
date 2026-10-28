@@ -1,0 +1,39 @@
+{
+    "name": "circom",
+    "title": "Circom \u00b7 zkworld",
+    "description": "The Circom framework as a running submod of zkworld: its toolchain, starters and every Circom project here. Arithmetic circuits compiled to R1CS for Groth16/PLONK. circom builds the constraints + a wasm witness generator; tests are input/expected-output JSON cases run through the real witness.",
+    "version": "0.2.0",
+    "submod_of": "zkworld",
+    "kind": "framework",
+    "framework_id": "circom",
+    "anchor": "mod.py",
+    "server": "../../api/fwserver.py",
+    "port": 51354,
+    "host": "127.0.0.1",
+    "route": "/zkworld/circom/",
+    "fns": [
+        "forward",
+        "info",
+        "health",
+        "toolchain",
+        "templates",
+        "projects",
+        "new",
+        "build",
+        "test",
+        "vibe",
+        "clean",
+        "abi",
+        "witness",
+        "serve",
+        "kill"
+    ],
+    "write_fns": [
+        "new",
+        "build",
+        "test",
+        "vibe",
+        "clean"
+    ],
+    "schema": "QmZ3TSBKVYSu3YdvhcB6qnRPXce2gRRc8zTxaMUSBvaENC"
+}

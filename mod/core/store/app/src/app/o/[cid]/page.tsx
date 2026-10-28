@@ -15,6 +15,7 @@ import { storageGet } from "@/lib/safeStorage";
 import { shortAddress } from "@/lib/wallet";
 import { errorText, fmtAgo, fmtBytes, fmtDate, fmtDuration, identiconStyle, shortCid } from "@/lib/format";
 import { SubHeader } from "@/components/SubHeader";
+import { BoltIcon, ClockIcon, CopyIcon, GlobeIcon, LockIcon, PinIcon, UnlockIcon } from "@/components/icons";
 
 const TOKEN_KEY = "store:token";
 
@@ -83,7 +84,7 @@ export default function ObjectPage() {
     setError(null);
     try {
       await api.marketAcquire(token, cid);
-      setNotice(listing.price_bloc > 0 ? "unlocked — your BlocTime is the ticket 🎫" : "it's yours ⚡");
+      setNotice(listing.price_bloc > 0 ? "unlocked — your BlocTime is the ticket" : "it's yours");
       await load();
     } catch (e) {
       setError(errorText(e));
@@ -156,7 +157,7 @@ export default function ObjectPage() {
       {gated && !listing && (
         <div className="gate-card">
           <div className="gate-glow" />
-          <h2>🔒 Private object</h2>
+          <h2>Private object</h2>
           <p className="muted">
             This object exists but your {token ? "account doesn't have" : "browser isn't signed in for"} read
             access. <Link href="/">Sign in on the main page</Link> with an authorized wallet, or ask the owner
@@ -177,20 +178,20 @@ export default function ObjectPage() {
               {info?.backends.map((b) => <span key={b} className={`pill ${b}`}>{b}</span>)}
               {info?.scheme && info.scheme !== "ipfs" && <span className="pill">{info.scheme}</span>}
               {(info || listing) && (
-                <span className={`pill ${priv ? "private" : "public"}`}>{priv ? "🔒 private" : "🌐 public"}</span>
+                <span className={`pill ${priv ? "private" : "public"}`}>{priv ? <><LockIcon /> private</> : <><GlobeIcon /> public</>}</span>
               )}
-              {info?.pinned && <span className="pill">📌 pinned</span>}
+              {info?.pinned && <span className="pill"><PinIcon s={11} /> pinned</span>}
               {info?.is_owner && <span className="pill admin">yours</span>}
               {listing && (
                 <span className={`price-badge ${listing.price_bloc <= 0 ? "free" : "bloc"}`}>
-                  {listing.price_bloc <= 0 ? "FREE" : `⏱ ${listing.price_bloc} BLOC`}
+                  {listing.price_bloc <= 0 ? "FREE" : <><ClockIcon /> {listing.price_bloc} BLOC</>}
                 </span>
               )}
             </div>
             <div className="detail-cid-row">
               <button className="cid-btn" title="Copy CID" onClick={() => copy(cid, "cid")}>
                 <span className="cid">{cid}</span>
-                <span className="muted"> {copied === "cid" ? "✓ copied" : "⧉"}</span>
+                <span className="muted"> {copied === "cid" ? "✓ copied" : <CopyIcon />}</span>
               </button>
             </div>
             <div className="detail-actions">
@@ -198,7 +199,7 @@ export default function ObjectPage() {
               <button onClick={() => copy(pageUrl, "url")}>{copied === "url" ? "✓ copied" : "copy page link"}</button>
               {listing && token && !listing.can_read && (
                 <button className={`primary ${listing.price_bloc > 0 ? "unlock" : ""}`} onClick={acquire} disabled={busy}>
-                  {busy ? "…" : listing.price_bloc <= 0 ? "⚡ Get it" : `🔓 Unlock · ${listing.price_bloc} BLOC`}
+                  {busy ? "…" : listing.price_bloc <= 0 ? <><BoltIcon /> Get it</> : <><UnlockIcon s={13} /> Unlock · {listing.price_bloc} BLOC</>}
                 </button>
               )}
               {listing && (

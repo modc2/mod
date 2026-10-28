@@ -9,7 +9,7 @@ export function ScanList({
   refreshKey,
 }: {
   selectedId: string | null;
-  onSelect: (id: string) => void;
+  onSelect: (id: string | null) => void;
   refreshKey: number;
 }) {
   const [scans, setScans] = useState<Scan[]>([]);
@@ -36,6 +36,7 @@ export function ScanList({
     e.stopPropagation();
     await deleteScan(id);
     load();
+    if (id === selectedId) onSelect(null);
   }
 
   if (loading) {
@@ -71,6 +72,13 @@ export function ScanList({
                 <div className="font-mono text-xs truncate text-text">
                   {prettyRepo(s.repo)}
                 </div>
+                {(s.branch || s.subdir) && (
+                  <div className="text-[10px] uppercase tracking-wider text-muted mt-0.5 truncate">
+                    {s.branch && <span>@ {s.branch}</span>}
+                    {s.branch && s.subdir && <span> · </span>}
+                    {s.subdir && <span>{s.subdir}</span>}
+                  </div>
+                )}
                 <div className="flex items-center gap-2 mt-1 text-[10px] uppercase tracking-wider">
                   <StatusBadge status={s.status} />
                   {findings > 0 && (
@@ -78,6 +86,15 @@ export function ScanList({
                   )}
                   {crit > 0 && <span className="text-critical">{crit} crit</span>}
                   {high > 0 && <span className="text-high">{high} high</span>}
+                  {(() => {
+                    const isDone = s.status === "done" || s.status === "error";
+                    const ts = isDone ? (s.finished_at ?? s.started_at) : s.started_at;
+                    return ts ? (
+                      <span className="text-muted ml-auto normal-case tracking-normal">
+                        {timeAgo(ts)}
+                      </span>
+                    ) : null;
+                  })()}
                 </div>
               </div>
               <button
@@ -97,6 +114,15 @@ export function ScanList({
 
 function prettyRepo(url: string) {
   return url.replace(/^https:\/\/github\.com\//, "").replace(/\.git$/, "");
+}
+
+function timeAgo(ts: number): string {
+  const diff = Math.floor(Date.now() / 1000) - ts;
+  if (diff < 60) return `${diff}s ago`;
+  if (diff < 3600) return `${Math.floor(diff / 60)} min ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)} hr ago`;
+  const d = new Date(ts * 1000);
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
 function StatusBadge({ status }: { status: string }) {

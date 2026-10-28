@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { fetchMids } from "../lib/api";
+import { fetchMids, fetchMeta } from "../lib/api";
 
 // Majors pinned to the front so the tape always opens with the coins people
 // recognize; everything else joins in mids order up to CAP entries.
@@ -12,7 +12,7 @@ const CAP = 24;
 // keys aren't tape material.
 const isCore = (k: string) => /^[A-Z0-9]+$/.test(k);
 
-type Tick = { coin: string; px: number; dir: -1 | 0 | 1 };
+type Tick = { coin: string; px: number; dir: -1 | 0 | 1; change24h: number | null };
 
 function fmtPx(px: number): string {
   if (px >= 1000) return px.toLocaleString("en-US", { maximumFractionDigits: 0 });
@@ -21,9 +21,34 @@ function fmtPx(px: number): string {
   return px.toPrecision(3);
 }
 
+// Direction as a tiny CSS triangle rather than a ▲/▼ glyph: the glyphs come
+// from whatever fallback font the host has, and differ in size per theme font.
+const Arrow = ({ dir }: { dir: 1 | -1 }) => (
+  <span
+    aria-hidden
+    className={`inline-block w-0 h-0 border-x-[3px] border-x-transparent ${
+      dir > 0 ? "border-b-[4px] border-b-win" : "border-t-[4px] border-t-loss"
+    }`}
+  />
+);
+
 export default function TickerTape() {
   const [ticks, setTicks] = useState<Tick[]>([]);
   const prev = useRef<Map<string, number>>(new Map());
+  const metaMap = useRef<Map<string, { prevDayPx: number }>>(new Map());
+
+  useEffect(() => {
+    let alive = true;
+    const loadMeta = async () => {
+      try {
+        const m = await fetchMeta();
+        if (alive) metaMap.current = m;
+      } catch { /* decorative — ignore */ }
+    };
+    loadMeta();
+    const id = setInterval(loadMeta, 30000);
+    return () => { alive = false; clearInterval(id); };
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -40,16 +65,18 @@ export default function TickerTape() {
         const seen = new Set<string>();
         for (const m of MAJORS) {
           const px = byCoin.get(m);
-          if (px != null) { ordered.push({ coin: m, px, dir: 0 }); seen.add(m); }
+          if (px != null) { ordered.push({ coin: m, px, dir: 0, change24h: null }); seen.add(m); }
         }
         for (const [coin, px] of entries) {
           if (ordered.length >= CAP) break;
-          if (!seen.has(coin)) { ordered.push({ coin, px, dir: 0 }); seen.add(coin); }
+          if (!seen.has(coin)) { ordered.push({ coin, px, dir: 0, change24h: null }); seen.add(coin); }
         }
         for (const t of ordered) {
           const was = prev.current.get(t.coin);
           t.dir = was == null || was === t.px ? 0 : t.px > was ? 1 : -1;
           prev.current.set(t.coin, t.px);
+          const meta = metaMap.current.get(t.coin);
+          t.change24h = meta && meta.prevDayPx > 0 ? (t.px - meta.prevDayPx) / meta.prevDayPx * 100 : null;
         }
         setTicks(ordered);
       } catch { /* tape is decorative — never surface errors */ }
@@ -62,18 +89,20 @@ export default function TickerTape() {
   if (ticks.length === 0) return null;
 
   const cell = (t: Tick, key: string) => (
-    <span key={key} className="inline-flex items-baseline gap-1.5 px-4 whitespace-nowrap">
-      <span className="text-[10px] font-medium uppercase tracking-wider text-dim">{t.coin}</span>
+    <span key={key}
+      className="inline-flex items-center gap-1.5 px-4 whitespace-nowrap border-l border-white/[0.06] first:border-l-0">
+      <span className="text-[10px] font-semibold uppercase tracking-wider text-dim">{t.coin}</span>
       <span
         className={`num text-[11px] transition-colors duration-700 ${
-          t.dir > 0 ? "text-win" : t.dir < 0 ? "text-loss" : "text-muted"
+          t.dir > 0 ? "text-win" : t.dir < 0 ? "text-loss" : "text-ink/80"
         }`}
       >
         {fmtPx(t.px)}
       </span>
-      {t.dir !== 0 && (
-        <span className={`text-[8px] ${t.dir > 0 ? "text-win" : "text-loss"}`}>
-          {t.dir > 0 ? "▲" : "▼"}
+      {t.dir !== 0 && <Arrow dir={t.dir} />}
+      {t.change24h != null && (
+        <span className={`num text-[10px] ${t.change24h >= 0 ? "text-win" : "text-loss"}`}>
+          {t.change24h >= 0 ? "+" : ""}{t.change24h.toFixed(1)}%
         </span>
       )}
     </span>
@@ -84,11 +113,16 @@ export default function TickerTape() {
       className="relative overflow-hidden border-b border-white/[0.05] bg-black/20 backdrop-blur-xl select-none"
       aria-hidden
     >
+      {/* Fixed LIVE mark on the left; the tape slides in underneath it. */}
+      <div className="absolute inset-y-0 left-0 z-20 flex w-[4.75rem] items-center gap-2 pl-4 bg-bg border-r border-white/[0.06]">
+        <span className="h-1.5 w-1.5 rounded-full bg-accent live-dot" />
+        <span className="text-[9px] font-semibold uppercase tracking-[0.2em] text-accent">Live</span>
+      </div>
       {/* Edge fades so the tape dissolves instead of clipping. */}
-      <div className="pointer-events-none absolute inset-y-0 left-0 w-16 z-10 bg-gradient-to-r from-bg to-transparent" />
+      <div className="pointer-events-none absolute inset-y-0 left-[4.75rem] w-8 z-10 bg-gradient-to-r from-bg to-transparent" />
       <div className="pointer-events-none absolute inset-y-0 right-0 w-16 z-10 bg-gradient-to-l from-bg to-transparent" />
       {/* Two copies back-to-back; the track slides -50% then loops = seamless. */}
-      <div className="flex w-max animate-ticker hover:[animation-play-state:paused] py-1">
+      <div className="flex w-max animate-ticker hover:[animation-play-state:paused] py-1.5">
         {ticks.map((t) => cell(t, t.coin))}
         {ticks.map((t) => cell(t, `${t.coin}-b`))}
       </div>

@@ -1,0 +1,189 @@
+{
+  "netuid": 41,
+  "name": "Almanac",
+  "symbol": "נ",
+  "owner": "5FCSevLkofmKZRixMawp6jyyjBty1AeSCLa7N5Fv892DYkXX",
+  "description": "Prediction market research and intelligence.",
+  "github": "https://github.com/corvxai/almanac",
+  "url": "https://almnc.ai",
+  "discord": null,
+  "logo": "https://cdn.discordapp.com/icons/1263242016695783427/19e62da4ff8eb5a7c36d1ef24b9d911e.webp?size=1024",
+  "registered_at": 3394182,
+  "tempo": 360,
+  "active": true,
+  "block": 9322663,
+  "related": [],
+  "market": {
+    "price": 0.007689562,
+    "moving_price": 0.00723659060895443,
+    "market_cap": 46242.334977213315,
+    "tao_in": 15776.69346913,
+    "alpha_in": 2051702.293800471,
+    "alpha_out": 3961947.765489423,
+    "volume": 1695638.667137351,
+    "vol_24h": 8005.754572327947,
+    "emission": 0.0,
+    "change_1h": 0.32330995497458215,
+    "change_24h": 14.325164342492492,
+    "change_7d": 5.682365583683691
+  },
+  "spark_24h": [
+    0.006726045,
+    0.006732444,
+    0.006903233,
+    0.007019052,
+    0.007061566,
+    0.006998179,
+    0.007042004,
+    0.007042035,
+    0.0070269,
+    0.007029938,
+    0.007051232,
+    0.006970871,
+    0.007174543,
+    0.007093894,
+    0.007091659,
+    0.007091691,
+    0.007089702,
+    0.007128182,
+    0.007118859,
+    0.00770209,
+    0.007543741,
+    0.007458679,
+    0.007458724,
+    0.007458776,
+    0.007431034,
+    0.007431424,
+    0.007438203,
+    0.007428654,
+    0.007428865,
+    0.007411711,
+    0.00741256,
+    0.007426956,
+    0.007442061,
+    0.007440184,
+    0.007440273,
+    0.007459482,
+    0.007461433,
+    0.007442606,
+    0.007442655,
+    0.007440096,
+    0.00744018,
+    0.007469005,
+    0.007471858,
+    0.007481496,
+    0.007674618,
+    0.007664781,
+    0.007689964,
+    0.007689562
+  ],
+  "trades_24h": {
+    "trades": 666,
+    "buys": 328,
+    "sells": 338,
+    "buy_tao": 4508.68798278,
+    "sell_tao": 3486.260282995,
+    "net_tao": 1022.4276997850002,
+    "traders": 217
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5Cw2qFy2tZy9ZLt4LsJc9b68nffQndZDHF1KZynmVbA4Z3pC",
+      "net_tao": 25.207475594999995,
+      "gross_tao": 774.792524405,
+      "trades": 30
+    },
+    {
+      "coldkey": "5GpaEoKUZkpVSuvpz8D8S2n5kZ9NcQdFqzVdHifECqv2s4Aj",
+      "net_tao": 661.89562313,
+      "gross_tao": 661.89562313,
+      "trades": 39
+    },
+    {
+      "coldkey": "5GHfXPxrFpyPDVM7tUdqa7oeVpFfdH9CWiHyDMnsjjvd4pjR",
+      "net_tao": -0.29292857199999567,
+      "gross_tao": 610.292928572,
+      "trades": 32
+    },
+    {
+      "coldkey": "5GFASTQftoZcMXRuaML9brsMMZQJMqyTViMnYHQsN5mTi1hN",
+      "net_tao": -0.07998957400001416,
+      "gross_tao": 442.717382906,
+      "trades": 14
+    },
+    {
+      "coldkey": "5CwAAbFfLWay1UpZikb9vWeyW1PgGth1NDUoHEeShmhX9QNH",
+      "net_tao": 272.617919982,
+      "gross_tao": 357.26064905,
+      "trades": 7
+    }
+  ],
+  "news": [
+    {
+      "ts": 1792439490,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #62 from corvxai/etao_update",
+      "url": "https://github.com/corvxai/almanac/commit/e1280c05e3ef3e081f40ace76047503e4d7d41a8",
+      "publisher": "corvxai/almanac"
+    },
+    {
+      "ts": 1792436160,
+      "kind": "commit",
+      "source": "github",
+      "title": "Updating market weight share back to 95% because overall pool is larg…",
+      "url": "https://github.com/corvxai/almanac/commit/6edd093e8fb935806c1531156b5d82014b27da03",
+      "publisher": "corvxai/almanac"
+    },
+    {
+      "ts": 1792435353,
+      "kind": "commit",
+      "source": "github",
+      "title": "Updating default miner alpha to 3600, or 50% of total emissions with …",
+      "url": "https://github.com/corvxai/almanac/commit/d11863b6325d3f3ca98795ce4dbf87b916f45495",
+      "publisher": "corvxai/almanac"
+    },
+    {
+      "ts": 1792422957,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #61 from corvxai/pm-data-v2",
+      "url": "https://github.com/corvxai/almanac/commit/e1c643f3192fc07afdb0f85a840d9f8470d95a55",
+      "publisher": "corvxai/almanac"
+    },
+    {
+      "ts": 1792421040,
+      "kind": "commit",
+      "source": "github",
+      "title": "Migrating from PM's Data V1 to V2 API.",
+      "url": "https://github.com/corvxai/almanac/commit/cf558ea3887233f2e272d4cf691882e381f7104b",
+      "publisher": "corvxai/almanac"
+    },
+    {
+      "ts": 1792253796,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #60 from corvxai/wvk_bump",
+      "url": "https://github.com/corvxai/almanac/commit/935764a96fa8d3c4ea99e03720d3f5d7a2bfa7c0",
+      "publisher": "corvxai/almanac"
+    },
+    {
+      "ts": 1792253042,
+      "kind": "commit",
+      "source": "github",
+      "title": "Upping key to 5",
+      "url": "https://github.com/corvxai/almanac/commit/4174fe2a6e842775aad4fa8f48cc0419ce2d6526",
+      "publisher": "corvxai/almanac"
+    },
+    {
+      "ts": 1792252968,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #59 from corvxai/vali_no_assign_before_scoring",
+      "url": "https://github.com/corvxai/almanac/commit/977b909986bfae2d0a07a69b0b8061098aa31cb4",
+      "publisher": "corvxai/almanac"
+    }
+  ],
+  "updated": 1792474861,
+  "updated_day": "2026-10-20"
+}

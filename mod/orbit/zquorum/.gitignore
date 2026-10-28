@@ -1,0 +1,14 @@
+data/
+__pycache__/
+*.pyc
+src/circuit/target/
+src/app/node_modules/
+src/app/out/
+src/app/.next*
+src/app/next-env.d.ts
+src/app/tsconfig.tsbuildinfo
+src/dist
+src/releases/
+src/contract/target/
+src/contract/.snfoundry_cache/
+.pytest_cache/

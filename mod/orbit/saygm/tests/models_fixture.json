@@ -1,0 +1,459 @@
+[
+ {
+  "id": "claude-fable-5-2",
+  "object": "model",
+  "created": 1704067200,
+  "owned_by": "anthropic",
+  "tier": "frontier",
+  "gateway_provider": "anthropic",
+  "api_shapes": [
+   "messages"
+  ],
+  "available": false,
+  "coming_soon": true,
+  "capabilities": {
+   "vision": true,
+   "tools": true,
+   "image_input": false,
+   "image_output": false,
+   "image_generation": false
+  }
+ },
+ {
+  "id": "claude-sonnet-5",
+  "object": "model",
+  "created": 1704067200,
+  "owned_by": "anthropic",
+  "tier": "frontier",
+  "model_class": "frontier",
+  "confidential": false,
+  "gateway_provider": "anthropic",
+  "api_shapes": [
+   "messages"
+  ],
+  "pricing": {
+   "unit": "ndollars_per_mtok",
+   "currency": "USD",
+   "basis": "cheapest_eligible_offer",
+   "dimensions": {
+    "input_per_mtok_ndollars": 1758000000,
+    "output_per_mtok_ndollars": 8790000000,
+    "cache_read_per_mtok_ndollars": 175800000,
+    "cache_write_5m_per_mtok_ndollars": 2197500000,
+    "cache_write_1h_per_mtok_ndollars": 3516000000
+   },
+   "surcharges": {
+    "anthropic_code_exec": {
+     "kind": "per_hour",
+     "per_hour_ndollars": 50000000
+    },
+    "anthropic_web_search": {
+     "kind": "per_event",
+     "unit_ndollars": 10000000
+    }
+   }
+  },
+  "price_range": {
+   "unit": "ndollars_per_mtok",
+   "currency": "USD",
+   "floor": {
+    "basis": "cheapest_eligible_offer",
+    "dimensions": {
+     "input_per_mtok_ndollars": 1758000000,
+     "output_per_mtok_ndollars": 8790000000,
+     "cache_read_per_mtok_ndollars": 175800000,
+     "cache_write_5m_per_mtok_ndollars": 2197500000,
+     "cache_write_1h_per_mtok_ndollars": 3516000000
+    }
+   },
+   "route_ceiling": {
+    "basis": "highest_eligible_offer",
+    "dimensions": {
+     "input_per_mtok_ndollars": 1758000000,
+     "output_per_mtok_ndollars": 8790000000,
+     "cache_read_per_mtok_ndollars": 175800000,
+     "cache_write_5m_per_mtok_ndollars": 2197500000,
+     "cache_write_1h_per_mtok_ndollars": 3516000000
+    }
+   },
+   "ceiling": {
+    "basis": "published_retail",
+    "dimensions": {
+     "input_per_mtok_ndollars": 2000000000,
+     "output_per_mtok_ndollars": 10000000000,
+     "cache_read_per_mtok_ndollars": 200000000,
+     "cache_write_5m_per_mtok_ndollars": 2500000000,
+     "cache_write_1h_per_mtok_ndollars": 4000000000
+    }
+   }
+  },
+  "available": true,
+  "coming_soon": false,
+  "capabilities": {
+   "vision": true,
+   "tools": true,
+   "image_input": false,
+   "image_output": false,
+   "image_generation": false
+  }
+ },
+ {
+  "id": "flux.2-klein-4b",
+  "object": "model",
+  "created": 1704067200,
+  "owned_by": "bfl",
+  "tier": "open",
+  "model_class": "open",
+  "confidential": false,
+  "gateway_provider": "bfl",
+  "api_shapes": [
+   "images.generations"
+  ],
+  "pricing": {
+   "unit": "ndollars_per_mtok",
+   "currency": "USD",
+   "basis": "cheapest_eligible_offer",
+   "dimensions": {
+    "output_per_image_ndollars": 13500000
+   },
+   "surcharges": {}
+  },
+  "price_range": {
+   "unit": "ndollars_per_mtok",
+   "currency": "USD",
+   "floor": {
+    "basis": "cheapest_eligible_offer",
+    "dimensions": {
+     "output_per_image_ndollars": 13500000
+    }
+   },
+   "route_ceiling": {
+    "basis": "highest_eligible_offer",
+    "dimensions": {
+     "output_per_image_ndollars": 15000000
+    }
+   },
+   "ceiling": {
+    "basis": "published_retail",
+    "dimensions": {
+     "output_per_image_ndollars": 15000000
+    }
+   }
+  },
+  "available": true,
+  "coming_soon": false,
+  "capabilities": {
+   "vision": true,
+   "tools": true,
+   "image_input": false,
+   "image_output": true,
+   "image_generation": true,
+   "api": "openai_images",
+   "max_images_per_request": 1,
+   "max_reference_images": 0,
+   "supported_aspect_ratios": [
+    "1:1",
+    "2:3",
+    "3:2",
+    "3:4",
+    "4:3",
+    "4:5",
+    "5:4",
+    "9:16",
+    "16:9",
+    "21:9"
+   ]
+  }
+ },
+ {
+  "id": "gemini-3.5-flash",
+  "object": "model",
+  "created": 1704067200,
+  "owned_by": "google",
+  "tier": "frontier",
+  "model_class": "frontier",
+  "confidential": false,
+  "gateway_provider": "gemini",
+  "api_shapes": [
+   "generateContent",
+   "streamGenerateContent"
+  ],
+  "pricing": {
+   "unit": "ndollars_per_mtok",
+   "currency": "USD",
+   "basis": "cheapest_eligible_offer",
+   "dimensions": {
+    "input_per_mtok_ndollars": 975000000,
+    "output_per_mtok_ndollars": 5850000000,
+    "cache_read_per_mtok_ndollars": 97500000,
+    "audio_input_per_mtok_ndollars": 975000000,
+    "audio_output_per_mtok_ndollars": 5850000000,
+    "image_input_per_mtok_ndollars": 975000000
+   },
+   "surcharges": {}
+  },
+  "price_range": {
+   "unit": "ndollars_per_mtok",
+   "currency": "USD",
+   "floor": {
+    "basis": "cheapest_eligible_offer",
+    "dimensions": {
+     "input_per_mtok_ndollars": 975000000,
+     "output_per_mtok_ndollars": 5850000000,
+     "cache_read_per_mtok_ndollars": 97500000,
+     "audio_input_per_mtok_ndollars": 975000000,
+     "audio_output_per_mtok_ndollars": 5850000000,
+     "image_input_per_mtok_ndollars": 975000000
+    }
+   },
+   "route_ceiling": {
+    "basis": "highest_eligible_offer",
+    "dimensions": {
+     "input_per_mtok_ndollars": 1230000000,
+     "output_per_mtok_ndollars": 7380000000,
+     "cache_read_per_mtok_ndollars": 123000000,
+     "audio_input_per_mtok_ndollars": 1230000000,
+     "audio_output_per_mtok_ndollars": 7380000000,
+     "image_input_per_mtok_ndollars": 1230000000
+    }
+   },
+   "ceiling": {
+    "basis": "published_retail",
+    "dimensions": {
+     "input_per_mtok_ndollars": 1500000000,
+     "output_per_mtok_ndollars": 9000000000,
+     "cache_read_per_mtok_ndollars": 150000000,
+     "audio_input_per_mtok_ndollars": 1500000000,
+     "audio_output_per_mtok_ndollars": 9000000000,
+     "image_input_per_mtok_ndollars": 1500000000
+    }
+   }
+  },
+  "available": true,
+  "coming_soon": false,
+  "capabilities": {
+   "vision": true,
+   "tools": true,
+   "image_input": true,
+   "image_output": false,
+   "image_generation": false,
+   "api": "gemini_generate_content",
+   "max_reference_images": 4
+  }
+ },
+ {
+  "id": "glm-5.3-flash-tee",
+  "object": "model",
+  "created": 1704067200,
+  "owned_by": "zai",
+  "tier": "confidential",
+  "model_class": "open",
+  "confidential": true,
+  "display_name": "GLM-5.3-Flash",
+  "gateway_provider": "zai",
+  "api_shapes": [
+   "chat.completions"
+  ],
+  "pricing": {
+   "unit": "ndollars_per_mtok",
+   "currency": "USD",
+   "basis": "cheapest_eligible_offer",
+   "dimensions": {
+    "input_per_mtok_ndollars": 135000000,
+    "output_per_mtok_ndollars": 450000000,
+    "cache_read_per_mtok_ndollars": 27000000
+   },
+   "surcharges": {}
+  },
+  "price_range": {
+   "unit": "ndollars_per_mtok",
+   "currency": "USD",
+   "floor": {
+    "basis": "cheapest_eligible_offer",
+    "dimensions": {
+     "input_per_mtok_ndollars": 135000000,
+     "output_per_mtok_ndollars": 450000000,
+     "cache_read_per_mtok_ndollars": 27000000
+    }
+   },
+   "route_ceiling": {
+    "basis": "highest_eligible_offer",
+    "dimensions": {
+     "input_per_mtok_ndollars": 135000000,
+     "output_per_mtok_ndollars": 450000000,
+     "cache_read_per_mtok_ndollars": 27000000
+    }
+   },
+   "ceiling": {
+    "basis": "published_retail",
+    "dimensions": {
+     "input_per_mtok_ndollars": 150000000,
+     "output_per_mtok_ndollars": 500000000,
+     "cache_read_per_mtok_ndollars": 30000000
+    }
+   }
+  },
+  "available": true,
+  "coming_soon": false,
+  "capabilities": {
+   "vision": true,
+   "tools": true,
+   "image_input": false,
+   "image_output": false,
+   "image_generation": false
+  }
+ },
+ {
+  "id": "gpt-5.5",
+  "object": "model",
+  "created": 1704067200,
+  "owned_by": "openai",
+  "tier": "frontier",
+  "model_class": "frontier",
+  "confidential": false,
+  "display_name": "GPT-5.5",
+  "gateway_provider": "openai",
+  "api_shapes": [
+   "chat.completions",
+   "responses"
+  ],
+  "pricing": {
+   "unit": "ndollars_per_mtok",
+   "currency": "USD",
+   "basis": "cheapest_eligible_offer",
+   "dimensions": {
+    "input_per_mtok_ndollars": 3725000000,
+    "output_per_mtok_ndollars": 22350000000,
+    "cache_read_per_mtok_ndollars": 372500000,
+    "long_context_threshold_tokens": 272000,
+    "long_context_input_per_mtok_ndollars": 7450000000,
+    "long_context_output_per_mtok_ndollars": 33525000000,
+    "long_context_cache_read_per_mtok_ndollars": 745000000
+   },
+   "surcharges": {}
+  },
+  "price_range": {
+   "unit": "ndollars_per_mtok",
+   "currency": "USD",
+   "floor": {
+    "basis": "cheapest_eligible_offer",
+    "dimensions": {
+     "input_per_mtok_ndollars": 3725000000,
+     "output_per_mtok_ndollars": 22350000000,
+     "cache_read_per_mtok_ndollars": 372500000,
+     "long_context_threshold_tokens": 272000,
+     "long_context_input_per_mtok_ndollars": 7450000000,
+     "long_context_output_per_mtok_ndollars": 33525000000,
+     "long_context_cache_read_per_mtok_ndollars": 745000000
+    }
+   },
+   "route_ceiling": {
+    "basis": "highest_eligible_offer",
+    "dimensions": {
+     "input_per_mtok_ndollars": 4500000000,
+     "output_per_mtok_ndollars": 27000000000,
+     "cache_read_per_mtok_ndollars": 450000000,
+     "long_context_threshold_tokens": 272000,
+     "long_context_input_per_mtok_ndollars": 9000000000,
+     "long_context_output_per_mtok_ndollars": 40500000000,
+     "long_context_cache_read_per_mtok_ndollars": 900000000
+    }
+   },
+   "ceiling": {
+    "basis": "published_retail",
+    "dimensions": {
+     "input_per_mtok_ndollars": 5000000000,
+     "output_per_mtok_ndollars": 30000000000,
+     "cache_read_per_mtok_ndollars": 500000000,
+     "long_context_threshold_tokens": 272000,
+     "long_context_input_per_mtok_ndollars": 10000000000,
+     "long_context_output_per_mtok_ndollars": 45000000000,
+     "long_context_cache_read_per_mtok_ndollars": 1000000000
+    }
+   }
+  },
+  "available": true,
+  "coming_soon": false,
+  "capabilities": {
+   "vision": true,
+   "tools": true,
+   "image_input": false,
+   "image_output": false,
+   "image_generation": false
+  }
+ },
+ {
+  "id": "gpt-5.5-pro",
+  "object": "model",
+  "created": 1704067200,
+  "owned_by": "openai",
+  "tier": "frontier",
+  "model_class": "frontier",
+  "confidential": false,
+  "display_name": "GPT-5.5 Pro",
+  "gateway_provider": "openai",
+  "api_shapes": [
+   "responses"
+  ],
+  "pricing": {
+   "unit": "ndollars_per_mtok",
+   "currency": "USD",
+   "basis": "cheapest_eligible_offer",
+   "dimensions": {
+    "input_per_mtok_ndollars": 22350000000,
+    "output_per_mtok_ndollars": 134100000000,
+    "cache_read_per_mtok_ndollars": 2235000000,
+    "long_context_threshold_tokens": 272000,
+    "long_context_input_per_mtok_ndollars": 44700000000,
+    "long_context_output_per_mtok_ndollars": 201150000000
+   },
+   "surcharges": {}
+  },
+  "price_range": {
+   "unit": "ndollars_per_mtok",
+   "currency": "USD",
+   "floor": {
+    "basis": "cheapest_eligible_offer",
+    "dimensions": {
+     "input_per_mtok_ndollars": 22350000000,
+     "output_per_mtok_ndollars": 134100000000,
+     "cache_read_per_mtok_ndollars": 2235000000,
+     "long_context_threshold_tokens": 272000,
+     "long_context_input_per_mtok_ndollars": 44700000000,
+     "long_context_output_per_mtok_ndollars": 201150000000
+    }
+   },
+   "route_ceiling": {
+    "basis": "highest_eligible_offer",
+    "dimensions": {
+     "input_per_mtok_ndollars": 24000000000,
+     "output_per_mtok_ndollars": 144000000000,
+     "cache_read_per_mtok_ndollars": 2400000000,
+     "long_context_threshold_tokens": 272000,
+     "long_context_input_per_mtok_ndollars": 48000000000,
+     "long_context_output_per_mtok_ndollars": 216000000000
+    }
+   },
+   "ceiling": {
+    "basis": "published_retail",
+    "dimensions": {
+     "input_per_mtok_ndollars": 30000000000,
+     "output_per_mtok_ndollars": 180000000000,
+     "cache_read_per_mtok_ndollars": 3000000000,
+     "long_context_threshold_tokens": 272000,
+     "long_context_input_per_mtok_ndollars": 60000000000,
+     "long_context_output_per_mtok_ndollars": 270000000000
+    }
+   }
+  },
+  "available": true,
+  "coming_soon": false,
+  "capabilities": {
+   "vision": true,
+   "tools": true,
+   "image_input": false,
+   "image_output": false,
+   "image_generation": false
+  }
+ }
+]

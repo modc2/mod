@@ -10,14 +10,15 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  deleteGame, fetchCatalog, fetchGames, fetchLeaderboard, forkGame, runMatch,
-  saveGame,
+  deleteGame, fetchCatalog, fetchFleetBoard, fetchFleetGames, fetchGames,
+  fetchLeaderboard, forkGame, runFleetMatch, runMatch, saveGame,
 } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import SignIn from "../components/SignIn";
 import { shortAddress } from "../lib/wallets";
 import type {
-  Catalog, Check, Game, GameRound, Leaderboard, MatchResult,
+  Catalog, Check, FleetGame, FleetMatch, FleetPlayer, Game, GameRound,
+  Leaderboard, MatchResult,
 } from "../lib/types";
 
 const CHECKS: { id: Check; label: string; hint: string }[] = [
@@ -44,6 +45,9 @@ export default function ArenaPage() {
   const [err, setErr] = useState<string | null>(null);
   const [editing, setEditing] = useState<Game | "new" | null>(null);
   const [gate, setGate] = useState(false);
+  // LOCAL is this module's prompt-and-check games; FLEET is the arena
+  // module's — wasm and class games with seats and Elo, refereed over there.
+  const [view, setView] = useState<"local" | "fleet">("local");
 
   const reload = useCallback(() => {
     fetchGames().then((g) => setGames(g.games)).catch((e) => setErr(String(e)));
@@ -120,18 +124,38 @@ export default function ArenaPage() {
       <div className="page-head">
         <div className="page-head-band !py-2 !px-3">
           <h1 className="font-display text-sm sm:text-base whitespace-nowrap">ARENA</h1>
-          <span className="font-mono text-sm text-pixel-gray-light">
-            {games.length} games · {board?.runs ?? 0} runs scored
-          </span>
-          <div className="flex items-center gap-1.5 ml-auto">
+          <div className="flex items-center gap-1">
             <button
-              onClick={() => (session ? setEditing("new") : setGate(true))}
-              className="pixel-btn topbar-ctl px-2.5 nav-active"
-              title="write your own game"
+              onClick={() => setView("local")}
+              className={`pixel-btn topbar-ctl px-2.5 ${view === "local" ? "nav-active" : ""}`}
+              title="this module's games — rule-scored rounds, no judge"
             >
-              <span className="lq-ico" aria-hidden>✚</span>
-              <span className="hidden sm:inline ml-1.5">NEW GAME</span>
+              LOCAL
             </button>
+            <button
+              onClick={() => setView("fleet")}
+              className={`pixel-btn topbar-ctl px-2.5 ${view === "fleet" ? "nav-active" : ""}`}
+              title="the arena module's games — seats, Elo, real opponents"
+            >
+              FLEET
+            </button>
+          </div>
+          {view === "local" && (
+            <span className="font-mono text-sm text-pixel-gray-light hidden sm:inline">
+              {games.length} games · {board?.runs ?? 0} runs scored
+            </span>
+          )}
+          <div className="flex items-center gap-1.5 ml-auto">
+            {view === "local" && (
+              <button
+                onClick={() => (session ? setEditing("new") : setGate(true))}
+                className="pixel-btn topbar-ctl px-2.5 nav-active"
+                title="write your own game"
+              >
+                <span className="lq-ico" aria-hidden>✚</span>
+                <span className="hidden sm:inline ml-1.5">NEW GAME</span>
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -142,7 +166,16 @@ export default function ArenaPage() {
         </div>
       )}
 
-      <div className="flex flex-col lg:flex-row gap-2 min-h-0">
+      {view === "fleet" && (
+        <FleetView
+          cat={cat}
+          session={!!session}
+          onGate={() => setGate(true)}
+          onError={(m) => setErr(m)}
+        />
+      )}
+
+      <div className={view === "local" ? "flex flex-col lg:flex-row gap-2 min-h-0" : "hidden"}>
         {/* ── the games ── */}
         <aside className="lg:w-[320px] shrink-0 flex flex-col gap-2">
           {games.map((g) => (
@@ -255,6 +288,278 @@ export default function ArenaPage() {
         />
       )}
       {gate && <SignIn onClose={() => setGate(false)} />}
+    </div>
+  );
+}
+
+// ── the fleet arena ─────────────────────────────────────────────────
+//
+// Everything below talks to the arena module through this module's own
+// /arena/fleet bridge. The arena referees and keeps the Elo; every move a
+// seated LFM makes comes back through this module's /v1 — so the two
+// modules already trust each other in one direction, and this view is
+// simply the other one.
+
+function FleetView({ cat, session, onGate, onError }: {
+  cat: Catalog | null;
+  session: boolean;
+  onGate: () => void;
+  onError: (m: string) => void;
+}) {
+  const [fleetGames, setFleetGames] = useState<FleetGame[] | null>(null);
+  const [down, setDown] = useState<string | null>(null);
+  const [gameId, setGameId] = useState("");
+  const [entrants, setEntrants] = useState<string[]>([]);
+  const [system, setSystem] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [match, setMatch] = useState<FleetMatch | null>(null);
+  const [board, setBoard] = useState<FleetPlayer[]>([]);
+  const [lfmOnly, setLfmOnly] = useState(true);
+
+  const loadBoard = useCallback((game?: string, only?: boolean) => {
+    fetchFleetBoard(game, only ?? lfmOnly)
+      .then((b) => setBoard(b.players))
+      .catch(() => {});
+  }, [lfmOnly]);
+
+  useEffect(() => {
+    fetchFleetGames()
+      .then((g) => { setFleetGames(g.games); setDown(null); })
+      .catch((e) => setDown(String(e instanceof Error ? e.message : e)));
+    loadBoard();
+  }, [loadBoard]);
+
+  useEffect(() => {
+    if (!gameId && fleetGames?.length) setGameId(fleetGames[0].id);
+  }, [fleetGames, gameId]);
+
+  // Seats answer through /v1 on the server runtime, so only models this box
+  // can hold qualify — and smallest first, same reasoning as the local view.
+  const roster = useMemo(() =>
+    (cat?.models ?? [])
+      .filter((m) => m.torch_repo && (m.kind === "text" || m.kind === "vision"))
+      .sort((a, b) => (a.params_b ?? 99) - (b.params_b ?? 99))
+      .map((m) => ({ repo: m.torch_repo as string, label: m.id })),
+    [cat]);
+
+  useEffect(() => {
+    if (entrants.length || !roster.length) return;
+    setEntrants(roster.slice(0, 2).map((r) => r.repo));
+  }, [roster, entrants.length]);
+
+  const game = fleetGames?.find((g) => g.id === gameId) ?? null;
+
+  const play = useCallback(async () => {
+    if (!session) return onGate();
+    if (!gameId || !entrants.length) return;
+    setBusy(true); setMatch(null); onError("");
+    try {
+      const out = await runFleetMatch(gameId, entrants, system.trim() || undefined);
+      setMatch(out);
+      loadBoard(gameId);
+    } catch (e) {
+      onError(String(e instanceof Error ? e.message : e));
+    } finally {
+      setBusy(false);
+    }
+  }, [session, onGate, gameId, entrants, system, onError, loadBoard]);
+
+  if (down) {
+    return (
+      <div className="pixel-panel p-3 font-mono text-sm text-pixel-gray-light">
+        The arena module isn&apos;t answering on this box — <code>m arena/serve</code> starts
+        it, and this view finds it on its own.
+        <div className="text-red-400 mt-1 break-words">{down}</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col lg:flex-row gap-2 min-h-0">
+      {/* ── the arena's games ── */}
+      <aside className="lg:w-[320px] shrink-0 flex flex-col gap-2 max-h-[70vh] overflow-y-auto">
+        {(fleetGames ?? []).map((g) => (
+          <div
+            key={g.id}
+            className={`pixel-panel p-2 flex flex-col gap-1 ${
+              g.id === gameId ? "pixel-panel-cyan" : ""}`}
+          >
+            <button onClick={() => setGameId(g.id)} className="text-left flex items-center gap-2">
+              <span className="stat-tile-label !text-pixel-white">{g.name}</span>
+              <span className="pixel-badge ml-auto text-pixel-gray-light border-pixel-border">
+                {g.lang}
+              </span>
+            </button>
+            <p className="font-mono text-xs text-pixel-gray-light leading-snug">
+              {g.description || "—"}
+            </p>
+            <span className="pixel-badge self-start text-pixel-gray border-pixel-border">
+              {g.runs} runs
+            </span>
+          </div>
+        ))}
+        {!fleetGames && (
+          <div className="pixel-panel p-3 font-mono text-sm text-pixel-gray">
+            asking the arena…
+          </div>
+        )}
+      </aside>
+
+      {/* ── the match ── */}
+      <section className="flex-1 min-w-0 flex flex-col gap-2">
+        <div className="pixel-panel p-2 flex flex-col gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="stat-tile-label">SEATS</span>
+            <span className="font-mono text-xs text-pixel-gray-light">
+              {game ? game.name : "…"} · arena referees, LFMs answer through /v1
+            </span>
+            <button
+              onClick={play}
+              disabled={busy || !entrants.length}
+              className="pixel-btn topbar-ctl px-4 ml-auto nav-active"
+            >
+              {busy ? "PLAYING…" : session ? "▶ PLAY" : "SIGN IN TO PLAY"}
+            </button>
+          </div>
+          <p className="font-mono text-xs text-pixel-gray-light leading-snug">
+            Up to four seats. One seat is practice; two or more is Elo-rated on
+            the arena&apos;s board, against every player ever seated there — wasm
+            bots included. A match is turns, not rounds, and can take minutes.
+          </p>
+          <div className="grid sm:grid-cols-2 gap-1 max-h-[200px] overflow-y-auto">
+            {roster.map((r) => {
+              const on = entrants.includes(r.repo);
+              return (
+                <button
+                  key={r.repo}
+                  onClick={() => setEntrants((prev) =>
+                    on ? prev.filter((p) => p !== r.repo)
+                      : prev.length >= 4 ? prev : [...prev, r.repo])}
+                  aria-pressed={on}
+                  className={`pixel-btn topbar-ctl !justify-start truncate ${on ? "nav-active" : ""}`}
+                  title={r.repo}
+                >
+                  {on ? "▣" : "▢"} <span className="ml-1.5 truncate">{r.label}</span>
+                </button>
+              );
+            })}
+            {!roster.length && (
+              <p className="font-mono text-sm text-pixel-gray">no server-runnable models</p>
+            )}
+          </div>
+          <input
+            value={system}
+            onChange={(e) => setSystem(e.target.value)}
+            placeholder="system prompt for every seat (optional)"
+            className="pixel-input-sm font-mono w-full"
+          />
+        </div>
+
+        {match && <FleetResult match={match} />}
+        <FleetBoard
+          players={board}
+          lfmOnly={lfmOnly}
+          onToggle={() => { setLfmOnly(!lfmOnly); loadBoard(undefined, !lfmOnly); }}
+        />
+      </section>
+    </div>
+  );
+}
+
+function FleetResult({ match }: { match: FleetMatch }) {
+  const seats = [...(match.seats ?? [])].sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+  return (
+    <div className="pixel-panel p-2 flex flex-col gap-1">
+      <span className="stat-tile-label">
+        RESULT · {match.game_name} · {match.summary}
+        {match.rated ? "" : " · practice"}
+      </span>
+      <table className="pixel-table pixel-table-auto w-full">
+        <thead>
+          <tr>
+            <th className="text-left">#</th>
+            <th className="text-left">SEAT</th>
+            <th className="text-right">SCORE</th>
+            <th className="text-right">ΔELO</th>
+            <th className="text-right hidden sm:table-cell">MOVES</th>
+            <th className="text-right hidden sm:table-cell">ILLEGAL</th>
+          </tr>
+        </thead>
+        <tbody>
+          {seats.map((s, i) => (
+            <tr key={s.seat}>
+              <td className={`font-mono ${i === 0 ? "text-amber-400" : "text-pixel-gray"}`}>{i + 1}</td>
+              <td className="font-mono truncate">
+                {s.player_name}
+                {s.error && <span className="text-red-400 text-xs ml-2">{s.error}</span>}
+              </td>
+              <td className="text-right font-mono">{s.score}</td>
+              <td className={`text-right font-mono ${(s.delta ?? 0) >= 0 ? "text-green-400" : "text-red-400"}`}>
+                {(s.delta ?? 0) >= 0 ? "+" : ""}{s.delta ?? 0}
+              </td>
+              <td className="text-right font-mono hidden sm:table-cell">{s.moves}</td>
+              <td className="text-right font-mono hidden sm:table-cell">{s.illegal}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <span className="font-mono text-xs text-pixel-gray-light">
+        {match.turns} turns · {(match.ms / 1000).toFixed(1)}s · match {match.id}
+      </span>
+    </div>
+  );
+}
+
+function FleetBoard({ players, lfmOnly, onToggle }: {
+  players: FleetPlayer[];
+  lfmOnly: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <div className="pixel-panel overflow-x-auto">
+      <div className="flex items-center gap-2 p-2 pb-0">
+        <span className="stat-tile-label">ARENA ELO</span>
+        <button
+          onClick={onToggle}
+          className={`pixel-btn topbar-ctl !px-2 ml-auto ${lfmOnly ? "nav-active" : ""}`}
+          title="only the model seats this module puts there"
+        >
+          {lfmOnly ? "▣" : "▢"} LFM ONLY
+        </button>
+      </div>
+      <table className="pixel-table pixel-table-auto w-full">
+        <thead>
+          <tr>
+            <th className="text-left">#</th>
+            <th className="text-left">PLAYER</th>
+            <th className="text-left hidden sm:table-cell">KIND</th>
+            <th className="text-right">ELO</th>
+            <th className="text-right">W/L/D</th>
+            <th className="text-right hidden md:table-cell">ILLEGAL</th>
+          </tr>
+        </thead>
+        <tbody>
+          {players.map((p, i) => (
+            <tr key={p.id}>
+              <td className={`font-mono ${i === 0 ? "text-amber-400" : "text-pixel-gray"}`}>{i + 1}</td>
+              <td className="font-mono truncate" title={p.note || p.name}>{p.name}</td>
+              <td className="font-mono text-xs text-pixel-gray-light hidden sm:table-cell">{p.kind}</td>
+              <td className="text-right font-mono">{Math.round(p.elo)}</td>
+              <td className="text-right font-mono">{p.wins}/{p.losses}/{p.draws}</td>
+              <td className="text-right font-mono hidden md:table-cell">
+                {Math.round((p.illegal_rate ?? 0) * 100)}%
+              </td>
+            </tr>
+          ))}
+          {!players.length && (
+            <tr>
+              <td colSpan={6} className="text-center text-pixel-gray py-6 font-mono">
+                nobody seated yet — pick a game and press PLAY
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
     </div>
   );
 }

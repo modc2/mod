@@ -1,0 +1,2735 @@
+<!doctype html>
+<html lang="en" data-chain="starknet">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ztao · anonymous subnets on Starknet, NEAR, Ethereum and Solana</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%228%22 fill=%22%2314b8a6%22/%3E%3Ctext x=%2216%22 y=%2223%22 text-anchor=%22middle%22 font-family=%22monospace%22 font-weight=%22800%22 font-size=%2220%22 fill=%22%23031311%22%3EZ%3C/text%3E%3C/svg%3E">
+<style>
+:root{
+  --bg:#05080a;--panel:#0b1114;--panel2:#0f171b;--line:#1a262c;--line2:#24343b;
+  --ink:#e6f2f1;--dim:#8aa3a6;--mute:#566d71;
+  --teal:#14b8a6;--teal2:#5eead4;--amber:#f59e0b;--violet:#a78bfa;--red:#f43f5e;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+  --sans:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --sn:#ff875b;--nr:#00ec97;--eth:#8ea2ff;--sol:#b57cff;--sol2:#14f195;
+  --acc:var(--sn);--acc2:#ffb38f;--accbg:rgba(255,135,91,.10);--accln:rgba(255,135,91,.38);
+}
+html[data-chain=near]{--acc:var(--nr);--acc2:#7af7c6;--accbg:rgba(0,236,151,.09);--accln:rgba(0,236,151,.36)}
+html[data-chain=eth]{--acc:var(--eth);--acc2:#c3cdff;--accbg:rgba(142,162,255,.10);--accln:rgba(142,162,255,.40)}
+html[data-chain=solana]{--acc:var(--sol);--acc2:var(--sol2);--accbg:rgba(181,124,255,.10);--accln:rgba(181,124,255,.40)}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 var(--sans)}
+body{min-height:100vh;background:
+  radial-gradient(900px 520px at 12% -12%,var(--accbg),transparent 62%),
+  radial-gradient(800px 500px at 100% 0%,rgba(167,139,250,.08),transparent 60%),var(--bg);
+  transition:background .4s}
+a{color:var(--acc2)}
+.wrap{max-width:1200px;margin:0 auto;padding:20px 20px 60px}
+header{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.logo{width:40px;height:40px;border-radius:11px;display:grid;place-items:center;
+  font:800 22px var(--mono);color:#031311;background:linear-gradient(135deg,var(--teal2),var(--teal));
+  box-shadow:0 0 30px rgba(20,184,166,.40)}
+h1{margin:0;font-size:20px;letter-spacing:.3px}
+.sub{color:var(--dim);font-size:13px}
+.sp{flex:1}
+.chip{font:12px var(--mono);border:1px solid var(--line2);background:var(--panel);
+  padding:5px 10px;border-radius:999px;color:var(--dim);display:inline-flex;gap:6px;align-items:center;cursor:default;white-space:nowrap}
+.chip b{color:var(--ink);font-weight:600}
+.chip.click{cursor:pointer}.chip.click:hover{border-color:var(--acc)}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--mute)}
+.dot.on{background:var(--acc);box-shadow:0 0 10px var(--acc)}
+button{font:600 13px var(--sans)!important;border-radius:10px;border:1px solid var(--line2);
+  background:var(--panel2);color:var(--ink);padding:11px 16px;cursor:pointer;transition:.15s}
+button:hover:not(:disabled){border-color:var(--acc);color:var(--acc2)}
+button.go{background:linear-gradient(135deg,var(--acc),var(--acc2));border-color:transparent;color:#05080a;
+  box-shadow:0 6px 30px var(--accbg)}
+button.go:hover:not(:disabled){color:#05080a;filter:brightness(1.08)}
+button:disabled{opacity:.5;cursor:not-allowed}
+button.go.running{background:linear-gradient(90deg,var(--acc),var(--violet),var(--acc));background-size:200% 100%;
+  animation:sweep 1.6s linear infinite;opacity:1!important}
+@keyframes sweep{to{background-position:-200% 0}}
+.glyph{width:16px;height:16px;flex:none}
+
+/* chain switch: one tile per network */
+.chains{position:relative;display:inline-block;margin:20px 0 0;width:min(460px,100%)}
+.chains>.ctile{width:100%}.chains .chev{margin-left:auto;color:var(--mute);font:12px var(--mono);transition:.15s}
+.chains.open .chev{transform:rotate(180deg);color:var(--c)}
+.ddr{margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:2px;font:600 11px var(--mono);white-space:nowrap}
+.ddr .usd{color:var(--ink)}.ddr .ok{position:static!important;color:var(--mute)}
+.ddmenu{position:absolute;z-index:30;top:calc(100% + 6px);left:0;width:100%;display:none;flex-direction:column;gap:6px;
+  padding:6px;border-radius:16px;background:var(--panel);border:1px solid var(--line2);box-shadow:0 24px 60px -20px #000}
+.chains.open .ddmenu{display:flex}
+.ddmenu .ctile:focus-visible{outline:2px solid var(--c);outline-offset:1px}
+.ctile{position:relative;display:flex;align-items:center;gap:12px;text-align:left;padding:12px 14px!important;
+  border-radius:14px;background:var(--panel);border:1px solid var(--line);color:var(--dim);overflow:hidden}
+.ctile .gl{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;background:var(--panel2);
+  border:1px solid var(--line2);color:var(--c);flex:none}
+.ctile .gl svg{width:18px;height:18px}
+.ctile b{display:block;font:700 13px var(--mono);letter-spacing:1.2px;color:var(--ink)}
+.ctile small{display:block;font:11px var(--mono);color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ctile:hover:not(:disabled){border-color:var(--c);color:var(--ink)}
+.ctile.on{border-color:var(--c);background:linear-gradient(180deg,color-mix(in srgb,var(--c) 12%,var(--panel)),var(--panel));
+  box-shadow:0 0 0 1px var(--c) inset,0 10px 40px -18px var(--c)}
+.ctile.on .gl{background:var(--c);color:#05080a;border-color:transparent}
+.ctile .ok{position:absolute;top:10px;right:12px;font:600 10px var(--mono);color:var(--mute)}
+.ctile.on .ok{color:var(--c)}
+.ctile[data-chain=starknet]{--c:var(--sn)}.ctile[data-chain=near]{--c:var(--nr)}
+.ctile[data-chain=eth]{--c:var(--eth)}.ctile[data-chain=solana]{--c:var(--sol)}
+
+/* tabs */
+nav.tabs{display:flex;gap:2px;margin:18px 0 0;border-bottom:1px solid var(--line);overflow-x:auto;align-items:flex-end}
+nav.tabs a{font:700 12px var(--mono);letter-spacing:1.4px;color:var(--mute);text-decoration:none;padding:11px 14px;
+  border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;display:inline-flex;gap:6px;align-items:center}
+nav.tabs a:hover{color:var(--ink)}
+nav.tabs a.on{color:var(--acc2);border-bottom-color:var(--acc)}
+nav.tabs .cnt{color:var(--mute);font-weight:500}
+nav.tabs .scope{font:600 10px var(--mono);letter-spacing:1.2px;color:var(--acc);padding:0 10px 12px 2px;white-space:nowrap}
+nav.tabs .gap{flex:1;min-width:16px}
+.pane{display:none}.pane.on{display:block;animation:fade .25s ease}
+@keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+
+/* chain banner: what this network is, shown on every chain-scoped tab */
+.banner{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-top:18px;padding:16px 18px;border-radius:16px;
+  border:1px solid var(--accln);background:linear-gradient(120deg,var(--accbg),transparent 70%),var(--panel)}
+.banner .gl{width:46px;height:46px;border-radius:13px;display:grid;place-items:center;background:var(--acc);color:#05080a;flex:none;
+  box-shadow:0 0 30px var(--accbg)}
+.banner .gl svg{width:24px;height:24px}
+.banner h2{margin:0;font-size:19px;letter-spacing:-.2px}
+.banner p{margin:2px 0 0;color:var(--dim);font-size:13px;max-width:560px}
+.banner .meta{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;margin-left:auto}
+.banner .chip b{color:var(--acc2)}
+
+.hero{margin:22px 0 16px;display:grid;grid-template-columns:1.25fr 1fr;gap:22px;align-items:end}
+.hero h2{font-size:32px;line-height:1.12;margin:0 0 10px;letter-spacing:-.5px}
+.hero h2 em{font-style:normal;background:linear-gradient(90deg,var(--acc),var(--acc2));
+  -webkit-background-clip:text;background-clip:text;color:transparent}
+.hero p{color:var(--dim);margin:0;max-width:620px}
+.actions{display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap}
+.clock{display:flex;align-items:center;gap:14px;margin:4px 0 14px;font:12px var(--mono);color:var(--dim)}
+.bar{flex:1;height:6px;background:var(--panel2);border-radius:99px;overflow:hidden;border:1px solid var(--line)}
+.bar i{display:block;height:100%;background:linear-gradient(90deg,var(--acc),var(--violet));width:0;transition:width .6s}
+.stage{position:relative;background:linear-gradient(180deg,var(--panel),#070c0e);border:1px solid var(--line);
+  border-radius:16px;overflow:hidden}
+.stage svg{display:block;width:100%;height:auto}
+.caption{position:absolute;left:0;right:0;bottom:14px;text-align:center;font:600 13px var(--mono);
+  color:var(--acc2);text-shadow:0 0 18px var(--accbg);pointer-events:none;transition:opacity .3s}
+.grid{display:grid;grid-template-columns:1.35fr 1fr;gap:18px;margin-top:18px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px}
+.card h3{margin:0 0 12px;font-size:12px;letter-spacing:1.4px;color:var(--dim);font-weight:700;
+  display:flex;align-items:center;gap:8px}
+.card h3 .sp{flex:1}
+table{width:100%;border-collapse:collapse;font:12px var(--mono)}
+th{color:var(--mute);text-align:left;font-weight:500;padding:6px 6px;border-bottom:1px solid var(--line)}
+td{padding:8px 6px;border-bottom:1px solid var(--line);vertical-align:middle}
+tr:last-child td{border-bottom:0}
+.tag{color:var(--teal2)}
+.sbar{height:6px;background:var(--panel2);border-radius:9px;overflow:hidden;min-width:80px}
+.sbar i{display:block;height:100%;background:var(--teal);border-radius:9px;transition:width .5s}
+.pill{font:600 10px var(--mono);padding:2px 7px;border-radius:99px;border:1px solid var(--line2);color:var(--dim);white-space:nowrap}
+.pill.ok{color:var(--amber);border-color:rgba(245,158,11,.4)}
+.pill.open{color:var(--acc2);border-color:var(--accln)}
+.log{font:12px/1.65 var(--mono);height:340px;overflow:auto;color:var(--dim)}
+.log div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.log .k{display:inline-block;width:82px;font-weight:700}
+.log .t{color:var(--mute);display:inline-block;width:48px}
+.k.submit{color:var(--teal2)}.k.score{color:var(--violet)}.k.claim{color:var(--amber)}
+.k.replay{color:var(--red)}.k.deploy,.k.deploying,.k.register,.k.devnet,.k.close,.k.done{color:var(--ink)}.k.error{color:var(--red)}
+.empty{color:var(--mute);font:12px var(--mono);padding:18px 0;text-align:center}
+.how{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:18px}
+.how .card p{color:var(--dim);margin:0;font-size:13px}
+.how .card code{font:12px var(--mono);color:var(--acc2)}
+.how .n{font:700 11px var(--mono);color:var(--mute);letter-spacing:1.2px}
+.how h4{margin:4px 0 6px;font-size:16px}
+.limits ul{margin:0;padding-left:18px;color:var(--dim)}
+.limits li{margin:4px 0}
+.limits b{color:var(--ink)}
+.limits code{font:12px var(--mono);color:var(--acc2)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font:12px var(--mono)}
+.kv span:nth-child(odd){color:var(--mute)}
+.kv span:nth-child(even){color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.toast{position:fixed;right:18px;bottom:18px;background:var(--panel2);border:1px solid var(--line2);
+  padding:10px 14px;border-radius:10px;font:12px var(--mono);opacity:0;transform:translateY(8px);transition:.25s;pointer-events:none;z-index:9}
+.toast.on{opacity:1;transform:none}
+footer{margin-top:30px;color:var(--mute);font:12px var(--mono);text-align:center}
+/* svg */
+.ringline{fill:none;stroke:var(--line2);stroke-dasharray:3 6;animation:dash 40s linear infinite}
+@keyframes dash{to{stroke-dashoffset:-900}}
+.node{transition:fill .25s;animation:breathe 3.6s ease-in-out infinite}
+@keyframes breathe{0%,100%{stroke-opacity:1}50%{stroke-opacity:.35}}
+.lbl{font:600 10px var(--mono);fill:var(--mute);letter-spacing:1.5px}
+.keylbl{font:9px var(--mono);fill:var(--mute)}
+.glow{filter:url(#glow)}
+.facts{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.fact{font:11px var(--mono);color:var(--dim);border:1px solid var(--line);background:rgba(11,17,20,.7);
+  padding:4px 9px;border-radius:7px;display:inline-flex;gap:6px;align-items:center}
+.fact b{color:var(--acc2);font-weight:600}.fact.red b{color:var(--red)}
+.fact svg{width:10px;height:10px}
+.hist{margin-top:14px;border-top:1px solid var(--line);padding-top:10px}
+.hist .h{font:600 10px var(--mono);letter-spacing:1.4px;color:var(--mute);margin-bottom:6px}
+.hrow{display:grid;grid-template-columns:70px 1fr 60px 64px;gap:10px;align-items:center;font:12px var(--mono);
+  color:var(--dim);padding:5px 0}
+.hrow .spark{display:flex;gap:3px;height:16px;align-items:flex-end}
+.hrow .spark i{flex:1;max-width:22px;background:var(--teal);opacity:.75;border-radius:2px 2px 0 0}
+.hrow .spark i.c{background:var(--amber)}
+.log .sep{color:var(--mute);font-size:11px;letter-spacing:1px;margin:2px 0 6px;border-bottom:1px dashed var(--line);padding-bottom:4px}
+@media (prefers-reduced-motion:reduce){.ringline,.node,button.go.running,.pane.on{animation:none}}
+.chainbadge{font:700 10px var(--mono);letter-spacing:1.2px;padding:3px 8px;border-radius:6px;border:1px solid;white-space:nowrap}
+.chainbadge.starknet{color:var(--sn);border-color:rgba(255,135,91,.4)}
+.chainbadge.near{color:var(--nr);border-color:rgba(0,236,151,.4)}
+.chainbadge.eth{color:var(--eth);border-color:rgba(142,162,255,.4)}
+.chainbadge.solana{color:var(--sol);border-color:rgba(181,124,255,.45)}
+.chainbadge.shared{color:var(--teal2);border-color:rgba(20,184,166,.4)}
+/* code */
+.code{display:grid;grid-template-columns:270px 1fr;gap:16px;margin-top:18px}
+.tree{display:flex;flex-direction:column;gap:14px;position:sticky;top:12px;align-self:start}
+.tree h5{margin:0 0 6px;font:700 10px var(--mono);letter-spacing:1.4px;color:var(--mute);display:flex;gap:8px;align-items:center}
+.tree a{display:block;padding:7px 10px;border-radius:9px;color:var(--dim);text-decoration:none;border:1px solid transparent}
+.tree a b{display:block;font:600 12px var(--mono);color:var(--ink)}
+.tree a span{font-size:11px}
+.tree a:hover{border-color:var(--line2)}
+.tree a.on{background:var(--panel2);border-color:var(--accln)}
+.tree a.on b{color:var(--acc2)}
+.tree details summary{cursor:pointer;list-style:none}
+.tree details summary::-webkit-details-marker{display:none}
+.viewer{min-width:0}
+.vbar{display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap}
+.vbar .path{font:600 13px var(--mono)}
+.vbar .meta{color:var(--mute);font:12px var(--mono)}
+.vbar button{padding:7px 12px}
+.src{display:grid;gap:14px}
+.src.two{grid-template-columns:1fr 1fr}
+.srcbox{background:#070c0e;border:1px solid var(--line);border-radius:12px;overflow:auto;max-height:76vh}
+.srcbox .h{position:sticky;top:0;background:var(--panel);border-bottom:1px solid var(--line);padding:8px 12px;
+  font:600 12px var(--mono);display:flex;gap:8px;align-items:center;z-index:1}
+pre.cl{margin:0;padding:10px 0;font:12.5px/1.6 var(--mono);counter-reset:ln;tab-size:4}
+pre.cl span.l{display:block;padding:0 14px 0 0;white-space:pre}
+pre.cl span.l::before{counter-increment:ln;content:counter(ln);display:inline-block;width:46px;padding-right:14px;
+  text-align:right;color:#2c3d43;user-select:none}
+pre.cl span.l:hover{background:rgba(94,234,212,.04)}
+.tk-c{color:#5b7378;font-style:italic}.tk-s{color:#fcd34d}.tk-k{color:#c4b5fd}.tk-n{color:#fda4af}
+.tk-f{color:#5eead4}.tk-t{color:#93c5fd}.tk-a{color:#8aa3a6}
+/* costs + compare */
+.cmp{width:100%;border-collapse:collapse;font:13px var(--sans)}
+.cmp th,.cmp td{padding:10px 12px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+.cmp th{font:700 11px var(--mono);letter-spacing:1.2px;color:var(--mute)}
+.cmp td:first-child{color:var(--dim);width:22%}
+.cmp td code{font:12px var(--mono);color:var(--acc2)}
+.cmp a{text-decoration:none}
+.cmp tr.same td:not(:first-child){color:var(--ink)}
+.big{font:700 26px var(--mono);letter-spacing:-.5px}
+.big small{font:500 12px var(--mono);color:var(--mute);margin-left:6px}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:18px}
+.stat{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px 16px}
+.stat .lab{font:700 10px var(--mono);letter-spacing:1.3px;color:var(--mute);margin-bottom:6px}
+.stat .big{color:var(--acc2)}
+.stat .sub2{color:var(--dim);font-size:12px;margin-top:4px}
+.chart{position:relative}
+.chart svg{display:block;width:100%;height:auto}
+.chart .tip{position:absolute;pointer-events:none;background:var(--panel2);border:1px solid var(--line2);border-radius:8px;
+  padding:6px 9px;font:12px var(--mono);color:var(--ink);opacity:0;transition:opacity .12s;white-space:nowrap}
+.note{color:var(--dim);font-size:13px;margin:10px 0 0}
+.econ{margin-top:18px}.ectl{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:flex-end}
+.ectl label{display:flex;flex-direction:column;gap:4px;font:700 10px var(--mono);letter-spacing:1.3px;color:var(--mute)}
+.ectl select{font:600 13px var(--mono);color:var(--ink);background:var(--panel2);border:1px solid var(--line2);border-radius:10px;
+  padding:8px 30px 8px 12px;cursor:pointer;appearance:none;-webkit-appearance:none;
+  background-image:linear-gradient(45deg,transparent 50%,var(--dim) 50%),linear-gradient(135deg,var(--dim) 50%,transparent 50%);
+  background-position:calc(100% - 15px) 52%,calc(100% - 10px) 52%;background-size:5px 5px;background-repeat:no-repeat}
+.ectl select:hover,.ectl select:focus{border-color:var(--acc);outline:none}
+.econ .stats{margin-top:14px}
+.lims{list-style:none;margin:14px 0 0;padding:0;display:grid;gap:8px}
+.lims li{display:grid;grid-template-columns:62px 1fr;gap:12px;align-items:start;font-size:13px;color:var(--dim);
+  padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--panel2)}
+.lims li b{color:var(--ink)}
+.lims .v{font:700 10px var(--mono);letter-spacing:1.2px;text-align:center;padding:3px 0;border-radius:6px;border:1px solid}
+.lims .v.ok{color:var(--acc2);border-color:var(--accln)}.lims .v.warn{color:#fbbf24;border-color:#fbbf2466}.lims .v.bad{color:#f43f5e;border-color:#f43f5e66}
+.allc{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:18px}
+.acard{cursor:pointer;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px 16px;transition:.15s}
+.acard:hover{border-color:var(--c);transform:translateY(-2px)}
+.acard .top{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.acard .gl{width:30px;height:30px;border-radius:9px;display:grid;place-items:center;background:var(--c);color:#05080a}
+.acard .gl svg{width:16px;height:16px}
+.acard b{font:700 13px var(--mono);letter-spacing:1.2px}
+.acard .kv span:nth-child(even){color:var(--ink)}
+.acard[data-chain=starknet]{--c:var(--sn)}.acard[data-chain=near]{--c:var(--nr)}
+.acard[data-chain=eth]{--c:var(--eth)}.acard[data-chain=solana]{--c:var(--sol)}
+/* tests */
+.tgrid{display:grid;grid-template-columns:1fr 1fr;gap:0 26px}
+.trow{display:flex;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line);font:12px var(--mono)}
+.ok2{color:var(--acc2);font-weight:700;width:38px}.bad2{color:var(--red);font-weight:700;width:38px}
+.tsum{display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin-bottom:14px}
+.ring{width:74px;height:74px}
+/* paper */
+.paper{max-width:820px;margin:26px auto 0;font-size:15px;line-height:1.7}
+.paper h1{font-size:30px;letter-spacing:-.4px;margin:0 0 6px}
+.paper h2{font-size:20px;margin:34px 0 10px;padding-top:14px;border-top:1px solid var(--line)}
+.paper h3{font-size:16px;margin:24px 0 8px}
+.paper p,.paper li{color:#c6d6d7}
+.paper em{color:var(--dim)}
+.paper code{font:13px var(--mono);color:var(--teal2);background:var(--panel2);padding:1px 5px;border-radius:5px}
+.paper pre{background:#070c0e;border:1px solid var(--line);border-radius:10px;padding:12px 14px;overflow:auto}
+.paper pre code{background:none;padding:0;color:var(--ink)}
+.paper table{margin:14px 0;font:13px var(--sans)}
+.paper th{color:var(--dim)}
+.paper td,.paper th{padding:7px 10px}
+@media (max-width:980px){.allc{grid-template-columns:1fr 1fr}}
+@media (max-width:860px){.hero,.grid,.how,.code,.src.two,.tgrid{grid-template-columns:1fr}.actions{justify-content:flex-start}
+  .ctile .ok,.banner .gl{display:none}.ctile{padding:10px 12px!important}
+  .hero h2{font-size:25px}.tree{position:static}.stats{grid-template-columns:1fr 1fr}.banner .meta{margin-left:0;justify-content:flex-start}}
+/* receipt */
+#receipt{margin-top:14px}
+.rcpt th{font:700 10px var(--mono);letter-spacing:1.2px;color:var(--mute)}
+.rcpt td{padding:7px 6px}
+.rcpt-total td{color:var(--acc2);font-weight:700;border-top:1px solid var(--line2)}
+.receipt-cc{margin-top:10px;display:grid;grid-template-columns:4.5em 1fr 3.5em;gap:3px 6px;align-items:center}
+.cc-lbl{font:11px var(--mono);color:var(--dim);white-space:nowrap}
+.cc-lbl.cc-act{color:var(--acc2);font-weight:700}
+.cc-bar-wrap{background:rgba(255,255,255,.07);border-radius:3px;overflow:hidden;height:7px}
+.cc-bar{height:100%;border-radius:3px}
+.cc-amt{font:11px var(--mono);color:var(--dim);text-align:right;white-space:nowrap}
+.cc-amt.cc-act{color:var(--acc2);font-weight:700}
+/* budget */
+.vrow{display:grid;grid-template-columns:132px 64px 1fr;gap:12px;align-items:center;padding:11px 12px;
+  border:1px solid var(--line);border-radius:12px;background:var(--panel2);margin-bottom:8px}
+.vrow .vb{font:700 12px var(--mono);letter-spacing:1.4px;text-align:center;padding:4px 0;border-radius:7px;border:1px solid}
+.vrow .vb.pass{color:var(--teal2);border-color:rgba(20,184,166,.5);background:rgba(20,184,166,.10)}
+.vrow .vb.fail{color:var(--red);border-color:rgba(244,63,94,.45);background:rgba(244,63,94,.08)}
+.vrow .vd{font:12px var(--mono);color:var(--dim)}
+.vrow .vd b{color:var(--ink)}
+.vrow .vd .big2{font:700 16px var(--mono);color:var(--teal2);letter-spacing:-.3px}
+.vrow .vd .warn2{color:var(--amber)}
+.mx{font:11px var(--mono);border-collapse:separate;border-spacing:3px;width:auto;min-width:100%}
+.mx th{border-bottom:0;padding:4px 7px;white-space:nowrap;text-align:right}
+.mx th.lab{text-align:left}
+.mx td{border-bottom:0;padding:6px 8px;text-align:right;border-radius:7px;background:var(--panel2);
+  color:var(--mute);white-space:nowrap}
+.mx td.lab{text-align:left;background:transparent;color:var(--ink)}
+.mx td.pass{background:rgba(20,184,166,.16);color:var(--teal2);font-weight:700}
+.mx td.near{background:rgba(245,158,11,.10);color:var(--amber)}
+.snd{font:700 9px var(--mono);letter-spacing:1.1px;padding:2px 6px;border-radius:5px;border:1px solid;white-space:nowrap}
+.snd.chain{color:var(--teal2);border-color:rgba(20,184,166,.45)}
+.snd.challenge{color:var(--amber);border-color:rgba(245,158,11,.45)}
+.snd.proof{color:var(--violet);border-color:rgba(167,139,250,.45)}
+.rulepill{cursor:pointer;font:600 11px var(--mono);padding:5px 10px;border-radius:99px;border:1px solid var(--line2);
+  background:var(--panel2);color:var(--dim);white-space:nowrap}
+.rulepill:hover{border-color:var(--acc)}
+.rulepill.on{color:var(--acc2);border-color:var(--accln);background:var(--accbg)}
+.hbk{display:inline-block;font:10px var(--mono);color:var(--mute);background:var(--panel2);border:1px solid var(--line);
+  border-radius:5px;padding:1px 5px;margin:0 3px 3px 0}
+.hbk b{color:var(--teal2)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="logo">Z</div>
+    <div><h1>ztao</h1><div class="sub" id="hsub">anonymous subnets · one signature scheme, four chains</div></div>
+    <div class="sp"></div>
+    <span class="chip"><span class="dot" id="netdot"></span><b id="net">devnet</b><span id="blk">-</span></span>
+    <span class="chip click" id="addrchip" title="copy contract address">contract <b id="addr">not deployed</b></span>
+  </header>
+
+  <div class="chains" id="chainsw" role="tablist" aria-label="network"></div>
+
+  <nav class="tabs" id="tabs">
+    <span class="scope" id="scope">STARKNET</span>
+    <a href="#live" data-tab="live">LIVE</a>
+    <a href="#code" data-tab="code">CONTRACT</a>
+    <a href="#costs" data-tab="costs">COSTS</a>
+    <a href="#budget" data-tab="budget">BUDGET</a>
+    <a href="#forecast" data-tab="forecast">FORECAST</a>
+    <a href="#tests" data-tab="tests">TESTS<span class="cnt" id="tcount"></span></a>
+    <span class="gap"></span>
+    <a href="#all" data-tab="all">ALL CHAINS</a>
+    <a href="#paper" data-tab="paper">WHITEPAPER</a>
+  </nav>
+
+  <section class="banner" id="banner">
+    <div class="gl" id="bglyph"></div>
+    <div><h2 id="bname">Starknet</h2><p id="bline"></p></div>
+    <div class="meta" id="bmeta"></div>
+  </section>
+
+  <div class="pane" id="pane-live">
+  <section class="hero">
+    <div>
+      <h2>Miners and validators who <em>never learn who the other is.</em></h2>
+      <p>Each one only knows that the other is in the registered set. Every submit, score and claim is a
+        ring signature over the STARK curve, verified on-chain <span id="verifier">by a Cairo contract</span>.
+        A validator scores a <b>tag</b>, never a miner. A miner gets paid and never learns which validators scored it.</p>
+      <div class="facts" id="facts"></div>
+    </div>
+    <div class="actions">
+      <div class="ectl">
+        <label>MINERS<select id="lmin"><option>3</option><option selected>4</option><option>8</option><option>16</option></select></label>
+        <label>VALIDATORS<select id="lvals"><option>3</option><option selected>4</option><option>8</option></select></label>
+      </div>
+      <div id="run-cost" style="font:12px var(--mono);color:var(--dim);margin:4px 0 2px;min-height:16px"></div>
+      <div id="run-meter" style="display:none;font:12px var(--mono);color:var(--acc2);margin:0 0 2px"></div>
+      <button id="replay" title="replay the last recorded epoch">Replay last epoch</button>
+      <button id="stepthrough" title="step through each event with privacy explanations">STEP THROUGH ▸</button>
+      <button class="go" id="run">Run an anonymous epoch</button>
+    </div>
+  </section>
+
+  <div class="clock">
+    <span>EPOCH <b id="ep" style="color:var(--ink)">-</b></span>
+    <div class="bar"><i id="epbar"></i></div>
+    <span id="left">-</span>
+  </div>
+
+  <div class="stage">
+    <svg id="svg" viewBox="0 0 1140 440" preserveAspectRatio="xMidYMid meet"></svg>
+    <div class="caption" id="cap"></div>
+  </div>
+
+  <div id="step-panel" class="card" style="display:none;margin-top:14px">
+    <h3><span id="step-kind" class="k"></span> <span class="sp"></span><span id="step-idx" style="color:var(--mute);font:12px var(--mono)"></span></h3>
+    <div id="step-caption" style="font:600 13px var(--mono);color:var(--acc2);margin-bottom:10px"></div>
+    <div id="step-explain" style="color:var(--dim);font-size:13px;line-height:1.55;margin-bottom:14px"></div>
+    <div style="display:flex;gap:10px;align-items:center">
+      <button id="step-back" title="exit step-through mode">← END</button>
+      <span class="sp"></span>
+      <button class="go" id="step-next">NEXT →</button>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h3>TAGS <span class="sp"></span><span class="pill" id="tallyep">-</span></h3>
+      <div id="tally"><div class="empty">no tags yet. Run an epoch.</div></div>
+    </div>
+    <div class="card">
+      <h3>ON-CHAIN EVENTS <span class="sp"></span><span class="pill" id="logstate">idle</span></h3>
+      <div class="log" id="log"><div class="empty">waiting for a run</div></div>
+    </div>
+  </div>
+
+  <div id="receipt"></div>
+
+  <div class="how">
+    <div class="card"><div class="n">01 · MINER</div><h4>submit</h4>
+      <p>The miner signs <code>work</code> with a ring of miners in scope <code>H(mine, subnet, epoch)</code>.
+        The key image is its <b>tag</b> for this epoch. That gives one submission per miner per epoch, and
+        the tag can't be linked to its key or to its tags in other epochs.</p></div>
+    <div class="card"><div class="n">02 · VALIDATOR</div><h4>score</h4>
+      <p>The validator signs a 0-100 score with a ring of validators in scope <code>H(score, subnet, epoch, tag)</code>.
+        The key image is a <b>nullifier</b>. That gives one score per validator per tag, and its scores on
+        different tags can't be linked.</p></div>
+    <div class="card"><div class="n">03 · MINER</div><h4>claim</h4>
+      <p>After the epoch closes, the miner re-signs in the same mine scope. The same key gives the
+        <b>same image</b>, which proves it owns the tag. It credits <code>emission x sum / total</code> to any
+        recipient, and a replay is rejected.</p></div>
+  </div>
+
+  <div class="grid limits">
+    <div class="card">
+      <h3>READ THIS · LIMITS ON <span id="limchain">STARKNET</span></h3>
+      <ul>
+        <li><b>Your anonymity set is the ring, nothing more.</b> With 3 validators each score points to 1 of 3.
+          The contract enforces <code>min_ring</code> and rejects padded rings (key ids strictly increasing).</li>
+        <li id="costli"></li>
+        <li><b>The tx sender is public.</b> Actions go through a relayer, because the contract never checks the caller.
+          Timing, IP and work content can still identify you.</li>
+        <li><b>Payouts are public books.</b> Points are credited in storage, and no token moves.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>SUBNET ON-CHAIN</h3>
+      <div class="kv" id="params"><span>status</span><span>loading</span></div>
+    </div>
+  </div>
+  <div class="card" id="yuma-sandbox" style="margin-top:18px">
+    <h3>YUMA SANDBOX <span class="sp"></span><span class="pill" id="yuma-state">live</span></h3>
+    <div class="ectl" style="align-items:flex-start;margin-bottom:10px">
+      <label>SCORES<small style="display:block;color:var(--dim);font:11px var(--sans);margin:2px 0 4px">tag: s1 s2 … per line</small>
+        <div style="display:flex;gap:5px;margin-bottom:6px">
+          <button onclick="yumaPreset('honest')" style="font:11px var(--sans);padding:2px 7px;border-radius:6px;background:var(--panel2);border:1px solid var(--line2);color:var(--ink);cursor:pointer">honest consensus</button>
+          <button onclick="yumaPreset('gaming')" style="font:11px var(--sans);padding:2px 7px;border-radius:6px;background:var(--panel2);border:1px solid var(--line2);color:var(--ink);cursor:pointer">gaming attack</button>
+          <button onclick="yumaPreset('split')" style="font:11px var(--sans);padding:2px 7px;border-radius:6px;background:var(--panel2);border:1px solid var(--line2);color:var(--ink);cursor:pointer">split opinion</button>
+        </div>
+        <textarea id="yuma-input" rows="4" style="font:12px var(--mono);background:var(--panel2);border:1px solid var(--line2);border-radius:10px;color:var(--ink);padding:8px 10px;resize:vertical;width:260px;outline:none"></textarea>
+      </label>
+      <label>VALIDATORS<select id="yuma-v"><option>2</option><option selected>4</option><option>8</option><option>16</option></select></label>
+      <label>EMISSION<select id="yuma-e"><option>100</option><option selected>1000</option><option>10000</option></select></label>
+    </div>
+    <div id="yuma-result"></div>
+  </div>
+  </div>
+
+  <div class="pane" id="pane-code">
+    <div class="code">
+      <div class="tree" id="tree"></div>
+      <div class="viewer">
+        <div class="vbar"><span class="path" id="vpath">-</span><span class="meta" id="vmeta"></span><span class="sp"></span>
+          <button id="sbs" title="this chain's verifier next to the Cairo reference">Verifier vs Cairo</button>
+          <button id="copysrc">Copy</button></div>
+        <div class="src" id="src"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="pane" id="pane-costs">
+    <div class="stats" id="cstats"></div>
+    <div class="grid" style="grid-template-columns:1.15fr 1fr">
+      <div class="card"><h3 id="charttitle">COST BY RING SIZE <span class="sp"></span><span class="pill" id="gasnote">measured</span></h3>
+        <div class="chart" id="gaschart"></div>
+        <p class="note" id="chartnote"></p>
+        <details style="margin-top:8px"><summary style="cursor:pointer;color:var(--mute);font:12px var(--mono)">table view</summary><div id="gastable"></div></details>
+      </div>
+      <div class="card"><h3>HOW THIS CHAIN VERIFIES IT</h3><div id="ctable"></div></div>
+    </div>
+    <div class="card econ">
+      <h3>MAINNET COST IN DOLLARS <span class="sp"></span><span class="pill" id="econat">loading</span></h3>
+      <div class="ectl">
+        <label>EPOCH<select id="eep"></select></label>
+        <label>MINERS<select id="emin"></select></label>
+        <label>VALIDATORS<select id="evals"></select></label>
+        <label>RING<select id="ering"></select></label>
+      </div>
+      <div class="stats" id="estats"></div>
+      <div class="grid" style="grid-template-columns:1fr 1.25fr;margin-top:14px">
+        <div><table class="cmp" id="etable"></table><p class="note" id="enote"></p></div>
+        <div><h3 style="margin:0">LIMITS AT THIS SIZE</h3><ul class="lims" id="elims"></ul></div>
+      </div>
+    </div>
+    <div class="card" id="privcard"></div>
+    <div class="card" id="capgrid-card" style="margin-top:14px">
+      <h3>BLOCKSPACE CAPACITY GRID <span class="sp"></span><span class="pill" id="capgrid-at">loading</span></h3>
+      <div class="ectl"><label>EPOCH HRS<select id="capgrid-hrs"></select></label></div>
+      <div id="capgrid-svg" style="overflow-x:auto;margin-top:12px"></div>
+      <div id="capgrid-summary"></div>
+    </div>
+  </div>
+
+  <div class="pane" id="pane-budget">
+    <div class="card" style="margin-top:18px">
+      <h3>CAN IT BE AFFORDED? <span class="sp"></span><span class="pill" id="bg-at">loading</span></h3>
+      <div class="ectl">
+        <label>TARGET $ / WEEK<select id="bgtarget"></select></label>
+        <label>MINERS<select id="bgminers"></select></label>
+        <label>VALIDATORS<select id="bgvals"></select></label>
+      </div>
+      <div id="bg-verdict" style="margin-top:14px"><div class="empty">loading</div></div>
+      <p class="note" id="bg-note"></p>
+      <div id="bg-caps"></div>
+    </div>
+
+    <div class="card" style="margin-top:14px">
+      <h3>STRATEGY &times; EPOCH LENGTH <span class="sp"></span><span class="pill" id="bg-mx-at">&ndash;</span></h3>
+      <div id="bg-matrix" style="overflow-x:auto"><div class="empty">&ndash;</div></div>
+      <p class="note" id="bg-mx-note"></p>
+    </div>
+
+    <div class="card" style="margin-top:14px">
+      <h3>HOW THE PRICE SCALES <span class="sp"></span><span class="pill" id="bg-sc-at">&ndash;</span></h3>
+      <div class="chart" id="bg-sc-chart"><div class="empty">&ndash;</div></div>
+      <div id="bg-sc-legend" style="display:flex;flex-wrap:wrap;margin-top:10px;font:12px var(--mono)"></div>
+      <div id="bg-sc-table" style="overflow-x:auto;margin-top:14px"></div>
+      <div id="bg-growth" style="margin-top:16px"></div>
+      <p class="note" id="bg-sc-note"></p>
+    </div>
+
+    <div class="card" style="margin-top:14px">
+      <h3>MODULAR CONSENSUS + SECURE AGGREGATION <span class="sp"></span><span class="pill" id="bg-agg-state">idle</span></h3>
+      <p class="note" style="margin-top:0" id="bg-rule-note"></p>
+      <div id="bg-rules" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px"><span class="empty">loading rules</span></div>
+      <div id="bg-ruletable" style="margin-top:12px"></div>
+      <div class="ectl" style="margin-top:14px">
+        <label>VALIDATORS<select id="bgav"></select></label>
+        <label>TAGS<select id="bgat"></select></label>
+        <label>SILENT<select id="bgad"></select></label>
+        <button class="go" id="bg-run">RUN ONE ROUND</button>
+      </div>
+      <p class="note" id="bg-agg-warn">One round is real cryptography, not a mock: every pair of validators derives a shared pad, so the masks cancel in the sum. It costs about a second and a half at 8 validators and grows with the square of the set.</p>
+      <div id="bg-agg" style="margin-top:4px"><div class="empty">no round yet. Press RUN ONE ROUND.</div></div>
+    </div>
+  </div>
+
+  <div class="pane" id="pane-forecast">
+    <div class="card" style="margin-top:18px">
+      <h3>FORECAST · $/MONTH AS SUBNET GROWS <span class="sp"></span><span class="pill" id="fc-at">loading</span></h3>
+      <div class="ectl">
+        <label>MINERS START<select id="fmstart"></select></label>
+        <label>MINERS END<select id="fmend"></select></label>
+        <label>VALIDATORS START<select id="fvstart"></select></label>
+        <label>VALIDATORS END<select id="fvend"></select></label>
+        <label>MONTHS<select id="fmonths"></select></label>
+        <label>SHAPE<select id="fshape"></select></label>
+        <label>RING<select id="fring"></select></label>
+        <label>EPOCH HRS<select id="fephours"></select></label>
+        <label>COALITION<select id="fcoalition"></select></label>
+      </div>
+      <div class="chart" id="fc-chart" style="margin-top:14px"><div class="empty">select a chain with mainnet pricing</div></div>
+    </div>
+    <div class="card" style="margin-top:14px">
+      <h3>STRATEGIES · WHAT EACH COSTS AND WHAT IT LINKS</h3>
+      <div id="fc-legend"><div class="empty">–</div></div>
+    </div>
+    <div id="fc-risk"></div>
+  </div>
+
+  <div class="pane" id="pane-tests">
+    <div class="card" style="margin-top:18px" id="tlist"></div>
+  </div>
+
+  <div class="pane" id="pane-all">
+    <div class="allc" id="allcards"></div>
+    <div class="card" style="margin-top:18px" id="allchart"></div>
+    <div class="card" style="margin-top:18px" id="allforecast"></div>
+    <div class="card" style="margin-top:18px"><h3>SAME PROTOCOL · FOUR VERIFIERS</h3><div id="alltable" style="overflow-x:auto"></div></div>
+  </div>
+
+  <div class="pane" id="pane-paper">
+    <div style="margin-bottom:12px;display:flex;gap:6px">
+      <span class="pill open" id="btn-technical" style="cursor:pointer" onclick="setPaperKind('technical')">TECHNICAL</span>
+      <span class="pill" id="btn-simple" style="cursor:pointer" onclick="setPaperKind('simple')">PLAIN ENGLISH</span>
+    </div>
+    <article class="paper" id="paper"><div class="empty">loading the paper</div></article>
+  </div>
+
+  <footer>LSAG over the STARK curve · Poseidon challenges · key image I = x · Hp(scope) · Cairo · Rust/wasm · Solidity+Yul · sBPF · <a id="apilink" href="#">api</a></footer>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const BASE = location.pathname.startsWith('/ztao') ? '/ztao' : '';
+const API = fn => `${BASE}/_api/${fn}`;
+const $ = id => document.getElementById(id);
+const NS = 'http://www.w3.org/2000/svg';
+const short = h => h ? (h.length > 14 ? h.slice(0, 8) + '..' + h.slice(-4) : h) : '-';
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+$('apilink').href = `${BASE}/api/info`;
+const esc = t => String(t).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+const GLYPH = {
+  starknet: '<svg viewBox="0 0 16 16" class="glyph"><path d="M8 1l1.7 5.3L15 8l-5.3 1.7L8 15l-1.7-5.3L1 8l5.3-1.7z" fill="currentColor"/></svg>',
+  near: '<svg viewBox="0 0 16 16" class="glyph"><path d="M3.5 13V3l9 10V3" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/></svg>',
+  eth: '<svg viewBox="0 0 16 16" class="glyph"><path d="M8 1l4.6 7L8 10.7 3.4 8z" fill="currentColor"/><path d="M3.4 9.2L8 15l4.6-5.8L8 12z" fill="currentColor" opacity=".7"/></svg>',
+  solana: '<svg viewBox="0 0 16 16" class="glyph"><path d="M4.2 3h10l-2.4 2.4h-10zM1.8 6.8h10l2.4 2.4h-10zM4.2 10.6h10l-2.4 2.4h-10z" fill="currentColor"/></svg>',
+};
+/* the chain this page is looking at: ?chain= > localStorage > starknet.
+   Everything chain-scoped below (live stage, contract files, costs, tests) reads CH[CHAIN]. */
+const CH = {
+  starknet: {name: 'Starknet', net: 'devnet', local: 'starknet-devnet', port: 51502,
+    lang: 'Cairo contract', tile: 'Cairo · native EC',
+    line: 'A Cairo contract verifies every ring signature with the native EC and Poseidon builtins. The reference implementation.',
+    verifier: 'by a Cairo contract (native EC builtin)', cap: 64, capWhy: 'set by the contract, far under the step limit',
+    deploying: 'declaring + deploying the Cairo verifier', runner: 'snforge', unit: 'steps',
+    costli: '<b>Cost is linear in the ring.</b> A ring of 4 is about 16k Cairo steps and 19 <code>ec_op</code>. The contract caps rings at 64.',
+    how: [['contract', 'ztao.cairo, the subnet. lsag.cairo holds the scheme'],
+      ['curve math', 'native <code>ec_op</code> builtin'], ['Poseidon', 'native builtin'],
+      ['subnet felt', 'the contract address'], ['recipient', 'a felt (any address)'],
+      ['max ring', '64'], ['hash to point', 'try-and-increment computed on-chain'],
+      ['tests', 'snforge, plus a full epoch on starknet-devnet'], ['local chain', 'starknet-devnet :51502']]},
+  near: {name: 'NEAR', net: 'near', local: 'near-sandbox', port: 51503,
+    lang: 'Rust / wasm contract', tile: 'Rust · wasm',
+    line: 'A near-sdk 5 contract compiled to wasm verifies the same signatures with its own field and curve math.',
+    verifier: 'by a Rust/wasm contract on NEAR (same signatures, own curve math)', cap: 32, capWhy: '300 Tgas per call',
+    deploying: 'deploying the wasm verifier to a fresh NEAR account', runner: 'cargo test', unit: 'Tgas',
+    costli: '<b>Cost is linear in the ring.</b> On NEAR a ring of 4 is about 37 Tgas, roughly 7.5 Tgas per member. A call may burn 300 Tgas, so the cap is 32.',
+    how: [['contract', 'lib.rs (near-sdk 5). lsag.rs is the port of the scheme'],
+      ['curve math', '<code>fp.rs</code>: 9 x 29-bit limbs, Straus windows, in wasm'],
+      ['Poseidon', '<code>poseidon.rs</code> on the fast field'],
+      ['subnet felt', 'sha256(account id), top 5 bits cleared'], ['recipient', 'a NEAR account (signed as sha256)'],
+      ['max ring', '32 (300 Tgas per call)'], ['hash to point', 'hint from the <code>hash_point</code> view, checked on-chain'],
+      ['build', 'RUSTFLAGS <code>--cfg near</code> + wasmlower to MVP wasm'],
+      ['tests', 'cargo test on Cairo-made fixtures'], ['local chain', 'near-sandbox :51503']]},
+  eth: {name: 'Ethereum', net: 'eth', local: 'anvil', port: 51504,
+    lang: 'Solidity + Yul contract', tile: 'Solidity · Yul',
+    line: 'The EVM has no STARK curve, so the group law is written in Yul on mulmod and Poseidon runs in a hand-assembled contract.',
+    verifier: 'by a Solidity contract on the EVM (STARK-curve math in Yul)', cap: 32, capWhy: 'EIP-7825 caps a tx at 2^24 gas',
+    deploying: 'deploying Hades + the Solidity verifier', runner: 'forge test', unit: 'gas',
+    costli: '<b>Cost is linear in the ring.</b> A ring of 4 is about 2.1M gas, roughly 0.41M per member. EIP-7825 caps a transaction at 16.7M gas, so the cap is 32.',
+    how: [['contract', 'ZTao.sol, the subnet. LSAG.sol holds the scheme'],
+      ['curve math', '<code>StarkCurve.sol</code>: Jacobian coordinates + Straus tables in Yul'],
+      ['Poseidon', 'the Hades permutation as a hand-assembled contract at a fixed CREATE2 address'],
+      ['subnet felt', 'the contract address as a number'], ['recipient', 'an address'],
+      ['max ring', '32 (16.7M gas per tx, EIP-7825)'], ['hash to point', 'hint in the signature, checked on-chain'],
+      ['tests', 'forge, incl. Cairo-made signatures'], ['local chain', 'anvil :51504 (prague)']]},
+  solana: {name: 'Solana', net: 'solana', local: 'solana-test-validator', port: 51510,
+    lang: 'Rust sBPF program', tile: 'Rust · sBPF units',
+    line: 'No transaction can afford a ring signature, so verification is cut into independent units under 1.4M compute units each.',
+    verifier: 'by a Solana program, split into compute units', cap: 32, capWhy: 'fixed by the session account layout',
+    deploying: 'deploying the sBPF program + subnet account', runner: 'cargo test', unit: 'CU',
+    costli: '<b>Cost is linear in the ring.</b> A ring of 4 is about 40M compute units, spread over ~41 units in ~47 transactions. Each tx stays under the 1.4M CU limit. The cap is 32.',
+    how: [['program', 'lib.rs: subnet, sessions, units, finish. verify.rs holds the scheme'],
+      ['curve math', 'NEAR\'s <code>fp.rs</code>, reused, in sBPF'],
+      ['Poseidon', 'NEAR\'s <code>poseidon.rs</code>, reused'],
+      ['verification', 'relayer opens a SESSION account, uploads the signature + hints, then sends UNITS. Each unit checks one slice and sets one bit. <code>finish</code> applies the action'],
+      ['subnet felt', 'sha256(subnet account), top 5 bits cleared'], ['recipient', 'a pubkey, credited in an EARNED PDA'],
+      ['nullifier', 'a PDA per nullifier: exists = spent'],
+      ['hash to point', 'hint uploaded with the session, checked by a unit'],
+      ['max ring', '32'], ['tests', 'cargo test on Cairo-made hints'], ['local chain', 'solana-test-validator :51510']]},
+};
+const ORDER = ['starknet', 'near', 'eth', 'solana'];
+const WANT = new URLSearchParams(location.search).get('chain') || localStorage.getItem('ztao.chain') || 'starknet';
+let CHAIN = CH[WANT] ? WANT : 'starknet';
+const NET = () => CH[CHAIN].net;
+/* a chain the server has an adapter for (src/networks/<chain>/) but this page
+   has no hand-written copy of gets a generic entry from GET networks */
+function adoptNetworks(list) {
+  const css = [];
+  for (const n of list || []) {
+    if (CH[n.chain]) continue;
+    const col = n.color || '#9aa4b2';
+    CH[n.chain] = {name: n.name || n.title, net: n.net, local: n.local || n.net, port: '', generic: true,
+      lang: `${n.title} contract`, tile: n.title, line: n.verifier || '', verifier: n.verifier || '',
+      cap: n.max_ring, capWhy: '', deploying: n.deploying || 'deploying the verifier', runner: 'native suite',
+      unit: (n.cost_fields || [])[0] || '', costKey: (n.cost_fields || [])[0], costli: '',
+      how: [['networks', esc(n.nets.join(' · '))], ['max ring', n.max_ring], ['local chain', esc(n.local || n.net)]]};
+    GLYPH[n.chain] = `<svg viewBox="0 0 16 16" class="glyph"><circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" stroke-width="2"/><text x="8" y="11.2" text-anchor="middle" font-size="8.5" font-weight="700" fill="currentColor">${esc(CH[n.chain].name[0])}</text></svg>`;
+    ORDER.push(n.chain);
+    css.push(`.ctile[data-chain=${n.chain}],.acard[data-chain=${n.chain}]{--c:${col}}html[data-chain=${n.chain}]{--acc:${col};--acc2:${col};--accbg:${col}1a;--accln:${col}66}`);
+  }
+  if (css.length) document.head.insertAdjacentHTML('beforeend', `<style>${css.join('')}</style>`);
+  return css.length;
+}
+
+async function get(fn, q = '') {
+  const r = await fetch(API(fn) + q); return r.json();
+}
+async function post(fn, body = {}) {
+  const r = await fetch(API(fn), {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+  return r.json();
+}
+function toast(msg) {
+  const t = $('toast'); t.textContent = msg; t.classList.add('on');
+  clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('on'), 2600);
+}
+/* shared data, fetched once: compare (costs + last runs per chain) and tests */
+let CMP = null, TESTS = null;
+const cmpP = get('compare').then(c => (CMP = c)).catch(() => (CMP = {}));
+const testsP = get('tests').then(t => (TESTS = t)).catch(() => (TESTS = {}));
+/* mainnet dollars: live gas + token price on the costs measured locally */
+let ECON = null;
+const econP = get('economics').then(e => (ECON = e)).catch(() => (ECON = {}));
+const usd = v => v == null ? '-' : v >= 100 ? '$' + Math.round(v).toLocaleString() : v >= 1 ? '$' + v.toFixed(2) : v >= .01 ? '$' + v.toFixed(3) : '$' + v.toPrecision(2);
+/* one validator score at the measured ring: the action an epoch is mostly made of */
+const econOf = c => { const e = ((ECON || {}).chains || {})[c]; return e && (e.actions.score || e.actions.submit); };
+econP.then(() => { renderSwitch(); updateRunCost(); if (TAB === 'costs') renderEcon(); if (TAB === 'all') renderAll(); if (TAB === 'forecast') renderForecast(); });
+const avg = a => a && a.length ? a.reduce((x, y) => x + y, 0) / a.length : null;
+const fmtM = v => v >= 1e9 ? (v / 1e9).toFixed(1) + 'B' : v >= 1e6 ? (v / 1e6).toFixed(v >= 1e7 ? 1 : 2) + 'M' : v >= 1e3 ? (v / 1e3).toFixed(1) + 'k' : String(Math.round(v));
+/* ring-4 verify cost on one chain, as [big, unit, sub] */
+function verifyCost(c) {
+  const x = (CMP || {})[c] || {};
+  if (c === 'starknet') { const s = avg(x.steps), e = avg(x.ec_op); return s ? [(s / 1000).toFixed(1) + 'k', 'steps', `${Math.round(e)} ec_op · ring ${x.ring || 4}`] : null; }
+  if (c === 'near') { const g = avg(x.tgas); return g ? [g.toFixed(1), 'Tgas', `ring ${x.ring || 4} · was 214 Tgas before fp.rs`] : null; }
+  if (c === 'eth') { const g = avg(x.gas); return g ? [(g / 1e6).toFixed(2) + 'M', 'gas', `ring ${x.ring || 4} · per action, incl. calldata`] : null; }
+  if (c === 'solana') { const g = avg(x.cu); return g ? [(g / 1e6).toFixed(1) + 'M', 'CU', `${Math.round(avg(x.units))} units · ${Math.round(avg(x.txs))} txs · ring ${x.ring || 4}`] : null; }
+  const k = CH[c] && CH[c].costKey, g = k && avg(x[k]);
+  return g ? [fmtM(g), k, `ring ${x.ring || 4}`] : null;
+}
+const testsOf = c => { const t = (TESTS || {})[c]; return t ? `${t.passed}/${t.passed + (t.failed || 0)}` : '-'; };
+
+/* ---------------- stage ---------------- */
+// two stage layouts: side by side on wide screens, stacked on phones
+const LAYOUTS = {
+  wide: {W: 1140, H: 440, m: [210, 210, 120], v: [930, 210, 120], tagx: 570, tagy0: 70, title: 40,
+    mIn: T => [T.p.x - 130, T.p.y + 25], vIn: T => [T.p.x + 130, T.p.y + 25], payY: () => 370},
+  tall: {W: 440, H: 900, m: [220, 160, 86], v: [220, 730, 86], tagx: 220, tagy0: 310, title: 292,
+    mIn: T => [T.p.x, T.p.y], vIn: T => [T.p.x, T.p.y + 50], payY: n => 310 + Math.max(3, n) * 62 + 6},
+};
+let L, W, H, TAGX, TAGY0, mode;
+const SETS = {miner: {color: '#14b8a6', label: 'MINERS'}, validator: {color: '#a78bfa', label: 'VALIDATORS'}};
+let S = {miner: [], validator: [], tags: new Map()};
+const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+function el(tag, attrs = {}, parent) {
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(e);
+  return e;
+}
+const svg = $('svg');
+function initStage() {
+  mode = innerWidth < 700 ? 'tall' : 'wide';
+  L = LAYOUTS[mode]; W = L.W; H = L.H; TAGX = L.tagx; TAGY0 = L.tagy0;
+  [SETS.miner.cx, SETS.miner.cy, SETS.miner.r] = L.m;
+  [SETS.validator.cx, SETS.validator.cy, SETS.validator.r] = L.v;
+  S = {miner: [], validator: [], tags: new Map()};
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.innerHTML = '';
+  const defs = el('defs', {}, svg);
+  const f = el('filter', {id: 'glow', x: '-50%', y: '-50%', width: '200%', height: '200%'}, defs);
+  el('feGaussianBlur', {stdDeviation: '6', result: 'b'}, f);
+  const m = el('feMerge', {}, f); el('feMergeNode', {in: 'b'}, m); el('feMergeNode', {in: 'SourceGraphic'}, m);
+  const g = el('pattern', {id: 'grid', width: 28, height: 28, patternUnits: 'userSpaceOnUse'}, defs);
+  el('path', {d: 'M28 0H0V28', fill: 'none', stroke: '#0f1a1e', 'stroke-width': 1}, g);
+  el('rect', {width: W, height: H, fill: 'url(#grid)'}, svg);
+  S.layers = {sets: el('g', {}, svg), tags: el('g', {}, svg), fx: el('g', {}, svg)};
+  for (const role of ['miner', 'validator']) {
+    const s = SETS[role], g = el('g', {}, S.layers.sets);
+    s.g = g;
+    s.halo = el('circle', {cx: s.cx, cy: s.cy, r: s.r + 26, fill: s.color, opacity: 0}, g);
+    el('circle', {cx: s.cx, cy: s.cy, r: s.r, class: 'ringline'}, g);
+    el('text', {x: s.cx, y: s.cy - s.r - 34, 'text-anchor': 'middle', class: 'lbl'}, g).textContent = s.label;
+    s.count = el('text', {x: s.cx, y: s.cy + 6, 'text-anchor': 'middle', fill: s.color,
+      style: 'font:700 30px var(--mono)'}, g);
+    s.sub = el('text', {x: s.cx, y: s.cy + 26, 'text-anchor': 'middle', class: 'keylbl'}, g);
+    s.nodes = el('g', {}, g);
+    // a comet orbiting each set: the ring is alive even when idle
+    const orb = el('g', {}, g);
+    el('circle', {cx: s.cx, cy: s.cy - s.r, r: 3, fill: s.color, class: 'glow'}, orb);
+    for (let k = 1; k < 7; k++) {
+      const a = -Math.PI / 2 - k * 0.07;
+      el('circle', {cx: s.cx + s.r * Math.cos(a), cy: s.cy + s.r * Math.sin(a), r: 2.6 - k * .3,
+        fill: s.color, opacity: .5 - k * .07}, orb);
+    }
+    if (!reduced) el('animateTransform', {attributeName: 'transform', type: 'rotate',
+      from: `0 ${s.cx} ${s.cy}`, to: `${role === 'miner' ? 360 : -360} ${s.cx} ${s.cy}`,
+      dur: role === 'miner' ? '14s' : '17s', repeatCount: 'indefinite'}, orb);
+  }
+  const t = el('text', {x: TAGX, y: L.title, 'text-anchor': 'middle', class: 'lbl'}, S.layers.sets);
+  t.textContent = 'TAGS · ANONYMOUS';
+  S.tagTitle = t;
+  S.payeeG = el('g', {opacity: 0}, S.layers.sets);
+  el('rect', {x: TAGX - 110, y: 0, width: 220, height: 36, rx: 10, fill: '#120d03', stroke: '#f59e0b'}, S.payeeG);
+  S.payeeT = el('text', {x: TAGX, y: 23, 'text-anchor': 'middle', fill: '#f59e0b',
+    style: 'font:600 12px var(--mono)'}, S.payeeG);
+}
+function drawSet(role, keys) {
+  const s = SETS[role]; s.nodes.innerHTML = '';
+  S[role] = keys;
+  s.count.textContent = keys.length || '0';
+  if (keys.length) {
+    const ring = Math.min(keys.length, CH[CHAIN].cap);
+    const bits = ring > 0 ? Math.log2(ring) : 0;
+    s.sub.textContent = `ring of ${ring} · ${bits.toFixed(1)} bits`;
+    s.sub.setAttribute('fill', bits >= 3 ? 'var(--teal2)' : bits >= 1 ? 'var(--amber)' : 'var(--red)');
+  } else {
+    s.sub.textContent = 'no members';
+    s.sub.setAttribute('fill', 'var(--mute)');
+  }
+  keys.forEach((k, i) => {
+    const a = -Math.PI / 2 + i * 2 * Math.PI / keys.length;
+    const x = s.cx + s.r * Math.cos(a), y = s.cy + s.r * Math.sin(a);
+    const c = el('circle', {cx: x, cy: y, r: 9, fill: '#0b1114', stroke: s.color, 'stroke-width': 2, class: 'node',
+      style: `animation-delay:${(-i * 0.45).toFixed(2)}s`}, s.nodes);
+    el('title', {}, c).textContent = `${role} public key\nx = ${k.x}`;
+    const lx = s.cx + (s.r + 24) * Math.cos(a), ly = s.cy + (s.r + 24) * Math.sin(a) + 3;
+    el('text', {x: lx, y: ly, 'text-anchor': Math.abs(Math.cos(a)) < .3 ? 'middle' : (Math.cos(a) > 0 ? 'start' : 'end'),
+      class: 'keylbl'}, s.nodes).textContent = (k.x || '').slice(0, 7);
+    k._el = c; k._x = x; k._y = y;
+  });
+}
+function tagPos(i) { return {x: TAGX, y: TAGY0 + i * 62}; }
+function drawTag(tag, sum = 0, n = 0, claimed = false) {
+  if (S.tags.has(tag)) return S.tags.get(tag);
+  const i = S.tags.size, p = tagPos(i);
+  const g = el('g', {transform: `translate(${p.x - 130},${p.y})`, opacity: 0}, S.layers.tags);
+  const box = el('rect', {width: 260, height: 50, rx: 10, fill: '#071513', stroke: '#14b8a6', 'stroke-opacity': .5}, g);
+  el('text', {x: 14, y: 20, fill: '#5eead4', style: 'font:600 12px var(--mono)'}, g).textContent = short(tag);
+  const sc = el('text', {x: 246, y: 20, 'text-anchor': 'end', fill: '#e6f2f1', style: 'font:700 12px var(--mono)'}, g);
+  el('rect', {x: 14, y: 30, width: 232, height: 6, rx: 3, fill: '#0f171b'}, g);
+  const bar = el('rect', {x: 14, y: 30, width: 0, height: 6, rx: 3, fill: '#a78bfa'}, g);
+  const dots = el('g', {transform: 'translate(14,44)'}, g);
+  const T = {g, box, sc, bar, dots, sum, n, claimed, p, tag};
+  S.tags.set(tag, T); updTag(T);
+  requestAnimationFrame(() => { g.style.transition = 'opacity .4s'; g.setAttribute('opacity', 1); });
+  return T;
+}
+function updTag(T) {
+  T.sc.textContent = T.claimed ? 'CLAIMED' : `${T.sum} · ${T.n}x`;
+  T.sc.setAttribute('fill', T.claimed ? '#f59e0b' : '#e6f2f1');
+  T.box.setAttribute('stroke', T.claimed ? '#f59e0b' : '#14b8a6');
+  const max = Math.max(100 * Math.max(1, S.validator.length), 1);
+  T.bar.setAttribute('width', Math.min(232, 232 * T.sum / max));
+  T.dots.innerHTML = '';
+  for (let k = 0; k < T.n; k++) el('circle', {cx: k * 9, cy: 0, r: 2.5, fill: '#a78bfa'}, T.dots);
+}
+function pulse(role) {
+  const s = SETS[role];
+  s.halo.style.transition = 'none'; s.halo.setAttribute('opacity', .22);
+  for (const k of S[role]) k._el && k._el.setAttribute('fill', s.color);
+  requestAnimationFrame(() => {
+    s.halo.style.transition = 'opacity .9s'; s.halo.setAttribute('opacity', 0);
+    setTimeout(() => { for (const k of S[role]) k._el && k._el.setAttribute('fill', '#0b1114'); }, 450);
+  });
+}
+async function signRing(role, fast) {
+  const s = SETS[role], keys = S[role].filter(k => k._el);
+  if (!keys.length) return pulse(role);
+  for (const k of keys) {
+    const ln = el('line', {x1: k._x, y1: k._y, x2: s.cx, y2: s.cy, stroke: s.color, 'stroke-width': 1.2,
+      'stroke-opacity': .7}, S.layers.fx);
+    setTimeout(() => { ln.style.transition = 'stroke-opacity .7s'; ln.setAttribute('stroke-opacity', 0);
+      setTimeout(() => ln.remove(), 800); }, fast ? 120 : 380);
+  }
+  if (!fast && !reduced) {
+    for (let j = 0; j < 7; j++) {
+      const k = keys[Math.floor(Math.random() * keys.length)];
+      k._el.setAttribute('fill', s.color); await sleep(42); k._el.setAttribute('fill', '#0b1114');
+    }
+  }
+  pulse(role);
+}
+function fly(x1, y1, x2, y2, color, ms = 650) {
+  return new Promise(res => {
+    const c = el('circle', {cx: x1, cy: y1, r: 6, fill: color, class: 'glow'}, S.layers.fx);
+    const trail = el('line', {x1, y1, x2: x1, y2: y1, stroke: color, 'stroke-width': 1.5, 'stroke-opacity': .5}, S.layers.fx);
+    const t0 = performance.now();
+    (function step(t) {
+      const k = Math.min(1, (t - t0) / ms), e = 1 - Math.pow(1 - k, 3);
+      const horiz = Math.abs(x2 - x1) > Math.abs(y2 - y1);
+      const mx = (x1 + x2) / 2 + (horiz ? 0 : 70), my = horiz ? Math.min(y1, y2) - 60 : (y1 + y2) / 2;
+      const x = (1 - e) * (1 - e) * x1 + 2 * (1 - e) * e * mx + e * e * x2;
+      const y = (1 - e) * (1 - e) * y1 + 2 * (1 - e) * e * my + e * e * y2;
+      c.setAttribute('cx', x); c.setAttribute('cy', y);
+      trail.setAttribute('x2', x); trail.setAttribute('y2', y);
+      if (k < 1) requestAnimationFrame(step);
+      else { c.remove(); trail.style.transition = 'opacity .5s'; trail.setAttribute('stroke-opacity', 0); setTimeout(() => trail.remove(), 600); res(); }
+    })(t0);
+  });
+}
+function caption(t) { const c = $('cap'); c.style.opacity = 0; setTimeout(() => { c.textContent = t; c.style.opacity = 1; }, 120); }
+
+/* ---------------- event playback ---------------- */
+let logN = 0;
+const cost = e => e.tgas ? `${e.tgas} Tgas` : e.cu ? `${fmtM(e.cu)} CU · ${e.units} units · ${e.txs} txs`
+  : e.gas ? `${fmtM(e.gas)} gas` : e.steps ? `${(e.steps / 1000).toFixed(1)}k steps · ${e.ec_op} ec_op` : (e.ms ? `signed ${e.ms}ms` : 'verified');
+function logEv(e) {
+  const L = $('log'); if (!logN) L.innerHTML = '';
+  logN++;
+  const txt = {
+    devnet: () => `${CH[e.chain || 'starknet'].local} up at block ${e.block}`,
+    deploying: () => CH[e.chain || 'starknet'].deploying,
+    deploy: () => `ZTao ${short(e.address)} · tempo ${e.tempo} · min_ring ${e.min_ring}${e.tgas ? ` · ${e.tgas} Tgas` : e.gas ? ` · ${fmtM(e.gas)} gas` : e.program_bytes ? ` · program ${Math.round(e.program_bytes / 1024)} KiB` : ''}`,
+    register: () => `${e.role} key ${short(e.x)}`,
+    submit: () => `tag ${short(e.tag)} · ring ${e.ring} · ${cost(e)}`,
+    score: () => `${e.score} -> ${short(e.tag)} · nullifier ${short(e.nullifier)} · ${cost(e)}`,
+    close: () => `epoch ${e.epoch} closed at block ${e.block}`,
+    claim: () => `${e.earned} pts -> ${short(e.recipient)} · ${cost(e)}`,
+    replay: () => `double claim ${e.result}`,
+    done: () => `epoch proved end to end in ${e.seconds}s`,
+    error: () => e.error,
+  }[e.kind];
+  const d = document.createElement('div');
+  d.innerHTML = `<span class="t">${e.t != null ? e.t.toFixed(1) + 's' : ''}</span><span class="k ${e.kind}">${e.kind}</span>`;
+  d.appendChild(document.createTextNode(txt ? txt() : JSON.stringify(e)));
+  L.appendChild(d); L.scrollTop = L.scrollHeight;
+}
+async function playEvent(e, fast) {
+  logEv(e);
+  const s = SETS;
+  if (e.kind === 'submit' || e.kind === 'score' || e.kind === 'claim') {
+    const ce = ((ECON || {}).chains || {})[e.chain || CHAIN];
+    if (ce && ce.actions && ce.actions[e.kind]) {
+      const K = ce.actions[e.kind], base = ce.ring || 4;
+      const a = atRing(ce.by_ring || [], e.ring, 'usd'), b = atRing(ce.by_ring || [], base, 'usd');
+      runMeterTotal += K.usd * (a && b ? a / b : e.ring / base);
+      const m = $('run-meter'); if (m && m.style.display !== 'none') m.textContent = `~$${runMeterTotal.toFixed(2)} spent`;
+    }
+  }
+  switch (e.kind) {
+    case 'devnet':
+    case 'deploying':
+      // the old epoch fades out while the new contract lands
+      S.layers.tags.style.transition = 'opacity .6s'; S.layers.tags.style.opacity = .18;
+      for (const r of ['miner', 'validator']) SETS[r].g.style.opacity = .35;
+      caption(e.kind === 'devnet' ? `${CH[CHAIN].local} up. Deploying a fresh subnet contract`
+        : CH[CHAIN].deploying);
+      break;
+    case 'deploy':
+      S.layers.tags.style.opacity = 1;
+      for (const r of ['miner', 'validator']) { SETS[r].g.style.transition = 'opacity .5s'; SETS[r].g.style.opacity = 1; }
+      S.tags.clear(); S.layers.tags.innerHTML = ''; S.payeeG.setAttribute('opacity', 0);
+      drawSet('miner', []); drawSet('validator', []);
+      $('addr').textContent = short(e.address); caption('contract deployed. Registering the public sets');
+      break;
+    case 'register':
+      S[e.role].push({x: e.x}); drawSet(e.role, S[e.role]);
+      break;
+    case 'submit': {
+      caption(`a miner submitted. Ring of ${e.ring}: nobody can tell which one`);
+      await signRing('miner', fast);
+      const T = drawTag(e.tag); T.g.setAttribute('opacity', 0);
+      await fly(s.miner.cx, s.miner.cy, ...L.mIn(T), '#14b8a6', fast ? 250 : 700);
+      T.g.setAttribute('opacity', 1);
+      S.tagTitle.textContent = `TAGS · EPOCH ${e.epoch}`;
+      break;
+    }
+    case 'score': {
+      caption(`a validator scored a tag ${e.score}. One nullifier, no identity`);
+      await signRing('validator', fast);
+      const T = drawTag(e.tag);
+      await fly(s.validator.cx, s.validator.cy, ...L.vIn(T), '#a78bfa', fast ? 180 : 420);
+      T.sum += e.score; T.n += 1; updTag(T);
+      break;
+    }
+    case 'close': caption(`epoch ${e.epoch} closed. Zuma consensus settles every tag`); break;
+    case 'settle': {
+      const T = drawTag(e.tag);
+      caption(e.raw > e.rank
+        ? `Zuma consensus: ${e.consensus}. ${e.raw - e.rank} points above it clipped`
+        : `Zuma consensus: ${e.consensus}, rank ${e.rank}`);
+      T.sum = e.rank; updTag(T);
+      if (!fast) await new Promise(r => setTimeout(r, 500));
+      break;
+    }
+    case 'claim': {
+      const T = drawTag(e.tag);
+      caption('the owner of one tag re-signed and proved the same key image');
+      await signRing('miner', fast);
+      const py = L.payY(S.tags.size);
+      S.payeeG.setAttribute('transform', `translate(0,${py})`);
+      await fly(T.p.x, T.p.y + 50, TAGX, py + 18, '#f59e0b', fast ? 300 : 800);
+      T.claimed = true; updTag(T);
+      S.payeeT.textContent = `+${e.earned} pts -> ${short(e.recipient)}`;
+      S.payeeG.setAttribute('opacity', 1);
+      break;
+    }
+    case 'replay':
+      caption(e.ok ? 'replayed claim REJECTED: same key, same tag' : 'replay ACCEPTED (bug)');
+      { const r = el('rect', {x: 0, y: 0, width: W, height: H, fill: '#f43f5e', opacity: .14}, S.layers.fx);
+        setTimeout(() => { r.style.transition = 'opacity .8s'; r.setAttribute('opacity', 0); setTimeout(() => r.remove(), 900); }, 120); }
+      break;
+    case 'done': caption(`proved on-chain in ${e.seconds}s. Every tag is scored, nobody is named`); break;
+    case 'error': caption('error: ' + e.error); break;
+  }
+  if (!fast) await sleep(e.kind === 'register' ? 60 : 120);
+}
+
+/* ---------------- board (idle state) ---------------- */
+let busy = false, lastBoard = null, runMeterTotal = 0;
+function renderTally(b) {
+  const box = $('tally');
+  const ep = (b.epochs || [])[0];
+  if (!ep) { box.innerHTML = '<div class="empty">no tags yet. Run an epoch.</div>'; $('tallyep').textContent = '-'; return; }
+  $('tallyep').textContent = `epoch ${ep.epoch}${ep.open ? ' · open' : ''}`;
+  const max = Math.max(1, ...ep.tags.map(t => t.score_sum));
+  let h = '<table><tr><th>tag</th><th>score</th><th></th><th>share</th><th></th></tr>';
+  for (const t of ep.tags) {
+    const share = ep.total ? Math.floor((b.emission || 0) * t.score_sum / ep.total) : 0;
+    h += `<tr><td class="tag">${short(t.tag)}</td><td>${t.score_sum} <span style="color:var(--mute)">/${t.scores}</span></td>
+      <td style="width:35%"><div class="sbar"><i style="width:${100 * t.score_sum / max}%"></i></div></td>
+      <td>${share}</td><td>${t.claimed ? '<span class="pill ok">claimed</span>' : (ep.open ? '<span class="pill open">open</span>' : '<span class="pill">claimable</span>')}</td></tr>`;
+  }
+  h += '</table>';
+  const old = (b.epochs || []).slice(1);
+  if (old.length) {
+    h += '<div class="hist"><div class="h">EARLIER EPOCHS</div>';
+    for (const o of old) {
+      const mx = Math.max(1, ...o.tags.map(t => t.score_sum));
+      const bars = o.tags.map(t => `<i class="${t.claimed ? 'c' : ''}" style="height:${Math.max(12, 100 * t.score_sum / mx)}%" title="${short(t.tag)} · ${t.score_sum}"></i>`).join('');
+      const cl = o.tags.filter(t => t.claimed).length;
+      h += `<div class="hrow"><span>epoch ${o.epoch}</span><span class="spark">${bars}</span><span>${o.tags.length} tags</span><span style="color:${cl ? 'var(--amber)' : 'var(--mute)'}">${cl} claimed</span></div>`;
+    }
+    h += '</div>';
+  }
+  box.innerHTML = h;
+}
+const ago = s => s < 90 ? `${Math.round(s)}s ago` : s < 5400 ? `${Math.round(s / 60)}m ago` : s < 129600 ? `${Math.round(s / 3600)}h ago` : `${Math.round(s / 86400)}d ago`;
+const tick = '<svg viewBox="0 0 10 10"><path d="M1.5 5.5l2.3 2.3L8.5 2.5" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>';
+function renderFacts(sim) {
+  const f = $('facts');
+  if (!sim || !sim.result) { f.innerHTML = ''; return; }
+  const r = sim.result, ok = String(r.double_claim || '').startsWith('rejected');
+  const sub = (sim.events || []).find(e => e.kind === 'submit');
+  const n = (sim.events || []).filter(e => e.kind === 'score').length;
+  f.innerHTML = [
+    `<span class="fact" style="color:var(--teal2)">${tick}<b>proved on ${CH[sim.chain || 'starknet'].name}</b> ${ago(Date.now() / 1000 - sim.at)}</span>`,
+    `<span class="fact">full epoch <b>${r.seconds}s</b></span>`,
+    sub ? `<span class="fact">ring ${sub.ring} verify <b>${cost(sub)}</b></span>` : '',
+    `<span class="fact">${n} anonymous scores</span>`,
+    `<span class="fact ${ok ? 'red' : ''}">double claim <b>${ok ? 'rejected' : 'ACCEPTED'}</b></span>`,
+  ].join('');
+}
+function renderReceipt(sim) {
+  const box = $('receipt');
+  if (!box) return;
+  if (!sim || !(sim.events || []).length) { box.innerHTML = ''; return; }
+  const chain = sim.chain || CHAIN;
+  const ce = ((ECON || {}).chains || {})[chain];
+  const groups = {};
+  for (const e of sim.events) {
+    if (e.kind !== 'submit' && e.kind !== 'score' && e.kind !== 'claim') continue;
+    (groups[e.kind] = groups[e.kind] || []).push(e);
+  }
+  const actionUSD = (x, kind, ring) => {
+    if (!x || !x.actions || !x.actions[kind]) return null;
+    const K = x.actions[kind], base = x.ring || 4;
+    const a = atRing(x.by_ring || [], ring, 'usd'), b = atRing(x.by_ring || [], base, 'usd');
+    return K.usd * (a && b ? a / b : ring / base);
+  };
+  let totalUSD = 0, hasUSD = false;
+  const rows = [];
+  for (const kind of ['submit', 'score', 'claim']) {
+    const evs = groups[kind]; if (!evs || !evs.length) continue;
+    const count = evs.length, ring = evs[0].ring || (ce ? ce.ring || 4 : 4);
+    const perAct = actionUSD(ce, kind, ring);
+    const kindTotal = perAct != null ? perAct * count : null;
+    if (kindTotal != null) { totalUSD += kindTotal; hasUSD = true; }
+    let fallback = null;
+    if (kindTotal == null) {
+      if (evs[0].tgas != null) fallback = evs.reduce((s, e) => s + (e.tgas || 0), 0).toFixed(1) + ' Tgas';
+      else if (evs[0].cu != null) fallback = fmtM(evs.reduce((s, e) => s + (e.cu || 0), 0)) + ' CU';
+      else if (evs[0].gas != null) fallback = fmtM(evs.reduce((s, e) => s + (e.gas || 0), 0)) + ' gas';
+    }
+    rows.push({kind, count, ring, total: kindTotal, fallback});
+  }
+  if (!rows.length) { box.innerHTML = ''; return; }
+  let crossLine = '';
+  if (hasUSD) {
+    const CC = {starknet:'#ff875b', near:'#00ec97', eth:'#8ea2ff', solana:'#b57cff'};
+    const ORDER4 = ['starknet', 'near', 'eth', 'solana'];
+    const entries = [{c: chain, total: totalUSD, act: true}];
+    for (const c of ORDER4) {
+      if (c === chain) continue;
+      const xe = ((ECON || {}).chains || {})[c]; if (!xe || !xe.actions) continue;
+      let ct = 0, ok = true;
+      for (const {kind, count, ring} of rows) {
+        const v = actionUSD(xe, kind, ring); if (v == null) { ok = false; break; } ct += v * count;
+      }
+      if (ok) entries.push({c, total: ct, act: false});
+    }
+    if (entries.length > 1) {
+      const maxT = Math.max(...entries.map(e => e.total));
+      const bars = entries.map(({c, total, act}) => {
+        const pct = maxT > 0 ? (total / maxT * 100).toFixed(1) : 0;
+        const col = CC[c] || '#aaa';
+        const name = (CH[c] || {}).name || c;
+        const aCls = act ? ' cc-act' : '';
+        const bStyle = act
+          ? `background:${col};box-shadow:0 0 5px ${col}88`
+          : `background:${col};opacity:.65`;
+        return `<span class="cc-lbl${aCls}">${name}</span>` +
+          `<span class="cc-bar-wrap"><span class="cc-bar" style="width:${pct}%;${bStyle}"></span></span>` +
+          `<span class="cc-amt${aCls}">${usd(total)}</span>`;
+      }).join('');
+      crossLine = `<div class="receipt-cc">${bars}</div>`;
+    }
+  }
+  const trRow = ({kind, count, ring, total, fallback}) =>
+    `<tr><td>${kind} ×${count} <span style="color:var(--mute)">ring ${ring}</span></td>` +
+    `<td>${total != null ? usd(total / count) : '-'}</td><td><b>${total != null ? usd(total) : fallback || '-'}</b></td></tr>`;
+  box.innerHTML = `<div class="card"><h3>EPOCH COST RECEIPT <span class="sp"></span><span class="pill">mainnet estimate</span></h3>` +
+    `<table class="rcpt"><tr><th>action</th><th>per action</th><th>total</th></tr>` +
+    rows.map(trRow).join('') +
+    (hasUSD ? `<tr class="rcpt-total"><td colspan="2">TOTAL</td><td><b>${usd(totalUSD)}</b></td></tr>` : '') +
+    `</table>${crossLine}</div>`;
+}
+function preloadLog(sim) {
+  if (!sim || !sim.events || logN) return;
+  const box = $('log'); box.innerHTML = `<div class="sep">LAST RUN · ${ago(Date.now() / 1000 - sim.at).toUpperCase()}</div>`;
+  logN = 1;
+  for (const e of sim.events) logEv(e);
+  box.scrollTop = 0;
+}
+function renderParams(b) {
+  const rows = b.deployed && b.contract ? [
+    ['contract', b.contract], ['owner', b.owner], ['tempo', `${b.tempo} blocks / epoch`],
+    ['min_ring', b.min_ring], ['emission', `${b.emission} pts / epoch`],
+    ['registration', b.open ? 'open' : 'owner only'],
+    ['miners', (b.miners || []).length], ['validators', (b.validators || []).length],
+  ] : [['status', b.devnet_up === false ? `${CH[CHAIN].local} down. Run an epoch to boot it` : 'not deployed. Run an epoch']];
+  let html = rows.map(([k, v]) => `<span>${k}</span><span title="${v}">${v}</span>`).join('');
+  if (b.deployed && b.contract) {
+    const cap = CH[CHAIN].cap;
+    const minRing = b.min_ring || 3;
+    const bitsOf = n => n > 0 ? Math.log2(Math.min(n, cap)) : 0;
+    const colorOf = bits => bits >= 3 ? 'var(--teal2)' : bits >= 1 ? 'var(--amber)' : 'var(--red)';
+    const suffix = (n, ring) => n < minRing ? ` <span style="color:var(--red)">reverts</span>` : ring < 8 ? ` <span style="color:var(--amber)">aim 8+</span>` : '';
+    const mn = (b.miners || []).length, vn = (b.validators || []).length;
+    const mBits = bitsOf(mn), vBits = bitsOf(vn);
+    const mRing = Math.min(mn, cap), vRing = Math.min(vn, cap);
+    html += `<span>miner anon</span><span style="color:${colorOf(mBits)}">${mBits.toFixed(1)} bits${suffix(mn, mRing)}</span>`;
+    html += `<span>validator anon</span><span style="color:${colorOf(vBits)}">${vBits.toFixed(1)} bits${suffix(vn, vRing)}</span>`;
+  }
+  $('params').innerHTML = html;
+}
+async function refresh() {
+  let b;
+  const want = CHAIN;
+  try { b = await get('board', `?network=${NET()}`); } catch { return; }
+  if (b.error || want !== CHAIN) return;
+  lastBoard = b;
+  $('netdot').classList.toggle('on', !!b.devnet_up);
+  $('blk').textContent = b.block != null ? `#${b.block}` : 'offline';
+  $('addr').textContent = b.contract ? short(b.contract) : 'not deployed';
+  if (b.tempo) {
+    $('ep').textContent = b.epoch;
+    $('epbar').style.width = `${100 * (b.tempo - b.blocks_left) / b.tempo}%`;
+    $('left').textContent = `${b.blocks_left} blocks left · tempo ${b.tempo}`;
+  }
+  renderParams(b);
+  if (busy) return;
+  renderTally(b);
+  // idle stage = the chain as any reader sees it
+  if ((b.miners || []).length !== S.miner.length || (b.validators || []).length !== S.validator.length) {
+    drawSet('miner', (b.miners || []).map(k => ({x: k.x}))); drawSet('validator', (b.validators || []).map(k => ({x: k.x})));
+  }
+  const ep = (b.epochs || [])[0];
+  if (ep) {
+    S.tagTitle.textContent = `TAGS · EPOCH ${ep.epoch}`;
+    const want = ep.tags.map(t => t.tag).join();
+    if ([...S.tags.keys()].join() !== want) { S.tags.clear(); S.layers.tags.innerHTML = ''; }
+    for (const t of ep.tags.slice(0, 5)) { const T = drawTag(t.tag); T.sum = t.score_sum; T.n = t.scores; T.claimed = t.claimed; updTag(T); }
+  }
+}
+
+/* ---------------- actions ---------------- */
+function setBusy(on, label) {
+  busy = on; $('run').disabled = on; $('replay').disabled = on; $('stepthrough').disabled = on;
+  $('logstate').textContent = label || (on ? 'live' : 'idle');
+  $('logstate').className = 'pill' + (on ? ' open' : '');
+  if (on) { $('receipt').innerHTML = ''; runMeterTotal = 0; $('run-meter').style.display = ''; $('run-meter').textContent = '~$0.00 spent'; }
+  else $('run-meter').style.display = 'none';
+}
+async function run() {
+  const r = await post('simulate', {miners: +$('lmin').value, validators: +$('lvals').value, chain: CHAIN});
+  if (r.cooldown) return toast(`cooling down: ${r.cooldown}s. Try the replay meanwhile`);
+  if (!r.started && !r.running) return toast(r.error || 'could not start');
+  setBusy(true, 'live · on-chain');
+  const btn = $('run'), t0 = Date.now(); btn.classList.add('running');
+  const timer = setInterval(() => { btn.textContent = `Proving on-chain · ${Math.floor((Date.now() - t0) / 1000)}s`; }, 250);
+  logN = 0; $('log').innerHTML = '';
+  caption(`booting a fresh contract on ${CH[CHAIN].local}`);
+  let since = 0, queue = [], done = false;
+  const pump = (async () => {
+    while (!done || queue.length) {
+      if (queue.length) await playEvent(queue.shift(), queue.length > 6);
+      else await sleep(120);
+    }
+  })();
+  while (true) {
+    const s = await get('sim', `?since=${since}`);
+    queue.push(...s.events); since = s.next;
+    if (!s.running) { done = true; break; }
+    await sleep(500);
+  }
+  await pump;
+  clearInterval(timer); btn.classList.remove('running'); btn.textContent = 'Run an anonymous epoch';
+  setBusy(false); refresh(); get('last_sim', `?chain=${CHAIN}`).then(sim => { renderFacts(sim); renderReceipt(sim); yumaPopulate(sim); });
+}
+async function replay() {
+  const r = await get('last_sim', `?chain=${CHAIN}`);
+  if (!r || !r.events) return toast('no recorded run yet. Run one first');
+  setBusy(true, 'replay');
+  logN = 0; $('log').innerHTML = '';
+  for (const e of r.events) await playEvent(e, false);
+  setBusy(false);
+  renderReceipt(r);
+  setTimeout(refresh, 2500);
+}
+/* ---------------- step-through mode ---------------- */
+let _stepResolve = null;
+function stepNext() { return new Promise(res => { _stepResolve = res; }); }
+function probBars(role, ringSize) {
+  const keys = S[role].slice(0, ringSize);
+  if (!keys.length) return '';
+  const color = role === 'miner' ? 'var(--teal)' : '#a78bfa';
+  const pct = (100 / ringSize).toFixed(1);
+  const rows = keys.map(k =>
+    `<div style="display:flex;align-items:center;gap:6px;margin:2px 0">` +
+    `<span style="width:70px;font:11px var(--mono);color:var(--mute);flex:none">${esc(k.x.slice(0, 7))}</span>` +
+    `<div style="flex:1"><div style="width:${pct}%;height:8px;border-radius:3px;background:${color}"></div></div>` +
+    `<span style="width:36px;font:11px var(--mono);color:var(--dim);text-align:right;flex:none">${pct}%</span>` +
+    `</div>`
+  ).join('');
+  return `<div style="margin-top:10px;padding:8px;border:1px solid var(--line2);border-radius:6px">` +
+    `<div style="font:700 9px var(--mono);letter-spacing:1.2px;color:var(--mute);margin-bottom:6px">OBSERVER’S VIEW — UNIFORM PROBABILITY</div>` +
+    rows + `</div>`;
+}
+const STEP_EXPLAIN = {
+  deploy: e => `Contract <b>${esc(short(e.address))}</b> is the on-chain authority for this epoch — every prover signs against this address. It enforces <b>min_ring ${e.min_ring}</b> and will reject any submit or score ring that is smaller, padded, or contains duplicate keys. Tempo is set to <b>${e.tempo} blocks</b>, the minimum epoch length.`,
+  register: e => `<b>${e.role}</b> key <b>${esc(short(e.x))}</b> joins the public set (${e.role === 'miner' ? S.miner.length : S.validator.length} registered so far). Membership is deliberately public — the anonymity guarantee hides <b>which</b> member signed, not that they belong. The contract caps rings at this final set size.`,
+  close: e => `Epoch <b>${e.epoch}</b> closed at block <b>${e.block}</b> — no new submits or scores are accepted after this point. <b>settle()</b> will now run Zuma over every tag, computing consensus C as the highest score at least ⌈V/2⌉ validators matched or exceeded, then clipping each raw score down to that rank.`,
+  submit: e => `Tag <b>${esc(short(e.tag))}</b> is the key image I = x·Hₚ(scope) where scope = H(mine, subnet, epoch). It proves one of these ${e.ring} miners signed, but the contract—and anyone watching—cannot tell which.` + probBars('miner', e.ring),
+  score: e => `Nullifier <b>${esc(short(e.nullifier))}</b> is the validator’s key image for this tag. It prevents double-scoring without linking the score to a validator identity.` + probBars('validator', e.ring),
+  settle: e => `Zuma consensus = <b>${esc(String(e.consensus))}</b>—the highest score at least ⌈V/2⌉ validators gave or exceeded. Raw score ${e.raw} was clipped to rank ${e.rank}${e.raw > e.rank ? ` (${e.raw - e.rank} points removed)` : ''}.`,
+  claim: e => `Tag <b>${esc(short(e.tag))}</b>: the owner re-signed in the same mine scope. The same private key produces the same key image, proving ownership of the tag without revealing which key in the ring.`,
+  replay: e => `A replay attempt for tag <b>${esc(short(e.tag || ''))}</b> was ${e.ok ? 'correctly <b>rejected</b>' : '<b>accepted</b> (bug)'}. The key image is already stored in the contract; the existence check prevents double-spending without exposing any identity.`,
+};
+async function stepReplay() {
+  const r = await get('last_sim', `?chain=${CHAIN}`);
+  if (!r || !r.events) return toast('no recorded run yet. Run one first');
+  setBusy(true, 'step');
+  logN = 0; $('log').innerHTML = '';
+  const panel = $('step-panel');
+  panel.style.display = '';
+  const steppable = r.events.filter(e => STEP_EXPLAIN[e.kind]);
+  const scoresByTag = {};
+  for (const ev of r.events) {
+    if (ev.kind === 'score') (scoresByTag[ev.tag] = scoresByTag[ev.tag] || []).push(ev.score);
+  }
+  const runningSeen = {};
+  let stepN = 0, skip = false;
+  for (const e of r.events) {
+    if (e.kind === 'score') (runningSeen[e.tag] ??= []).push(e.score);
+    await playEvent(e, false);
+    if (!skip && STEP_EXPLAIN[e.kind]) {
+      stepN++;
+      $('step-kind').className = 'k ' + e.kind;
+      $('step-kind').textContent = e.kind.toUpperCase();
+      $('step-idx').textContent = `${stepN} / ${steppable.length}`;
+      $('step-caption').textContent = $('cap').textContent;
+      let explainHtml = STEP_EXPLAIN[e.kind](e);
+      if (e.kind === 'settle' && scoresByTag[e.tag] && scoresByTag[e.tag].length) {
+        explainHtml += `<div style="margin-top:10px;padding:8px;border:1px solid var(--line2);border-radius:6px">` +
+          `<div style="font:700 9px var(--mono);letter-spacing:1.2px;color:var(--mute);margin-bottom:6px">SCORE DISTRIBUTION — AMBER = ABOVE CONSENSUS</div>` +
+          scoreSpark(scoresByTag[e.tag], e.consensus) + `</div>`;
+      }
+      if (e.kind === 'score' && runningSeen[e.tag] && runningSeen[e.tag].length) {
+        const pC = provisionalC(runningSeen[e.tag], S.validator.length);
+        const n = runningSeen[e.tag].length, v = S.validator.length;
+        explainHtml += `<div style="margin-top:10px;padding:8px;border:1px solid var(--line2);border-radius:6px">` +
+          `<div style="font:700 9px var(--mono);letter-spacing:1.2px;color:var(--mute);margin-bottom:6px">SCORES FOR THIS TAG SO FAR (${n} of ${v} validators) · provisional C=${pC}</div>` +
+          scoreSpark(runningSeen[e.tag], pC) + `</div>`;
+      }
+      $('step-explain').innerHTML = explainHtml;
+      panel.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+      const cont = await stepNext();
+      if (!cont) skip = true;
+    }
+  }
+  panel.style.display = 'none';
+  _stepResolve = null;
+  setBusy(false);
+  renderReceipt(r);
+  setTimeout(refresh, 2500);
+}
+$('run').onclick = run;
+$('replay').onclick = replay;
+$('stepthrough').onclick = stepReplay;
+$('step-next').onclick = () => { if (_stepResolve) { const r = _stepResolve; _stepResolve = null; r(true); } };
+$('step-back').onclick = () => { if (_stepResolve) { const r = _stepResolve; _stepResolve = null; r(false); } };
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && _stepResolve) { const r = _stepResolve; _stepResolve = null; r(true); }
+});
+function updateRunCost() {
+  const el = $('run-cost');
+  if (!el) return;
+  const M = +$('lmin').value, V = +$('lvals').value;
+  const chains = (ECON || {}).chains || {};
+  function epochCost(chain, m, v) {
+    const ce = chains[chain];
+    if (!ce || !ce.actions) return null;
+    const K = ce.actions;
+    const base = ce.ring || 4;
+    const cap = n => Math.max(1, Math.min(n, ce.max_ring));
+    const ringM = cap(m), ringV = cap(v);
+    const scaleUsd = n => { const a = atRing(ce.by_ring, n, 'usd'), b = atRing(ce.by_ring, base, 'usd'); return a && b ? a / b : n / base; };
+    const rowUsd = (k, n) => K[k] ? K[k].usd * (n ? scaleUsd(n) : 1) : 0;
+    const sub = rowUsd('submit', ringM), sco = rowUsd('score', ringV), clm = rowUsd('claim', ringM);
+    return sub * m + sco * m * v + clm * m;
+  }
+  const bitsColor = b => b >= 3 ? 'var(--teal2)' : b >= 1 ? 'var(--amber)' : 'var(--red)';
+  const chData = ORDER.map(c => {
+    const cost = epochCost(c, M, V);
+    const mBits = M > 0 ? Math.log2(Math.min(M, CH[c].cap)) : 0;
+    const vBits = V > 0 ? Math.log2(Math.min(V, CH[c].cap)) : 0;
+    return { c, name: CH[c].name, cost, mBits, vBits, hex: CHAIN_HEX[c] };
+  });
+  if (chData.every(d => d.cost == null)) { el.textContent = ''; return; }
+  let cheapest = null, cheapestCost = Infinity;
+  for (const d of chData) {
+    if (d.cost != null && d.cost < cheapestCost) { cheapestCost = d.cost; cheapest = d.c; }
+  }
+  const chips = chData.map(d => {
+    const isActive = d.c === CHAIN;
+    const border = isActive ? d.hex : 'var(--line2)';
+    const costStr = d.cost != null ? `~${usd(d.cost)}` : '—';
+    const cheapMark = d.c === cheapest ? ` <span style="color:var(--teal2)">&#10003;</span>` : '';
+    return `<span style="display:inline-flex;align-items:center;gap:3px;padding:1px 5px;border:1px solid ${border};border-radius:4px;background:var(--panel);font:11px var(--mono);margin-right:3px">`
+      + `<span style="color:${d.hex}">${d.name}</span>`
+      + `<span style="color:var(--dim)">${costStr}/ep</span>`
+      + ` <span style="color:${bitsColor(d.mBits)}" title="miner anon">${d.mBits.toFixed(1)}b</span>`
+      + `<span style="color:var(--dim)">&#183;</span>`
+      + `<span style="color:${bitsColor(d.vBits)}" title="validator anon">${d.vBits.toFixed(1)}b</span>`
+      + cheapMark
+      + `</span>`;
+  }).join('');
+  el.innerHTML = chips;
+}
+$('lmin').onchange = updateRunCost;
+$('lvals').onchange = updateRunCost;
+$('addrchip').onclick = () => {
+  if (lastBoard && lastBoard.contract) { navigator.clipboard && navigator.clipboard.writeText(lastBoard.contract); toast('contract address copied'); }
+};
+
+/* ---------------- chain switch : one dropdown ---------------- */
+const tileInner = c => `<span class="gl">${GLYPH[c]}</span>
+  <span style="min-width:0"><b>${CH[c].name.toUpperCase()}</b><small>${CH[c].tile}</small></span>`;
+const perAction = c => { const a = econOf(c); return a && a.usd != null ? `${usd(a.usd)} / action` : ''; };
+function renderSwitch() {
+  const sw = $('chainsw');
+  sw.innerHTML = `<button class="ctile on" data-chain="${CHAIN}" id="ddbtn" aria-haspopup="listbox" aria-expanded="false" title="switch chain">${tileInner(CHAIN)}
+    <span class="ddr"><span class="usd" data-usd="${CHAIN}">${perAction(CHAIN)}</span><span class="ok" data-ok="${CHAIN}"></span></span><span class="chev">&#9662;</span></button>
+    <div class="ddmenu" role="listbox" aria-label="network">${ORDER.map(c => `<button class="ctile${c === CHAIN ? ' on' : ''}" data-chain="${c}" role="option" aria-selected="${c === CHAIN}">${tileInner(c)}
+      <span class="ddr"><span class="usd" data-usd="${c}">${perAction(c)}</span><span class="ok" data-ok="${c}"></span></span></button>`).join('')}</div>`;
+  const open = on => { sw.classList.toggle('open', on); $('ddbtn').setAttribute('aria-expanded', on);
+    if (on) (sw.querySelector('.ddmenu .on') || sw.querySelector('.ddmenu button')).focus(); };
+  $('ddbtn').onclick = e => { e.stopPropagation(); open(!sw.classList.contains('open')); };
+  sw.querySelectorAll('.ddmenu button').forEach(b => b.onclick = () => { open(false); setChain(b.dataset.chain, true); });
+  sw.onkeydown = e => {
+    const items = [...sw.querySelectorAll('.ddmenu button')], i = items.indexOf(document.activeElement);
+    if (e.key === 'Escape') { open(false); $('ddbtn').focus(); }
+    else if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && sw.classList.contains('open')) {
+      e.preventDefault(); items[(i + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length].focus(); }
+  };
+  renderOk();
+}
+document.addEventListener('click', e => { if (!$('chainsw').contains(e.target)) $('chainsw').classList.remove('open'); });
+function renderOk() {
+  document.querySelectorAll('[data-ok]').forEach(e => {
+    const t = (TESTS || {})[e.dataset.ok]; e.textContent = t ? `${t.passed} ok` : '';
+  });
+}
+renderSwitch();
+function renderBanner() {
+  const c = CH[CHAIN], v = verifyCost(CHAIN);
+  $('bglyph').innerHTML = GLYPH[CHAIN];
+  $('bname').textContent = `${c.name} · ${c.lang}`;
+  $('bline').textContent = c.line;
+  $('bmeta').innerHTML = [
+    v ? `<span class="chip">ring 4 <b>${v[0]} ${v[1]}</b></span>` : '',
+    `<span class="chip">max ring <b>${c.cap}</b></span>`,
+    `<span class="chip">tests <b>${testsOf(CHAIN)}</b></span>`,
+    c.port ? `<span class="chip">${esc(c.local)} <b>:${c.port}</b></span>` : `<span class="chip">${esc(c.local)}</span>`,
+  ].join('');
+  renderOk();
+  const t = (TESTS || {})[CHAIN]; $('tcount').textContent = t ? t.passed : '';
+}
+function setChain(c, user) {
+  if (!CH[c] || (busy && user)) return busy && user && toast('an epoch is running. Switch when it finishes');
+  CHAIN = c; localStorage.setItem('ztao.chain', c);
+  document.documentElement.dataset.chain = c;
+  const u = new URL(location.href); u.searchParams.set('chain', c); history.replaceState(null, '', u);
+  renderSwitch();
+  $('scope').textContent = CH[c].name.toUpperCase();
+  $('limchain').textContent = CH[c].name.toUpperCase();
+  $('net').textContent = CH[c].local; $('verifier').textContent = CH[c].verifier;
+  $('costli').innerHTML = CH[c].costli;
+  renderBanner();
+  if (!busy) {
+    initStage(); logN = 0; $('log').innerHTML = '<div class="empty">waiting for a run</div>';
+    $('tally').innerHTML = '<div class="empty">loading</div>'; $('facts').innerHTML = '';
+    $('addr').textContent = 'loading'; $('receipt').innerHTML = '';
+    refresh(); get('last_sim', `?chain=${c}`).then(sim => { renderFacts(sim); preloadLog(sim); renderReceipt(sim); yumaPopulate(sim); }).catch(() => {});
+  }
+  updateRunCost();
+  route();
+}
+Promise.all([cmpP, testsP]).then(() => { renderBanner(); if (TAB === 'costs') renderCosts(); if (TAB === 'tests') renderTests(); if (TAB === 'all') renderAll(); });
+let rz;
+addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => {
+  if (busy || (innerWidth < 700 ? 'tall' : 'wide') === mode) return;
+  initStage(); refresh();
+}, 200); });
+setInterval(() => { if (TAB === 'live') refresh(); }, 4000);
+async function followRunning() {
+  setBusy(true, 'live · on-chain'); logN = 0;
+  let since = 0;
+  while (true) {
+    const s = await get('sim', `?since=${since}`);
+    for (const e of s.events) await playEvent(e, true);
+    since = s.next; if (!s.running) break; await sleep(500);
+  }
+  setBusy(false); refresh();
+}
+
+/* ---------------- tabs ---------------- */
+const TABS = ['live', 'code', 'costs', 'budget', 'forecast', 'tests', 'all', 'paper'];
+const SCOPED = ['live', 'code', 'costs', 'budget', 'forecast', 'tests'];
+let TAB = 'live', paperLoaded = false;
+function route() {
+  let [tab, ...rest] = (location.hash.slice(1) || 'live').split('/');
+  if (tab === 'compare') tab = 'costs';
+  const t = TABS.includes(tab) ? tab : 'live';
+  TAB = t;
+  document.querySelectorAll('.pane').forEach(p => p.classList.toggle('on', p.id === 'pane-' + t));
+  document.querySelectorAll('#tabs a').forEach(a => a.classList.toggle('on', a.dataset.tab === t));
+  $('banner').style.display = SCOPED.includes(t) ? '' : 'none';
+  $('scope').style.visibility = SCOPED.includes(t) ? '' : 'hidden';
+  if (t === 'code') openCode(rest.join('/'));
+  if (t === 'costs') renderCosts();
+  if (t === 'budget') renderBudget();
+  if (t === 'forecast') renderForecast();
+  if (t === 'tests') renderTests();
+  if (t === 'all') renderAll();
+  if (t === 'paper' && !paperLoaded) { paperLoaded = true; loadPaper(); }
+}
+addEventListener('hashchange', route);
+
+/* ---------------- code ---------------- */
+const KW = {
+  rs: 'as|break|const|continue|crate|else|enum|fn|for|if|impl|in|let|loop|match|mod|move|mut|pub|ref|return|self|Self|static|struct|super|trait|type|unsafe|use|where|while|true|false|Some|None|Ok|Err',
+  cairo: 'as|break|const|continue|else|enum|fn|for|if|impl|let|loop|match|mod|mut|pub|ref|return|self|struct|super|trait|type|use|while|true|false|Option|Some|None|Array|Span|felt252|u8|u32|u64|u128|u256|bool|ContractAddress|of',
+  py: 'and|as|assert|break|class|continue|def|del|elif|else|except|finally|for|from|global|if|import|in|is|lambda|None|not|or|pass|raise|return|True|False|try|while|with|yield|self',
+  toml: 'true|false',
+  sol: 'pragma|solidity|contract|library|interface|function|returns|return|memory|calldata|storage|uint256|uint128|uint64|uint32|uint8|int256|bool|address|bytes32|bytes|struct|mapping|if|else|for|while|require|revert|emit|event|error|external|internal|public|private|view|pure|payable|assembly|let|true|false|immutable|constant|new|using|import|is|modifier|unchecked|switch|case|default|leave',
+};
+function lang(path) {
+  const e = path.split('.').pop();
+  return {rs: 'rs', cairo: 'cairo', py: 'py', toml: 'toml', sol: 'sol'}[e] || 'rs';
+}
+function highlight(code, lg) {
+  const cm = lg === 'py' || lg === 'toml' ? '#[^\\n]*' : '//[^\\n]*';
+  const st = lg === 'py' ? '"""[\\s\\S]*?"""|\'\'\'[\\s\\S]*?\'\'\'|"(?:\\\\.|[^"\\\\\\n])*"|\'(?:\\\\.|[^\'\\\\\\n])*\''
+    : lg === 'cairo' ? '"(?:\\\\.|[^"\\\\\\n])*"|\'(?:\\\\.|[^\'\\\\\\n])*\'' : '"(?:\\\\.|[^"\\\\])*"|b\'(?:\\\\.|[^\'\\\\])\'|\'(?:\\\\.|[^\'\\\\])\'(?!\\w)';
+  const re = new RegExp(`(${cm})|(${st})|\\b(${KW[lg] || KW.rs})\\b|\\b(0x[0-9a-fA-F_]+|\\d[\\d_]*(?:\\.\\d+)?)\\b|(#!?\\[[^\\]\\n]*\\]|@\\w+)|\\b([A-Z][A-Za-z0-9_]*)\\b|\\b([a-z_][a-z0-9_]*)(?=\\s*(?:!|::<[^>]*>)?\\()`, 'g');
+  let out = '', last = 0, m;
+  while ((m = re.exec(code))) {
+    out += esc(code.slice(last, m.index));
+    const cls = m[1] ? 'c' : m[2] ? 's' : m[3] ? 'k' : m[4] ? 'n' : m[5] ? 'a' : m[6] ? 't' : 'f';
+    out += `<span class="tk-${cls}">${esc(m[0])}</span>`;
+    last = re.lastIndex;
+  }
+  out += esc(code.slice(last));
+  // one span per line (comments/strings may span lines: close+reopen per line)
+  const open = [];
+  return out.split('\n').map(line => {
+    const pre = open.join('');
+    for (const t of line.match(/<span class="tk-\w">|<\/span>/g) || []) t === '</span>' ? open.pop() : open.push(t);
+    return `<span class="l">${pre}${line || ' '}${'</span>'.repeat(open.length)}</span>`;
+  }).join('');
+}
+let FILES = null, CUR = null;
+const srcCache = {};
+async function source(path) {
+  if (!srcCache[path]) srcCache[path] = get('source', `?path=${encodeURIComponent(path)}`);
+  return srcCache[path];
+}
+
+/* ---------------- contract (code) : only this chain's files ---------------- */
+const VERIFY_FN = {
+  starknet: [/lsag\.cairo$/, 'pub fn verify(', '\n}\n', '\n}', 'verify'],
+  near: [/lsag\.rs$/, 'pub fn verify_hinted(', '\n}\n', '\n}', 'verify_hinted'],
+  eth: [/LSAG\.sol$/, 'function verify(Point[]', '\n    }\n', '\n    }', 'verify'],
+  solana: [/lib\.rs$/, 'fn unit(', '\n}\n', '\n}', 'unit: one slice of verify'],
+};
+async function loadTree() {
+  if (FILES) return FILES;
+  const f = await get('files').catch(() => []);
+  if (Array.isArray(f) && f.some(g => g.files.length)) FILES = f;
+  return f || [];
+}
+const filesOf = (all, c) => all.filter(g => g.chain === c).flatMap(g => g.files);
+function findFile(all, c, re) { return filesOf(all, c).find(f => re.test(f.path)); }
+function drawTree(all) {
+  const mine = all.filter(g => g.chain === CHAIN && g.files.length);
+  const shared = all.filter(g => g.chain === 'shared' && g.files.length);
+  const link = f => `<a href="#code/${f.path}" data-path="${esc(f.path)}"><b>${esc(f.path.split('/').pop())}</b><span>${esc(f.note)} · ${f.lines} lines</span></a>`;
+  $('tree').innerHTML = mine.map(g => `<div><h5><span class="chainbadge ${CHAIN}">${CH[CHAIN].name.toUpperCase()}</span>${esc(g.group.split(' · ')[1] || '')}</h5>${g.files.map(link).join('')}</div>`).join('') +
+    (shared.length ? `<details><summary><h5><span class="chainbadge shared">SHARED</span>signer + server, every chain</h5></summary>${shared.flatMap(g => g.files).map(link).join('')}</details>` : '');
+  return mine;
+}
+async function openCode(path) {
+  const all = await loadTree();
+  const mine = drawTree(all);
+  $('sbs').style.display = CHAIN === 'starknet' ? 'none' : '';
+  if (!mine.length) { $('vpath').textContent = '-'; $('vmeta').textContent = ''; $('src').className = 'src';
+    $('src').innerHTML = '<div class="empty">no source listed for this chain yet (the module may be mid-update). Try again in a moment.</div>'; return; }
+  if (path === 'side-by-side') return sideBySide(all);
+  const mineP = mine.flatMap(g => g.files).map(f => f.path), sharedP = filesOf(all, 'shared').map(f => f.path);
+  if (!path || !(mineP.includes(path) || sharedP.includes(path))) path = mineP.includes(CUR) ? CUR : mineP[0];
+  CUR = path;
+  document.querySelectorAll('#tree a').forEach(a => a.classList.toggle('on', a.dataset.path === path));
+  const r = await source(path);
+  if (r.error) { $('src').innerHTML = `<div class="empty">${esc(r.error)}</div>`; return; }
+  const f = all.flatMap(g => g.files).find(x => x.path === path) || {};
+  $('vpath').textContent = path; $('vmeta').textContent = f.note || '';
+  $('src').className = 'src'; $('src').innerHTML = box(path, r.text);
+  $('copysrc').onclick = () => { navigator.clipboard && navigator.clipboard.writeText(r.text); toast('copied ' + path); };
+}
+function box(path, text) {
+  return `<div class="srcbox"><div class="h">${esc(path)}<span class="sp" style="flex:1"></span><span style="color:var(--mute)">${text.split('\n').length} lines</span></div><pre class="cl">${highlight(text, lang(path))}</pre></div>`;
+}
+function slice(text, start, endPat, tail) {
+  const i = text.indexOf(start); if (i < 0) return text;
+  const j = text.indexOf(endPat, i + start.length);
+  return text.slice(i, j < 0 ? undefined : j).trimEnd() + (j < 0 ? '' : tail);
+}
+/* this chain's verifier next to the Cairo reference */
+async function sideBySide(all) {
+  CUR = null;
+  document.querySelectorAll('#tree a').forEach(a => a.classList.remove('on'));
+  const [rre, rs, re2, rt] = VERIFY_FN.starknet, [mre, ms, me, mt, mlab] = VERIFY_FN[CHAIN];
+  const ref = findFile(all, 'starknet', rre), mine = findFile(all, CHAIN, mre);
+  if (!ref || !mine) return openCode('');
+  const [c, r] = await Promise.all([source(ref.path), source(mine.path)]);
+  const cv = slice(c.text || '', rs, re2, rt), rv = slice(r.text || '', ms, me, mt);
+  $('vpath').textContent = `verify: ${CH[CHAIN].name} vs Cairo`;
+  $('vmeta').textContent = 'same ring equation, same Poseidon challenges, same wire format';
+  $('src').className = 'src two';
+  $('src').innerHTML = box(`${mine.path} · ${mlab}`, rv) + box(`${ref.path} · verify (reference)`, cv);
+  $('copysrc').onclick = () => { navigator.clipboard && navigator.clipboard.writeText(rv + '\n\n' + cv); toast('copied both'); };
+}
+$('sbs').onclick = () => { location.hash = 'code/side-by-side'; };
+
+/* ---------------- costs : only this chain ---------------- */
+let lastSims = {};
+async function renderCosts() {
+  await cmpP;
+  const c = CHAIN, x = (CMP || {})[c] || {}, costs = (CMP || {}).costs || {}, v = verifyCost(c);
+  const stat = (lab, big, unit, sub) => `<div class="stat"><div class="lab">${lab}</div><div class="big">${big}<small>${unit}</small></div><div class="sub2">${sub}</div></div>`;
+  let rows = [], opt = {};
+  if (c === 'near') {
+    const g = costs.near || {};
+    rows = (g.rows || []).map(d => ({x: d.ring, v: d.tgas, tip: d.tgas != null ? `ring ${d.ring} · <b>${d.tgas} Tgas</b> · ${(d.tgas / d.ring).toFixed(1)} per member` : `ring ${d.ring} · over the 300 Tgas limit`}));
+    opt = {limit: g.limit_tgas || 300, limitLabel: `${g.limit_tgas || 300} Tgas per-call limit`, unit: 'Tgas', at: g.at,
+      title: 'TGAS PER ACTION, BY RING SIZE', note: 'One action verifies one ring signature. NEAR caps a call at 300 Tgas, so the contract caps rings at 32.'};
+  } else if (c === 'eth') {
+    const g = costs.eth || {}, cap = (g.cap || 16777216) / 1e6;
+    rows = (g.rows || []).map(d => ({x: d.ring, v: d.gas / 1e6, tip: `ring ${d.ring} · <b>${fmtM(d.gas)} gas</b> · ${fmtM(d.gas / d.ring)} per member`}));
+    opt = {limit: cap, limitLabel: `EIP-7825 tx cap ${cap.toFixed(1)}M`, unit: 'M gas', at: g.at,
+      title: 'GAS PER ACTION, BY RING SIZE (FORGE)', note: 'Measured by forge on the verify path. A transaction may use at most 2^24 gas (EIP-7825), so rings stop at 32, at about 13.5M.'};
+  } else if (c === 'solana') {
+    const g = costs.solana || {};
+    rows = (g.rows || []).map(d => ({x: d.ring, v: d.cu / 1e6, tip: `ring ${d.ring} · <b>${fmtM(d.cu)} CU</b> · ${d.units} units · ${d.txs} txs · heaviest tx ${fmtM(d.cu_max)}`}));
+    opt = {unit: 'M CU', at: g.at, title: 'TOTAL COMPUTE UNITS PER ACTION, BY RING SIZE',
+      note: `No single transaction can verify a signature. The work is split into units, each under the ${fmtM(g.cap_cu || 1400000)} CU per-tx limit. The heaviest tx stays near ${fmtM(Math.max(0, ...(g.rows || []).map(d => d.cu_max || 0)))}. Total cost grows with the ring, the per-tx cost does not.`};
+  } else {
+    if (!lastSims.starknet) lastSims.starknet = await get('last_sim', '?chain=starknet').catch(() => ({}));
+    const ev = (lastSims.starknet.events || []).filter(e => e.steps);
+    rows = ev.map((e, i) => ({x: e.kind.slice(0, 3), v: e.steps / 1000, tip: `${e.kind} #${i + 1} · <b>${e.steps} steps</b> · ${e.ec_op} ec_op`}));
+    opt = {unit: 'k steps', at: lastSims.starknet.at, title: 'CAIRO STEPS PER ACTION · LAST EPOCH (RING 4)', xlabel: 'ACTION',
+      note: 'Every submit, score and claim in the last recorded epoch. Starknet verifies on the native EC builtin, so a ring of 4 costs about 16k steps. The contract allows rings up to 64.'};
+  }
+  const sw = c === 'starknet' ? null : (() => { const r = rows.filter(d => d.v != null); return r.length > 1 ? (r[r.length - 1].v - r[0].v) / (r[r.length - 1].x - r[0].x) : null; })();
+  const per = c === 'starknet' ? (v ? [`~${(avg(x.steps) / 4000).toFixed(1)}k`, 'steps', 'ring-4 cost / 4, roughly linear'] : null)
+    : sw == null ? null : c === 'near' ? [sw.toFixed(1), 'Tgas', 'slope of the sweep'] : c === 'eth' ? [(sw).toFixed(2) + 'M', 'gas', 'slope of the sweep'] : [(sw).toFixed(2) + 'M', 'CU', 'slope of the sweep'];
+  $('cstats').innerHTML = [
+    stat('VERIFY COST · RING 4', v ? v[0] : '-', v ? v[1] : '', v ? v[2] : `run a ${CH[c].name} epoch`),
+    stat('PER EXTRA MEMBER', per ? per[0] : '-', per ? per[1] : '', per ? per[2] : 'no sweep yet'),
+    stat('MAX RING', CH[c].cap, 'members', CH[c].capWhy),
+    stat('FULL EPOCH', x.seconds || '-', 's', `${x.actions || 0} actions · double claim ${String(x.double_claim || '-').split(':')[0]}`),
+  ].join('');
+  $('charttitle').firstChild.textContent = opt.title + ' ';
+  $('gasnote').textContent = opt.at ? `measured ${ago(Date.now() / 1000 - opt.at)}` : CH[c].local;
+  $('chartnote').textContent = opt.note;
+  barChart(rows, opt);
+  renderEcon();
+  const same = [['scheme', 'LSAG over the STARK curve, Poseidon challenges'], ['signer', 'the shared Cairo prover. One signature verifies on every chain'],
+    ['rules', 'one submit per miner per epoch · one score per validator per tag · one claim per tag']];
+  $('ctable').innerHTML = `<table class="cmp">${CH[c].how.map(([k, val]) => `<tr><td>${k}</td><td>${val}</td></tr>`).join('')}
+    <tr><th colspan="2" style="padding-top:16px">SAME ON EVERY CHAIN</th></tr>${same.map(([k, val]) => `<tr class="same"><td>${k}</td><td>${val}</td></tr>`).join('')}
+    <tr><td>last contract</td><td><code>${esc(x.contract || '-')}</code></td></tr></table>`;
+  renderCapGrid();
+}
+/* ---------------- costs : mainnet dollars, epoch sizing, limits ---------------- */
+const EOPT = {
+  eep: [[1, '1 hour (minimum)'], [2, '2 hours'], [4, '4 hours'], [6, '6 hours'], [12, '12 hours'], [24, '1 day'], [168, '1 week']],
+  emin: [3, 4, 8, 16, 32, 64, 128, 256].map(n => [n, n]),
+  evals: [3, 4, 8, 16, 32, 64].map(n => [n, n]),
+  ering: [[0, 'whole set'], [4, 4], [8, 8], [16, 16], [32, 32], [64, 64]],
+};
+const EDEF = {eep: 1, emin: 16, evals: 8, ering: 0};
+const ESET = Object.assign({}, EDEF, JSON.parse(localStorage.getItem('ztao.econ') || '{}'));
+for (const id in EOPT) {
+  $(id).innerHTML = EOPT[id].map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
+  $(id).value = EOPT[id].some(([v]) => v == ESET[id]) ? ESET[id] : EDEF[id];
+  $(id).onchange = () => { ESET[id] = +$(id).value; localStorage.setItem('ztao.econ', JSON.stringify(ESET)); renderEcon(); };
+}
+/* ---------------- costs : blockspace capacity grid ---------------- */
+{
+  const hrsOpts = [[1,'1h'],[2,'2h'],[4,'4h'],[6,'6h'],[12,'12h'],[24,'24h']];
+  $('capgrid-hrs').innerHTML = hrsOpts.map(([v,l]) => `<option value="${v}">${l}</option>`).join('');
+  $('capgrid-hrs').value = localStorage.getItem('ztao.capgrid.hrs') || '6';
+  $('capgrid-hrs').onchange = () => { localStorage.setItem('ztao.capgrid.hrs', $('capgrid-hrs').value); renderCapGrid(); };
+}
+async function renderCapGrid() {
+  const hrs = +$('capgrid-hrs').value;
+  $('capgrid-at').textContent = 'loading';
+  $('capgrid-svg').innerHTML = '<div class="empty" style="min-height:60px">loading</div>';
+  let d;
+  try { d = await get('experiment', `?chain=${CHAIN}&hours=${hrs}&trials=20`); } catch(_) { d = null; }
+  if (!d || !d.ok) {
+    $('capgrid-svg').innerHTML = '<div class="empty">no blockspace data</div>';
+    $('capgrid-at').textContent = d ? String(d.error || 'no data').slice(0, 40) : 'error';
+    $('capgrid-summary').innerHTML = '';
+    return;
+  }
+  const epoch = (d.epochs || []).find(e => e.hours === hrs) || (d.epochs || [])[0];
+  if (!epoch) {
+    $('capgrid-svg').innerHTML = '<div class="empty">no data for this chain</div>';
+    $('capgrid-at').textContent = 'no data';
+    $('capgrid-summary').innerHTML = '';
+    return;
+  }
+  const GM = [4, 8, 16, 32, 64, 128, 256], GV = [4, 8, 16, 32, 64];
+  const byKey = {};
+  for (const c of epoch.cells || []) byKey[`${c.miners},${c.validators}`] = c;
+  const bk = d.blockspace_known;
+  const CW = 70, CH = 40, LW = 36, TH = 28;
+  const W = LW + GV.length * CW + 2, H = TH + GM.length * CH + 2;
+  let s = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:${W}px" role="img" aria-label="Capacity grid ${esc(CH[CHAIN].name)}">`;
+  s += `<text x="${LW}" y="11" fill="var(--mute)" style="font:9px var(--mono)">miners ↓ / validators →</text>`;
+  GV.forEach((v, ci) => {
+    s += `<text x="${LW + ci * CW + CW / 2}" y="${TH - 7}" text-anchor="middle" fill="var(--dim)" style="font:600 11px var(--mono)">${v}</text>`;
+  });
+  GM.forEach((m, ri) => {
+    const ry = TH + ri * CH;
+    s += `<text x="${LW - 4}" y="${ry + CH / 2 + 4}" text-anchor="end" fill="var(--dim)" style="font:600 11px var(--mono)">${m}</text>`;
+    GV.forEach((v, ci) => {
+      const cx = LW + ci * CW, isBT = m === 256 && v === 64;
+      const cell = byKey[`${m},${v}`];
+      let fill = 'var(--panel2)', tc = 'var(--mute)';
+      if (cell) {
+        if (!cell.fits) { fill = 'rgba(244,63,94,.18)'; tc = 'var(--red)'; }
+        else if (!bk || cell.share == null) { fill = 'rgba(245,158,11,.13)'; tc = 'var(--amber)'; }
+        else { fill = 'rgba(20,184,166,.15)'; tc = 'var(--teal2)'; }
+      }
+      s += `<rect x="${cx + 1}" y="${ry + 1}" width="${CW - 2}" height="${CH - 2}" rx="4" fill="${fill}"/>`;
+      if (isBT) s += `<rect x="${cx + 1}" y="${ry + 1}" width="${CW - 2}" height="${CH - 2}" rx="4" fill="none" stroke="#f59e0b" stroke-width="1.5"/>`;
+      if (cell) {
+        const usdTxt = usd(cell.usd), pctTxt = cell.share != null ? Math.round(cell.share * 100) + '%' : '';
+        s += `<text x="${cx + CW / 2}" y="${ry + CH / 2 - (pctTxt ? 2 : 5)}" text-anchor="middle" fill="${tc}" style="font:600 10px var(--mono)">${esc(usdTxt)}${isBT ? ' BT' : ''}</text>`;
+        if (pctTxt) s += `<text x="${cx + CW / 2}" y="${ry + CH / 2 + 11}" text-anchor="middle" fill="${tc}" style="font:9px var(--mono);opacity:.75">${pctTxt}</text>`;
+      }
+    });
+  });
+  s += '</svg>';
+  $('capgrid-svg').innerHTML = s;
+  const sq = epoch.max_square, bt = epoch.bittensor || {};
+  const btNote = bt.fits != null ? ` \xb7 BT (256\xd764) <b style="color:${bt.fits ? 'var(--teal)' : 'var(--red)'}">${bt.fits ? 'fits' : 'over'}</b> ${usd(bt.usd)}/epoch` : '';
+  $('capgrid-summary').innerHTML = `<p class="note" style="margin:8px 0 0">largest square subnet that fits: <b>M = V = ${sq != null ? sq : '?'}</b>${btNote}${bk ? '' : ' \xb7 blockspace not tracked'}</p>`;
+  $('capgrid-at').textContent = bk ? `${Math.round((d.share || 0.1) * 100)}% block share` : 'no blockspace data';
+}
+/* value of `rows` (sorted by ring) at ring n, linear between points */
+function atRing(rows, n, k) {
+  const r = rows.filter(d => d[k] != null);
+  if (!r.length) return null;
+  if (r.length === 1) return r[0][k] * n / r[0].ring;
+  let i = r.findIndex(d => d.ring >= n); if (i <= 0) i = i === 0 ? 1 : r.length - 1;
+  const a = r[i - 1], b = r[i];
+  return a[k] + (b[k] - a[k]) * (n - a.ring) / (b.ring - a.ring);
+}
+const dur = s => s < 90 ? `${Math.round(s)} s` : s < 5400 ? `${Math.round(s / 60)} min` : s < 172800 ? `${(s / 3600).toFixed(1)} h` : `${(s / 86400).toFixed(1)} days`;
+const pct = f => f < .001 ? '<0.1%' : f < .1 ? (100 * f).toFixed(1) + '%' : Math.round(100 * f) + '%';
+async function renderEcon() {
+  await econP;
+  const c = CHAIN, e = ((ECON || {}).chains || {})[c];
+  const hrs = +$('eep').value, M = +$('emin').value, V = +$('evals').value, R = +$('ering').value;
+  if (!e) {
+    $('econat').textContent = 'no mainnet data';
+    $('estats').innerHTML = ''; $('etable').innerHTML = ''; $('elims').innerHTML = ''; $('privcard').innerHTML = '';
+    $('enote').textContent = CH[c].generic ? 'This adapter does not report mainnet fees yet (mainnet() / fee() in its adapter.py).' : 'Mainnet RPC or price feed unreachable.';
+    return;
+  }
+  $('econat').textContent = `${e.stale ? 'stale · ' : 'live · '}${e.symbol} ${usd(e.usd_price)} · ${ago(Date.now() / 1000 - ECON.at)}`;
+  const cap = n => Math.max(1, Math.min(R || n, n, e.max_ring));
+  const ringM = cap(M), ringV = cap(V), base = e.ring || 4;
+  const scale = n => { const a = atRing(e.by_ring, n, 'usd'), b = atRing(e.by_ring, base, 'usd'); return a && b ? a / b : n / base; };
+  const loadAt = n => { const a = atRing(e.by_ring, n, 'load'), b = atRing(e.by_ring, base, 'load'); return a && b ? a / b : n / base; };
+  const K = e.actions, row = (k, n) => K[k] ? {usd: K[k].usd * (n ? scale(n) : 1), native: K[k].native * (n ? scale(n) : 1),
+    load: K[k].load != null ? K[k].load * (n ? loadAt(n) : 1) : null, ms: K[k].ms} : null;
+  const sub = row('submit', ringM), sco = row('score', ringV), clm = row('claim', ringM), reg = row('register');
+  // steady state, per epoch: every miner submits once and claims the last
+  // epoch, every validator scores every tag
+  const nSub = M, nSco = M * V, nClm = M, acts = nSub + nSco + nClm;
+  const perEpoch = (sub ? sub.usd * nSub : 0) + (sco ? sco.usd * nSco : 0) + (clm ? clm.usd * nClm : 0);
+  const epochS = hrs * 3600, perDay = perEpoch * 24 / hrs;
+  const tempo = Math.ceil(epochS / e.block_seconds - 1e-6);
+  const stat = (lab, big, sub2) => `<div class="stat"><div class="lab">${lab}</div><div class="big">${big}</div><div class="sub2">${sub2}</div></div>`;
+  $('estats').innerHTML = [
+    stat('ONE SCORE', usd(sco && sco.usd), `ring ${ringV} · ${sco ? (+sco.native.toPrecision(3)) + ' ' + e.symbol : '-'}`),
+    stat('ONE EPOCH', usd(perEpoch), `${acts.toLocaleString()} actions · ${M} submits · ${nSco.toLocaleString()} scores · ${M} claims`),
+    stat('PER DAY · 30 DAYS', usd(perDay), `${usd(perDay * 30)} a month · ${(24 / hrs).toFixed(hrs > 24 ? 2 : 0)} epochs a day`),
+    stat('EPOCH LENGTH', tempo.toLocaleString(), `blocks · ${(+e.block_seconds.toFixed(2))} s each · floor ${e.min_tempo.toLocaleString()}`),
+  ].join('');
+  const tr = (lab, r, n, cnt) => `<tr><td>${lab}${n ? ` <span style="color:var(--mute)">ring ${n}</span>` : ''}</td><td>${r ? +r.native.toPrecision(3) + ' ' + e.symbol : '-'}</td><td><b>${usd(r && r.usd)}</b></td><td>${cnt == null ? 'once' : '×' + cnt.toLocaleString()}</td></tr>`;
+  $('etable').innerHTML = `<tr><th>action</th><th>${e.symbol}</th><th>USD</th><th>per epoch</th></tr>
+    ${tr('submit', sub, ringM, nSub)}${tr('score', sco, ringV, nSco)}${tr('claim', clm, ringM, nClm)}${tr('register', reg, 0, null)}
+    <tr><td>max ring ${e.max_ring}</td><td colspan="3">${usd(sco && K.score.usd * scale(e.max_ring))} per action${e.by_ring.some(d => d.est) ? ' (linear estimate)' : ''}</td></tr>`;
+  $('enote').textContent = `${e.note}. Costs measured on ${CH[c].local}, priced at mainnet gas now.` +
+    (c === 'solana' ? ` Priority fee median ${e.gas.micro_lamports_per_cu} µlamports/CU.` : c === 'eth' ? ` Gas ${(+e.gas.gwei.toPrecision(3))} gwei.` : '');
+  // limits
+  const L = [];
+  const lim = (v, html) => L.push(`<li><span class="v ${v}">${{ok: 'OK', warn: 'TIGHT', bad: 'LIMIT'}[v]}</span><span>${html}</span></li>`);
+  lim('ok', `<b>Epoch floor: 1 hour = ${e.min_tempo.toLocaleString()} blocks</b> at ${(+e.block_seconds.toFixed(2))} s per block (measured on mainnet now). <code>deploy</code> refuses a shorter tempo on public networks and uses this as the default.`);
+  const perAct = (sco && sco.ms ? sco.ms : (sub && sub.ms) || 2000) / 1000 + e.rounds * e.block_seconds;
+  const serial = acts * perAct, relayers = Math.ceil(serial / epochS);
+  lim(serial <= epochS * .5 ? 'ok' : serial <= epochS ? 'warn' : 'bad',
+    `<b>One relayer needs ${dur(serial)}</b> to post ${acts.toLocaleString()} actions one at a time (~${perAct.toFixed(1)} s each: signing + ${e.rounds > 1 ? e.rounds + ' block rounds' : 'one block'}). ` +
+    (serial <= epochS ? `That is ${pct(serial / epochS)} of the epoch.` : `The epoch is ${dur(epochS)}: run <b>${relayers} relayers</b> in parallel, or fewer validators.`));
+  if (e.block_capacity && sco && sco.load) {
+    const need = nSub * (sub ? sub.load : 0) + nSco * sco.load + nClm * (clm ? clm.load : 0), have = e.block_capacity * tempo;
+    const f = need / have, fastest = need / e.block_capacity * e.block_seconds;
+    lim(f < .01 ? 'ok' : f < .1 ? 'warn' : 'bad', `<b>Uses ${pct(f)} of ${CH[c].name}'s ${c === 'near' ? 'shard' : 'block'} space</b> over the epoch (${fmtM(need)} of ${fmtM(have)} ${e.capacity_unit}). ` +
+      `One block holds ${Math.floor(e.block_capacity / sco.load) || '<1'} scores, so with every block to itself the epoch could be as short as ${dur(fastest)}.`);
+  } else lim('ok', `<b>Block space is not the binding limit</b> on ${CH[c].name} at this size; the relayer and the fee are.`);
+  if (e.tx_cap && sco && sco.load) {
+    const big = sco.load * loadAt(e.max_ring) / loadAt(ringV);
+    lim(c === 'solana' ? 'ok' : big <= e.tx_cap ? 'ok' : 'bad', c === 'solana'
+      ? `<b>No transaction can verify a signature alone</b> (${fmtM(e.tx_cap)} CU per tx), so each action is ${Math.round(avg(((CMP || {}).solana || {}).txs) || 47)} txs. Fees grow with the ring, the per-tx cost does not.`
+      : `<b>Ring cap ${e.max_ring}</b>: one action may burn at most ${fmtM(e.tx_cap)} ${e.capacity_unit} per transaction, a ring of ${e.max_ring} uses about ${fmtM(big)} ${e.capacity_unit}.`);
+  } else lim('ok', `<b>Ring cap ${e.max_ring}</b>: the contract's own limit; cost is linear in the ring.`);
+  if (M > 0 && R && (R > M || R > V)) lim('warn', `<b>Ring ${R} is larger than a set</b>: rings are capped at the set size (${ringM} miners, ${ringV} validators).`);
+  lim(V >= 3 && M >= 3 ? 'ok' : 'bad', `<b>Anonymity is the ring</b>: a score hides among ${ringV} validators, a submit among ${ringM} miners. Bigger rings cost ${usd(sco && sco.usd / ringV)} more per member per score.`);
+  $('elims').innerHTML = L.join('');
+  // privacy price tag
+  const privRings = e.by_ring.filter(d => d.usd != null).slice().sort((a, b) => a.ring - b.ring);
+  if (privRings.length >= 2) {
+    const lb2 = n => Math.log(n) / Math.LN2;
+    let trows = '';
+    for (let i = 0; i < privRings.length; i++) {
+      const d = privRings[i], prev = privRings[i - 1];
+      const marginal = i > 0 ? usd((d.usd - prev.usd) / (lb2(d.ring) - lb2(prev.ring))) : '&mdash;';
+      trows += `<tr><td>${d.ring}</td><td>${lb2(d.ring).toFixed(1)}</td><td>${usd(d.usd)}</td><td>${marginal}</td></tr>`;
+    }
+    const f = privRings[0], l2 = privRings[privRings.length - 1];
+    const avgPerBit = (l2.usd - f.usd) / (lb2(l2.ring) - lb2(f.ring));
+    const q = privRings[1];
+    const noteTxt = `On ${esc(CH[c].name)}, at today’s gas, each additional bit of anonymity costs about ${usd(avgPerBit)} — hiding among ${q.ring} members costs ${usd(q.usd - f.usd)} more per action than hiding among ${f.ring}.`;
+    $('privcard').innerHTML = `<h3>PRIVACY PRICE TAG \xb7 $/BIT OF ANONYMITY</h3><table class="cmp"><tr><th>ring</th><th>bits</th><th>$/action</th><th>$/added bit</th></tr>${trows}</table><p class="note">${noteTxt}</p>`;
+  } else {
+    $('privcard').innerHTML = '';
+  }
+}
+function barChart(rows, o) {
+  const W = 560, H = 280, l = 50, r = 16, t = 22, b = 38, n = Math.max(1, rows.length);
+  const max = Math.max(o.limit || 0, ...rows.map(d => d.v || 0)) * 1.14 || 1;
+  const step = (() => { const raw = max / 4, p = Math.pow(10, Math.floor(Math.log10(raw))); return [1, 2, 2.5, 5, 10].map(k => k * p).find(k => k >= raw); })();
+  const x = i => l + (i + .5) * (W - l - r) / n, bw = Math.max(6, Math.min(46, (W - l - r) / n - (n > 10 ? 6 : 14)));
+  const y = v => t + (H - t - b) * (1 - v / max);
+  let h = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(o.title || 'cost')}">`;
+  for (let v = 0; v <= max; v += step) h += `<line x1="${l}" x2="${W - r}" y1="${y(v)}" y2="${y(v)}" stroke="#152126"/><text x="${l - 8}" y="${y(v) + 4}" text-anchor="end" fill="#566d71" style="font:11px var(--mono)">${+v.toFixed(2)}</text>`;
+  if (o.limit) {
+    h += `<line x1="${l}" x2="${W - r}" y1="${y(o.limit)}" y2="${y(o.limit)}" stroke="#f43f5e" stroke-dasharray="5 4" stroke-width="1.5"/>`;
+    h += `<text x="${W - r}" y="${y(o.limit) - 6}" text-anchor="end" fill="#8aa3a6" style="font:11px var(--mono)">${esc(o.limitLabel)}</text>`;
+  }
+  rows.forEach((d, i) => {
+    const cx = x(i);
+    if (d.v != null) {
+      const top = y(d.v), base = y(0), rr = Math.min(4, bw / 3);
+      h += `<path d="M${cx - bw / 2},${base} V${top + rr} Q${cx - bw / 2},${top} ${cx - bw / 2 + rr},${top} H${cx + bw / 2 - rr} Q${cx + bw / 2},${top} ${cx + bw / 2},${top + rr} V${base} Z" fill="var(--acc)"/>`;
+      if (n <= 10) h += `<text x="${cx}" y="${top - 6}" text-anchor="middle" fill="#e6f2f1" style="font:600 11px var(--mono)">${d.v >= 100 ? Math.round(d.v) : +d.v.toFixed(d.v >= 10 ? 1 : 2)}</text>`;
+    } else if (o.limit) {
+      h += `<text x="${cx}" y="${y(o.limit) + 18}" text-anchor="middle" fill="#f43f5e" style="font:600 11px var(--mono)">over</text>`;
+    }
+    if (n <= 10 || i % 2 === 0) h += `<text x="${cx}" y="${H - b + 18}" text-anchor="middle" fill="#8aa3a6" style="font:${n > 10 ? 9 : 11}px var(--mono)">${esc(d.x)}</text>`;
+    h += `<rect x="${cx - (W - l - r) / n / 2}" y="${t}" width="${(W - l - r) / n}" height="${H - t - b}" fill="transparent" data-i="${i}"/>`;
+  });
+  h += `<text x="${l - 40}" y="${t - 8}" fill="#566d71" style="font:10px var(--mono)">${esc(o.unit || '')}</text>`;
+  h += `<text x="${l + (W - l - r) / 2}" y="${H - 4}" text-anchor="middle" fill="#566d71" style="font:10px var(--mono);letter-spacing:1.2px">${o.xlabel || 'RING SIZE (MEMBERS)'}</text></svg><div class="tip"></div>`;
+  const el2 = $('gaschart');
+  el2.innerHTML = rows.length ? h : `<div class="empty">no measurements yet: <code>m ztao/gas_sweep chain=${CHAIN}</code></div>`;
+  const tip = el2.querySelector('.tip');
+  el2.querySelectorAll('rect[data-i]').forEach(rc => {
+    rc.onmousemove = ev => {
+      const d = rows[+rc.dataset.i], bb = el2.getBoundingClientRect();
+      tip.innerHTML = d.tip;
+      tip.style.left = Math.max(0, Math.min(ev.clientX - bb.left + 12, bb.width - 300)) + 'px'; tip.style.top = (ev.clientY - bb.top - 34) + 'px'; tip.style.opacity = 1;
+    };
+    rc.onmouseleave = () => { tip.style.opacity = 0; };
+  });
+  $('gastable').innerHTML = `<table><tr><th>${o.xlabel ? 'action' : 'ring'}</th><th>${esc(o.unit)}</th></tr>${rows.map(d => `<tr><td>${esc(d.x)}</td><td>${d.v != null ? +d.v.toFixed(3) : 'over limit'}</td></tr>`).join('')}</table>`;
+}
+
+/* ---------------- forecast : cost curves as subnet grows ---------------- */
+const FOPT = {
+  fmstart: [[4,'4'],[8,'8'],[16,'16'],[32,'32'],[64,'64']],
+  fmend:   [[32,'32'],[64,'64'],[128,'128'],[256,'256'],[512,'512']],
+  fvstart: [[3,'3'],[4,'4'],[8,'8'],[16,'16']],
+  fvend:   [[8,'8'],[16,'16'],[32,'32'],[64,'64'],[128,'128']],
+  fmonths: [[3,'3 mo'],[6,'6 mo'],[12,'12 mo'],[24,'24 mo'],[60,'5 yr']],
+  fshape:  [['exp','exponential'],['linear','linear'],['logistic','logistic']],
+  fring:   [[4,'4'],[8,'8'],[16,'16'],[32,'32']],
+  fephours:[[1,'1 hr'],[4,'4 hr'],[12,'12 hr'],[24,'1 day']],
+  fcoalition:[[0.1,'10%'],[0.2,'20%'],[0.25,'25%'],[0.33,'33%'],[0.4,'40%'],[0.5,'50%']],
+};
+const FDEF = {fmstart: 16, fmend: 256, fvstart: 4, fvend: 64, fmonths: 12, fshape: 'exp', fring: 16, fephours: 1, fcoalition: 0.25};
+const FSET = Object.assign({}, FDEF, JSON.parse(localStorage.getItem('ztao.forecast') || '{}'));
+for (const id in FOPT) {
+  $(id).innerHTML = FOPT[id].map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
+  $(id).value = FOPT[id].some(([v]) => String(v) === String(FSET[id])) ? FSET[id] : FDEF[id];
+  $(id).onchange = () => { FSET[id] = $(id).value; localStorage.setItem('ztao.forecast', JSON.stringify(FSET)); renderForecast(); };
+}
+const FC_COLORS = {baseline: '#8aa3a6', batch: '#f59e0b', lazy: '#fbbf24', proof: '#a78bfa', committee: '#00ec97', private: '#5eead4'};
+const CHAIN_COLORS = {starknet: 'var(--sn)', near: 'var(--nr)', eth: 'var(--eth)', solana: 'var(--sol)'};
+const CHAIN_HEX = {starknet: '#ff875b', near: '#00ec97', eth: '#8ea2ff', solana: '#b57cff'};
+const fc_ylab = v => v === 0 ? '$0' : v >= 10000 ? '$' + Math.round(v / 1000) + 'k' : v >= 1000 ? '$' + (v / 1000).toFixed(1) + 'k' : v >= 100 ? '$' + Math.round(v) : v >= 1 ? '$' + v.toFixed(1) : usd(v);
+let _fcAbort = 0;
+let activeFcStrat = null;
+let _fc2AllChains = null;
+let _fcAllStrat = 'baseline';
+function _focusFc(s, strats) {
+  activeFcStrat = activeFcStrat === s ? null : s;
+  for (const st of strats) {
+    const line = document.getElementById(`fc-l-${st}`);
+    const dots = document.getElementById(`fc-d-${st}`);
+    const rows = document.querySelectorAll(`#fc-legend tr[data-s="${st}"]`);
+    if (!line) continue;
+    const active = activeFcStrat === null || st === activeFcStrat;
+    line.setAttribute('opacity', active ? '0.9' : '0.1');
+    line.setAttribute('stroke-width', activeFcStrat && st === activeFcStrat ? '3' : '2');
+    if (dots) dots.setAttribute('opacity', active ? '1' : '0.08');
+    rows.forEach(r => { r.style.opacity = active ? '1' : '0.35'; });
+  }
+}
+async function renderForecast() {
+  activeFcStrat = null;
+  const _riskEl = $('fc-risk'); if (_riskEl) _riskEl.innerHTML = '';
+  await econP;
+  const c = CHAIN, e = ((ECON || {}).chains || {})[c];
+  if (!e) {
+    $('fc-at').textContent = 'no mainnet data';
+    $('fc-chart').innerHTML = '<div class="empty">no mainnet data · this chain has no priced runs yet</div>';
+    $('fc-legend').innerHTML = '<div class="empty">–</div>';
+    return;
+  }
+  const id = ++_fcAbort;
+  const miners = `${FSET.fmstart},${FSET.fmend}`, validators = `${FSET.fvstart},${FSET.fvend}`;
+  const qs = `?chain=${c}&miners=${miners}&validators=${validators}&months=${FSET.fmonths}&shape=${FSET.fshape}&ring=${FSET.fring}&epoch_hours=${FSET.fephours}&f=${FSET.fcoalition}`;
+  let fc;
+  try { fc = await get('forecast', qs); } catch { if (id === _fcAbort) $('fc-chart').innerHTML = '<div class="empty">could not load forecast</div>'; return; }
+  if (id !== _fcAbort) return;
+  const cd = (fc.chains || {})[c];
+  if (!cd || !(cd.rows || []).length) {
+    $('fc-chart').innerHTML = '<div class="empty">no forecast data for this chain</div>';
+    return;
+  }
+  $('fc-at').textContent = `${e.stale ? 'stale · ' : 'live · '}${e.symbol} ${usd(e.usd_price)}`;
+  const STRATS = cd.strategies || Object.keys(FC_COLORS);
+  const rows = cd.rows;
+  const nM = rows.length;
+  const allVals = rows.flatMap(r => STRATS.map(s => r[s] && r[s].month)).filter(v => v != null && v > 0);
+  const maxV = Math.max(...allVals) * 1.12 || 1;
+  const raw4 = maxV / 4, p4 = Math.pow(10, Math.floor(Math.log10(raw4)));
+  const step = [1, 2, 2.5, 5, 10].map(k => k * p4).find(k => k >= raw4) || raw4;
+  const W2 = 660, H2 = 280, ll = 64, rr = 50, tt = 22, bb2 = 36;
+  const xp = i => ll + i * (W2 - ll - rr) / (nM - 1);
+  const yp = v => tt + (H2 - tt - bb2) * (1 - v / maxV);
+  const maxBits = Math.max(1, Math.log2(parseInt(FSET.fring) || 4));
+  const ypB = v => tt + (H2 - tt - bb2) * (1 - v / maxBits);
+  let h = `<svg viewBox="0 0 ${W2} ${H2}" role="img" aria-label="cost forecast">`;
+  for (let v = 0; v <= maxV * 1.01; v += step) {
+    h += `<line x1="${ll}" x2="${W2 - rr}" y1="${yp(v)}" y2="${yp(v)}" stroke="#152126"/>`;
+    h += `<text x="${ll - 6}" y="${yp(v) + 4}" text-anchor="end" fill="#566d71" style="font:11px var(--mono)">${fc_ylab(v)}</text>`;
+  }
+  for (let i = 0; i < nM; i++) {
+    if (nM <= 13 || i % Math.ceil(nM / 12) === 0)
+      h += `<text x="${xp(i)}" y="${H2 - bb2 + 18}" text-anchor="middle" fill="#8aa3a6" style="font:10px var(--mono)">mo ${rows[i].month}</text>`;
+  }
+  for (let b = 0; b <= Math.ceil(maxBits); b++) {
+    h += `<text x="${W2 - rr + 6}" y="${(ypB(b) + 4).toFixed(1)}" text-anchor="start" fill="var(--teal)" style="font:10px var(--mono)">${b}</text>`;
+  }
+  for (const s of STRATS) {
+    const col = FC_COLORS[s] || '#566d71';
+    const pts = rows.map((r, i) => { const v = r[s] && r[s].month; return v != null ? `${xp(i).toFixed(1)},${yp(v).toFixed(1)}` : null; }).filter(Boolean);
+    if (pts.length > 1) h += `<polyline id="fc-l-${s}" points="${pts.join(' ')}" fill="none" stroke="${col}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>`;
+    h += `<g id="fc-d-${s}">`;
+    rows.forEach((r, i) => { const v = r[s] && r[s].month; if (v != null) h += `<circle cx="${xp(i).toFixed(1)}" cy="${yp(v).toFixed(1)}" r="2.2" fill="${col}"/>`; });
+    h += `</g>`;
+  }
+  const fullRingIdx = rows.findIndex(r => r.ring >= parseInt(FSET.fring));
+  if (fullRingIdx > 0) {
+    const fx = xp(fullRingIdx).toFixed(1);
+    const fring = rows[fullRingIdx].ring;
+    const fbits = Math.log2(fring).toFixed(1);
+    h += `<line x1="${fx}" x2="${fx}" y1="${tt}" y2="${H2 - bb2}" stroke="var(--teal)" stroke-opacity="0.45" stroke-width="1.5" stroke-dasharray="4 3"/>`;
+    h += `<text transform="translate(${(xp(fullRingIdx) - 4).toFixed(1)},${(tt + 4).toFixed(1)}) rotate(-90)" text-anchor="end" fill="var(--teal)" style="font:9px var(--mono)" opacity="0.8">ring ${fring} · ${fbits} bits</text>`;
+  }
+  const bPts = rows.map((r, i) => `${xp(i).toFixed(1)},${ypB(Math.log2(Math.max(r.ring, 1))).toFixed(1)}`);
+  if (bPts.length > 1) h += `<polyline points="${bPts.join(' ')}" fill="none" stroke="var(--teal)" stroke-width="1.5" stroke-dasharray="5 3" stroke-linejoin="round" opacity="0.7"/>`;
+  const colW = (W2 - ll - rr) / Math.max(nM - 1, 1);
+  rows.forEach((r, i) => {
+    const rx = i === 0 ? ll : xp(i) - colW / 2;
+    const rend = i === nM - 1 ? W2 - rr : xp(i) + colW / 2;
+    h += `<rect x="${rx.toFixed(1)}" y="${tt}" width="${(rend - rx).toFixed(1)}" height="${H2 - tt - bb2}" fill="transparent" data-i="${i}"/>`;
+  });
+  h += `<text x="${ll - 52}" y="${tt - 8}" fill="#566d71" style="font:10px var(--mono)">$/month</text>`;
+  h += `<text x="${W2 - rr + 6}" y="${tt - 8}" text-anchor="start" fill="var(--teal)" style="font:10px var(--mono)">bits</text></svg><div class="tip"></div>`;
+  const el2 = $('fc-chart');
+  el2.innerHTML = h;
+  const tip = el2.querySelector('.tip');
+  const dominant = parts => {
+    if (!parts) return null;
+    const entries = Object.entries(parts).filter(([, v]) => v > 0);
+    if (!entries.length) return null;
+    const [dk, dv] = entries.reduce((a, b) => b[1] > a[1] ? b : a);
+    const tot = entries.reduce((s, [, v]) => s + v, 0);
+    return tot > 0 ? `${dk} ${Math.round(100 * dv / tot)}%` : null;
+  };
+  el2.querySelectorAll('rect[data-i]').forEach(rc => {
+    rc.onmousemove = ev => {
+      const i = +rc.dataset.i, r = rows[i], bb3 = el2.getBoundingClientRect();
+      const lines = STRATS.map(s => {
+        const sd = r[s];
+        const v = sd && sd.month;
+        const pm = sd && sd.per_miner ? ` · m ${usd(sd.per_miner)}` : '';
+        const pv = sd && sd.per_validator ? ` · v ${usd(sd.per_validator)}` : '';
+        const dom = dominant(sd && sd.parts);
+        const domTxt = dom ? ` <span style="color:var(--mute)">${dom}</span>` : '';
+        return `<span style="color:${FC_COLORS[s]||'#8aa3a6'}">${esc((cd.labels||{})[s]||s)}</span> ${usd(v)}${pm}${pv}${domTxt}`;
+      }).join('<br>');
+      const rbits = Math.log2(Math.max(r.ring, 1));
+      const rbitCol = rbits >= 3 ? 'var(--teal2)' : rbits >= 1 ? 'var(--amber)' : 'var(--red)';
+      tip.innerHTML = `<div style="color:var(--dim);margin-bottom:3px;font-weight:700">mo ${r.month} · M=${r.miners} V=${r.validators} · ring ${r.ring} · <span style="color:${rbitCol}">${rbits.toFixed(1)} bits</span></div>${lines}`;
+      tip.style.left = Math.max(0, Math.min(ev.clientX - bb3.left + 12, bb3.width - 220)) + 'px';
+      tip.style.top = (ev.clientY - bb3.top - 34) + 'px'; tip.style.opacity = 1;
+    };
+    rc.onmouseleave = () => { tip.style.opacity = 0; };
+  });
+  const priv = cd.privacy || {}, labels = cd.labels || {}, savings = cd.savings || {};
+  const last = rows[rows.length - 1];
+  const lockSvg = `<svg viewBox="0 0 10 12" width="10" height="12"><rect x="1.5" y="5.5" width="7" height="6" rx="1.5" fill="currentColor"/><path d="M3 5.5V3.8a2 2 0 014 0v1.7" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>`;
+  const linkSvg = `<svg viewBox="0 0 12 12" width="12" height="12" fill="none"><path d="M5 7a2.5 2.5 0 003.5.3l1.3-1.3a2.5 2.5 0 00-3.5-3.5l-.7.7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M7 5a2.5 2.5 0 00-3.5-.3L2.2 5.8A2.5 2.5 0 005.7 9.3l.7-.7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`;
+  const _secRisk = (cap, sta) => {
+    const pct2 = v => (100 * v).toFixed(1) + '%';
+    const mag = Math.max(cap, sta);
+    const color = mag < 0.01 ? '#00ec97' : mag < 0.10 ? '#f59e0b' : '#ef4444';
+    return `<span style="color:${color};font-variant-numeric:tabular-nums">cap ${pct2(cap)} · starve ${pct2(sta)}</span>`;
+  };
+  let lt = `<table class="cmp"><tr><th></th><th>strategy</th><th>privacy</th><th>$/month at m=${last && last.miners} v=${last && last.validators}</th><th>vs baseline</th><th>security risk</th></tr>`;
+  for (const s of STRATS) {
+    const p = priv[s] || {}, col = FC_COLORS[s] || '#566d71', kept = p.kept;
+    const v = last && last[s] && last[s].month, sv = savings[s];
+    const privHtml = `<span style="color:${kept ? '#00ec97' : '#f59e0b'};display:inline-flex;align-items:center;gap:4px">${kept ? lockSvg : linkSvg} ${kept ? 'private' : 'links actions'}</span>`;
+    const svgTxt = sv && s !== 'baseline' ? (sv >= 1.5 ? `${sv.toFixed(1)}× cheaper` : pct(1 - 1 / sv) + ' cheaper') : '—';
+    const riskHtml = (s === 'committee' || s === 'private') && cd.capture != null && cd.starve != null
+      ? _secRisk(cd.capture, cd.starve)
+      : `<span style="color:var(--mute)">—</span>`;
+    lt += `<tr data-s="${s}" style="cursor:pointer"><td><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${col}"></span></td><td title="${esc(p.note||'')}">${esc(labels[s]||s)}</td><td>${privHtml}</td><td><b>${usd(v)}</b></td><td style="color:var(--dim)">${svgTxt}</td><td>${riskHtml}</td></tr>`;
+  }
+  lt += '</table>';
+  $('fc-legend').innerHTML = lt;
+  const _rEl = $('fc-risk');
+  if (_rEl && rows.length > 0 && rows[0].capture != null) {
+    const _Hr = 240, _bR = 36;
+    const _xr = i => ll + i * (W2 - ll - rr) / (nM - 1);
+    const _yr = v => tt + (_Hr - tt - _bR) * (1 - v);
+    const _commitSz = cd.committee || 32;
+    const _sortIdx = rows.findIndex(r => r.validators > _commitSz);
+    const _coali = Math.round(parseFloat(FSET.fcoalition) * 100);
+    let _rh = `<svg viewBox="0 0 ${W2} ${_Hr}" role="img" aria-label="committee risk over time">`;
+    for (const _p of [0, 0.25, 0.5, 0.75, 1]) {
+      _rh += `<line x1="${ll}" x2="${W2 - rr}" y1="${_yr(_p).toFixed(1)}" y2="${_yr(_p).toFixed(1)}" stroke="#152126"/>`;
+      _rh += `<text x="${ll - 6}" y="${(_yr(_p) + 4).toFixed(1)}" text-anchor="end" fill="#566d71" style="font:11px var(--mono)">${Math.round(_p * 100)}%</text>`;
+    }
+    for (let _i = 0; _i < nM; _i++) {
+      if (nM <= 13 || _i % Math.ceil(nM / 12) === 0)
+        _rh += `<text x="${_xr(_i).toFixed(1)}" y="${_Hr - _bR + 18}" text-anchor="middle" fill="#8aa3a6" style="font:10px var(--mono)">mo ${rows[_i].month}</text>`;
+    }
+    if (_sortIdx > 0) {
+      const _sx = _xr(_sortIdx).toFixed(1);
+      _rh += `<line x1="${_sx}" x2="${_sx}" y1="${tt}" y2="${_Hr - _bR}" stroke="var(--teal)" stroke-opacity="0.6" stroke-width="1.5" stroke-dasharray="4 3"/>`;
+      _rh += `<text transform="translate(${(_xr(_sortIdx) - 4).toFixed(1)},${(tt + 4).toFixed(1)}) rotate(-90)" text-anchor="end" fill="var(--teal)" style="font:9px var(--mono)" opacity="0.8">sortition active</text>`;
+    }
+    const _capPts = rows.map((r, _i) => r.capture != null ? `${_xr(_i).toFixed(1)},${_yr(r.capture).toFixed(1)}` : null).filter(Boolean);
+    if (_capPts.length > 1) _rh += `<polyline points="${_capPts.join(' ')}" fill="none" stroke="var(--nr)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>`;
+    const _staPts = rows.map((r, _i) => r.starve != null ? `${_xr(_i).toFixed(1)},${_yr(r.starve).toFixed(1)}` : null).filter(Boolean);
+    if (_staPts.length > 1) _rh += `<polyline points="${_staPts.join(' ')}" fill="none" stroke="var(--amber)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>`;
+    _rh += `<text x="${ll + 8}" y="${tt + 14}" fill="var(--nr)" style="font:10px var(--mono)">&#9646; capture</text>`;
+    _rh += `<text x="${ll + 72}" y="${tt + 14}" fill="var(--amber)" style="font:10px var(--mono)">&#9646; starve</text>`;
+    _rh += `<text x="${ll - 52}" y="${tt - 8}" fill="#566d71" style="font:10px var(--mono)">risk %</text>`;
+    _rh += '</svg>';
+    _rEl.innerHTML = `<div class="card" style="margin-top:14px"><h3>COMMITTEE RISK OVER TIME · COALITION ${_coali}%</h3>${_rh}</div>`;
+  }
+  document.querySelectorAll('#fc-legend tr[data-s]').forEach(row => {
+    row.onclick = () => _focusFc(row.dataset.s, STRATS);
+  });
+}
+
+/* ---------------- budget : can an M x V subnet run for under $X a week ---------------- */
+const BOPT = {
+  bgtarget: [[0.1, '$0.10'], [0.5, '$0.50'], [1, '$1'], [5, '$5'], [10, '$10'], [50, '$50'], [100, '$100'], [1000, '$1,000']],
+  bgminers: [[16, '16'], [64, '64'], [256, '256'], [1024, '1,024'], [4096, '4,096'], [16384, '16,384']],
+  bgvals:   [[8, '8'], [16, '16'], [32, '32'], [64, '64'], [256, '256'], [1024, '1,024']],
+  bgav:     [[4, '4'], [6, '6'], [8, '8'], [12, '12'], [16, '16']],
+  bgat:     [[1, '1'], [2, '2'], [4, '4'], [6, '6'], [8, '8']],
+  bgad:     [[0, 'none'], [1, '1'], [2, '2'], [3, '3']],
+};
+const BDEF = {bgtarget: 1, bgminers: 256, bgvals: 64, bgav: 8, bgat: 4, bgad: 0};
+const BSET = Object.assign({}, BDEF, JSON.parse(localStorage.getItem('ztao.budget') || '{}'));
+for (const id in BOPT) {
+  $(id).innerHTML = BOPT[id].map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
+  $(id).value = BOPT[id].some(([v]) => String(v) === String(BSET[id])) ? BSET[id] : BDEF[id];
+  $(id).onchange = () => {
+    BSET[id] = $(id).value; localStorage.setItem('ztao.budget', JSON.stringify(BSET));
+    if (id === 'bgtarget' || id === 'bgminers' || id === 'bgvals') renderBudget(true);
+  };
+}
+const BG_COLORS = Object.assign({}, FC_COLORS, {secagg: '#38bdf8', aggregate: '#14b8a6', proved: '#c084fc'});
+const SND_WHY = {
+  chain: 'soundness from the chain: it verifies every signature itself',
+  challenge: 'soundness from a challenge window: cheap by default, anyone can force the chain to re-check it',
+  proof: 'soundness from a validity proof: one proof stands in for every signature',
+};
+const BG_SIZES = '64,256,1024,4096,10000,16384,65536';
+/* decade labels on a log axis: $0.01 … $100 plain, $1.0k and up abbreviated */
+const bg_ylab = v => '$' + (v >= 1000 ? fmtM(v) : String(+v.toPrecision(12)));
+const TICK_SVG = '<svg viewBox="0 0 12 12" width="12" height="12" fill="none"><path d="M2 6.4l3 3 5-6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const CROSS_SVG = '<svg viewBox="0 0 12 12" width="12" height="12" fill="none"><path d="M3 3l6 6M9 3l-6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
+let BGF = null, BGS = null, BGRULES = null, BRULE = 'yuma';
+let _bgFKey = '', _bgSKey = '', _bgSeq = 0, _bgAggBusy = false;
+const bgNum = v => v == null ? '-' : Number(v).toLocaleString();
+const bgTarget = () => parseFloat(BSET.bgtarget) || 1;
+const bgName = c => (CH[c] && CH[c].name) || c;
+const bgRowOf = (d, s) => ((d && d.rows) || []).find(r => r.strategy === s) || {};
+const bgChains = f => {
+  const ks = Object.keys((f && f.chains) || {});
+  return ORDER.filter(c => ks.includes(c)).concat(ks.filter(c => !ORDER.includes(c)));
+};
+
+async function renderBudget(force) {
+  const t = bgTarget(), M = parseInt(BSET.bgminers, 10), V = parseInt(BSET.bgvals, 10);
+  const fkey = `${t}|${M}|${V}`;
+  const seq = ++_bgSeq;
+  if (force || fkey !== _bgFKey || !BGF) {
+    _bgFKey = fkey; BGF = null;
+    $('bg-at').textContent = 'loading';
+    $('bg-verdict').innerHTML = '<div class="empty">pricing every chain</div>';
+    let f = null;
+    try { f = await get('feasible', `?target=${t}&miners=${M}&validators=${V}`); } catch { f = null; }
+    if (seq !== _bgSeq) return;
+    BGF = (f && !f.error && f.chains) ? f : null;
+    if (!BGF) _bgFKey = '';  // a load that failed must not be cached as an answer
+  }
+  bgVerdict();
+  bgMatrix();
+  bgRules();
+  bgScale(force);
+}
+
+function bgVerdict() {
+  const f = BGF;
+  if (!f) {
+    $('bg-at').textContent = 'no data';
+    $('bg-verdict').innerHTML = '<div class="empty">could not price a subnet this size</div>';
+    $('bg-note').textContent = ''; $('bg-caps').innerHTML = '';
+    return;
+  }
+  const t = f.target, names = bgChains(f), chains = f.chains;
+  $('bg-at').textContent = `${bgNum(f.miners)} miners \xd7 ${bgNum(f.validators)} validators under ${usd(t)} a week`;
+  if (!names.length) {
+    $('bg-verdict').innerHTML = '<div class="empty">no chain has mainnet pricing yet</div>';
+    $('bg-note').textContent = ''; $('bg-caps').innerHTML = '';
+    return;
+  }
+  let h = '';
+  for (const c of names) {
+    const d = chains[c] || {}, b = d.best, ok = !!(d.feasible && b);
+    const col = CHAIN_COLORS[c] || 'var(--ink)';
+    let det;
+    if (ok) {
+      const row = bgRowOf(d, b.strategy);
+      const hr = b.headroom == null ? null : (b.headroom >= 1 ? +b.headroom.toPrecision(3) : b.headroom.toFixed(2));
+      det = `<span class="big2">${usd(b.usd_week)}</span> a week &middot; ` +
+        `<b>${esc(b.strategy)}</b> on <b>${esc(String(b.hours))} h</b> epochs` +
+        `<div style="margin-top:3px">${esc(row.label || '')}</div>` +
+        `<div style="margin-top:3px">running ${usd(b.running)} + payouts ${usd(b.payout)} &middot; ` +
+        `${usd(b.epoch_usd)} an epoch` + (hr ? ` &middot; <b>${hr}\xd7 headroom</b>` : '') +
+        (row.soundness ? ` &middot; <span class="snd ${esc(row.soundness)}" title="${esc(SND_WHY[row.soundness] || '')}">${esc(row.soundness)}</span>` : '') +
+        `</div>`;
+    } else {
+      let best = null;
+      for (const r of d.rows || []) if (r.cheapest != null && (!best || r.cheapest < best.cheapest)) best = r;
+      const over = best ? best.cheapest / (t || 1) : 0;
+      det = best
+        ? `<span class="warn2">nothing fits.</span> The cheapest anything gets is <b>${usd(best.cheapest)}</b> a week ` +
+          `(<b>${esc(best.strategy)}</b> on ${esc(String(best.cheapest_hours))} h epochs), ` +
+          `<b>${over >= 100 ? bgNum(Math.round(over)) : over.toFixed(1)}\xd7</b> over the budget`
+        : `<span class="warn2">nothing fits at this size.</span>`;
+    }
+    const ub = new Set(d.unbounded || []);
+    const cap = k => ub.has(k)
+      ? '<span style="color:var(--teal2)">unbounded (cost does not depend on it)</span>'
+      : `<b>${d[k] != null && d[k] === d.search_ceiling ? '&ge; ' : ''}${bgNum(d[k])}</b>`;
+    const largest = ok
+      ? `<div style="margin-top:5px;color:var(--mute)">largest subnet that still fits ${usd(t)}: ` +
+        `${cap('max_miners')} miners / ${cap('max_validators')} validators</div>`
+      : '';
+    h += `<div class="vrow"><div><span class="chainbadge ${esc(c)}" style="color:${col}">${esc(bgName(c).toUpperCase())}</span>` +
+      `<div style="font:11px var(--mono);color:var(--mute);margin-top:4px">${esc(d.symbol || '')} ${usd(d.usd_price)}${d.stale ? ' stale' : ''}</div></div>` +
+      `<div class="vb ${ok ? 'pass' : 'fail'}">${ok ? 'PASS' : 'FAIL'}</div>` +
+      `<div class="vd">${det}${largest}</div></div>`;
+  }
+  $('bg-verdict').innerHTML = h;
+  const fo = f.feasible_on || [];
+  $('bg-note').innerHTML = fo.length
+    ? `A subnet of ${bgNum(f.miners)} miners and ${bgNum(f.validators)} validators runs for under ${usd(t)} a week on ` +
+      `<b>${fo.map(c => esc(bgName(c))).join(', ')}</b>` +
+      (f.cheapest ? ` &mdash; cheapest on <b>${esc(bgName(f.cheapest))}</b>.` : '.')
+    : `No chain can run ${bgNum(f.miners)} miners and ${bgNum(f.validators)} validators for under ${usd(t)} a week. Raise the budget or lengthen the epoch.`;
+  const caps = names.filter(c => (chains[c] || {}).proof_over_tx_cap).map(c => {
+    const d = chains[c];
+    const over = (d.rows || []).filter(r => r.over_tx_cap).map(r => r.strategy);
+    return `<p class="note"><b>${esc(bgName(c))}:</b> a validity proof needs about ${bgNum(Math.round(d.proof_load))} ${esc(d.capacity_unit || '')} ` +
+      `and one transaction may spend ${bgNum(Math.round(d.tx_cap))} &mdash; the proof does not fit in a single transaction, ` +
+      `which is why its proof-based rungs (${over.map(s => esc(s)).join(', ') || 'proof'}) cannot pass.</p>`;
+  }).join('');
+  $('bg-caps').innerHTML = caps;
+}
+
+function bgMatrix() {
+  const c = CHAIN, d = BGF && (BGF.chains || {})[c], el = $('bg-matrix');
+  if (!d || !(d.rows || []).length) {
+    $('bg-mx-at').textContent = 'no mainnet pricing';
+    el.innerHTML = `<div class="empty">no mainnet pricing for ${esc(bgName(c))} yet</div>`;
+    $('bg-mx-note').textContent = '';
+    return;
+  }
+  const t = BGF.target;
+  $('bg-mx-at').textContent = `${bgName(c)} \xb7 ring ${d.ring} \xb7 target ${usd(t)}/week`;
+  const hours = (d.hours && d.hours.length) ? d.hours : ((d.rows[0] || {}).cells || []).map(x => x.hours);
+  let h = `<table class="mx"><tr><th class="lab">strategy</th><th class="lab">sound</th><th class="lab">order</th>` +
+    hours.map(x => `<th>${esc(String(x))} h</th>`).join('') + `<th class="lab">cheapest</th></tr>`;
+  for (const r of d.rows) {
+    const by = {};
+    for (const x of r.cells || []) by[x.hours] = x;
+    const tip = `${r.trust || ''}${r.privacy && r.privacy.note ? ' — privacy: ' + r.privacy.note : ''}`;
+    h += `<tr><td class="lab" title="${esc(tip)}"><b>${esc(r.strategy)}</b>` +
+      (r.optimistic ? ' <span style="color:var(--amber)" title="optimistic: priced assuming nobody challenges">*</span>' : '') +
+      `<div style="color:var(--mute);font-size:10px;max-width:230px;white-space:normal">${esc(r.label || '')}</div></td>` +
+      `<td class="lab"><span class="snd ${esc(r.soundness || 'chain')}" title="${esc(SND_WHY[r.soundness] || '')}">${esc(r.soundness || '-')}</span>` +
+      (r.over_tx_cap ? '<div style="color:var(--red);font:700 9px var(--mono);letter-spacing:1px;margin-top:4px">OVER TX CAP</div>' : '') +
+      `</td><td class="lab" style="color:var(--dim)">${esc(r.order || '')}</td>`;
+    for (const x of hours) {
+      const cell = by[x];
+      if (!cell) { h += '<td>&ndash;</td>'; continue; }
+      const cls = cell.pass ? 'pass' : (cell.headroom >= 0.5 ? 'near' : '');
+      const ht = cell.headroom != null ? ` \xb7 ${cell.headroom >= 1 ? (+cell.headroom.toPrecision(3)) : cell.headroom.toPrecision(2)}x headroom` : '';
+      h += `<td class="${cls}" title="running ${usd(cell.running)} + payouts ${usd(cell.payout)} \xb7 ${usd(cell.epoch_usd)} an epoch \xb7 K=${cell.K}${ht}">${usd(cell.usd_week)}</td>`;
+    }
+    h += `<td class="lab" style="color:var(--dim)">${r.cheapest != null ? `${usd(r.cheapest)} @ ${esc(String(r.cheapest_hours))} h` : '-'}</td></tr>`;
+  }
+  h += '</table>';
+  el.innerHTML = h;
+  const pass = d.rows.filter(r => (r.passes || []).length).map(r => esc(r.strategy));
+  $('bg-mx-note').innerHTML = `Green cells come in under ${usd(t)} a week, amber ones get within half of it. ` +
+    (pass.length ? `On ${esc(bgName(c))} only <b>${pass.join(', ')}</b> ever land under the target.` : `On ${esc(bgName(c))} no rung lands under the target at this size.`) +
+    ` A <span style="color:var(--amber)">*</span> marks an optimistic price: it assumes nobody opens a challenge. Hover a row for what it trusts and what it leaks.`;
+}
+
+async function bgScale(force) {
+  const c = CHAIN, t = bgTarget(), skey = `${c}|${t}`, seq = _bgSeq;
+  if (force || skey !== _bgSKey || !BGS) {
+    _bgSKey = skey; BGS = null;
+    $('bg-sc-at').textContent = 'loading';
+    $('bg-sc-chart').innerHTML = '<div class="empty">pricing every set size</div>';
+    let s = null;
+    try { s = await get('scale', `?chain=${encodeURIComponent(c)}&sizes=${BG_SIZES}&ratio=4&target=${t}`); } catch { s = null; }
+    if (seq !== _bgSeq) return;
+    BGS = (s && !s.error && s.chains) ? s : null;
+    if (!BGS) _bgSKey = '';  // likewise: retry on the next activation
+  }
+  const d = BGS && (BGS.chains || {})[c];
+  if (!d || !(d.rows || []).length) {
+    $('bg-sc-at').textContent = 'no mainnet pricing';
+    $('bg-sc-chart').innerHTML = `<div class="empty">no mainnet pricing for ${esc(bgName(c))} yet</div>`;
+    $('bg-sc-legend').innerHTML = ''; $('bg-sc-table').innerHTML = '';
+    $('bg-growth').innerHTML = ''; $('bg-sc-note').textContent = '';
+    return;
+  }
+  const target = d.target != null ? d.target : t;
+  const rows = d.rows, STR = d.strategies || [];
+  $('bg-sc-at').textContent = `${bgName(c)} \xb7 ${d.symbol} ${usd(d.usd_price)}${d.stale ? ' \xb7 stale' : ''} \xb7 ${d.epoch_hours} h epochs \xb7 1 validator per ${d.ratio} miners`;
+  /* log-log chart: $/week against set size, one polyline per strategy */
+  const vals = rows.flatMap(r => STR.map(s => r[s] && r[s].usd_week)).filter(v => v != null && v > 0);
+  if (vals.length) {
+    const W3 = 680, H3 = 300, ll = 62, rr = 18, tt = 20, bb = 42;
+    const lo = Math.min(...vals, target), hi = Math.max(...vals, target);
+    const d0 = Math.floor(Math.log10(lo)), d1 = Math.ceil(Math.log10(hi));
+    const span = Math.max(d1 - d0, 1);
+    const yl = v => tt + (H3 - tt - bb) * (1 - (Math.log10(Math.max(v, Math.pow(10, d0))) - d0) / span);
+    const nx0 = Math.log2(rows[0].n), nx1 = Math.log2(rows[rows.length - 1].n);
+    const xl = n => ll + (Math.log2(n) - nx0) / Math.max(nx1 - nx0, 1e-9) * (W3 - ll - rr);
+    let g = `<svg viewBox="0 0 ${W3} ${H3}" role="img" aria-label="cost per week against subnet size, log-log">`;
+    for (let k = d0; k <= d1; k++) {
+      g += `<line x1="${ll}" x2="${W3 - rr}" y1="${yl(Math.pow(10, k)).toFixed(1)}" y2="${yl(Math.pow(10, k)).toFixed(1)}" stroke="#152126"/>`;
+      g += `<text x="${ll - 6}" y="${(yl(Math.pow(10, k)) + 4).toFixed(1)}" text-anchor="end" fill="#566d71" style="font:11px var(--mono)">${bg_ylab(Math.pow(10, k))}</text>`;
+    }
+    rows.forEach(r => {
+      g += `<text x="${xl(r.n).toFixed(1)}" y="${H3 - bb + 18}" text-anchor="middle" fill="#8aa3a6" style="font:10px var(--mono)">${fmtM(r.n)}</text>`;
+    });
+    g += `<line x1="${ll}" x2="${W3 - rr}" y1="${yl(target).toFixed(1)}" y2="${yl(target).toFixed(1)}" stroke="var(--teal2)" stroke-width="1.5" stroke-dasharray="5 3" opacity="0.9"/>`;
+    g += `<text x="${W3 - rr - 4}" y="${(yl(target) - 6).toFixed(1)}" text-anchor="end" fill="var(--teal2)" style="font:10px var(--mono)">target ${usd(target)} / week</text>`;
+    for (const s of STR) {
+      const col = BG_COLORS[s] || '#566d71';
+      const pts = rows.map(r => { const v = r[s] && r[s].usd_week; return v != null && v > 0 ? `${xl(r.n).toFixed(1)},${yl(v).toFixed(1)}` : null; }).filter(Boolean);
+      const wide = s === 'aggregate' || s === 'baseline';
+      if (pts.length > 1) g += `<polyline points="${pts.join(' ')}" fill="none" stroke="${col}" stroke-width="${wide ? 3 : 1.6}" stroke-linejoin="round" stroke-linecap="round" opacity="${wide ? 1 : 0.8}"/>`;
+      rows.forEach(r => { const v = r[s] && r[s].usd_week; if (v != null && v > 0) g += `<circle cx="${xl(r.n).toFixed(1)}" cy="${yl(v).toFixed(1)}" r="2.2" fill="${col}"/>`; });
+    }
+    const colW = (W3 - ll - rr) / Math.max(rows.length - 1, 1);
+    rows.forEach((r, i) => {
+      const rx = i === 0 ? ll : xl(r.n) - colW / 2;
+      const rend = i === rows.length - 1 ? W3 - rr : xl(r.n) + colW / 2;
+      g += `<rect x="${rx.toFixed(1)}" y="${tt}" width="${Math.max(0, rend - rx).toFixed(1)}" height="${H3 - tt - bb}" fill="transparent" data-i="${i}"/>`;
+    });
+    g += `<text x="${ll - 54}" y="${tt - 6}" fill="#566d71" style="font:10px var(--mono)">$/week</text>`;
+    g += `<text x="${(ll + (W3 - ll - rr) / 2).toFixed(1)}" y="${H3 - 6}" text-anchor="middle" fill="#566d71" style="font:10px var(--mono);letter-spacing:1.2px">MINERS IN THE SUBNET (LOG)</text>`;
+    g += '</svg><div class="tip"></div>';
+    const chEl = $('bg-sc-chart');
+    chEl.innerHTML = g;
+    const tip = chEl.querySelector('.tip');
+    chEl.querySelectorAll('rect[data-i]').forEach(rc => {
+      rc.onmousemove = ev => {
+        const r = rows[+rc.dataset.i], bb2 = chEl.getBoundingClientRect();
+        const lines = STR.map(s => {
+          const sd = r[s];
+          return `<span style="color:${BG_COLORS[s] || '#8aa3a6'}">${esc(s)}</span> ${usd(sd && sd.usd_week)}` +
+            (sd && sd.under_target ? ' <span style="color:var(--teal2)">under</span>' : '');
+        }).join('<br>');
+        tip.innerHTML = `<div style="color:var(--dim);margin-bottom:3px;font-weight:700">${bgNum(r.miners)} miners \xd7 ${bgNum(r.validators)} validators</div>${lines}`;
+        tip.style.left = Math.max(0, Math.min(ev.clientX - bb2.left + 12, bb2.width - 230)) + 'px';
+        tip.style.top = (ev.clientY - bb2.top - 34) + 'px';
+        tip.style.opacity = 1;
+      };
+      rc.onmouseleave = () => { tip.style.opacity = 0; };
+    });
+  } else {
+    $('bg-sc-chart').innerHTML = '<div class="empty">nothing priced at these sizes</div>';
+  }
+  $('bg-sc-legend').innerHTML = STR.map(s => {
+    const col = BG_COLORS[s] || '#566d71', gw = (d.growth || {})[s] || {};
+    return `<span style="display:inline-flex;align-items:center;gap:5px;margin-right:16px" title="${esc(gw.claimed_order || '')}">` +
+      `<span style="display:inline-block;width:18px;height:3px;background:${col};border-radius:2px"></span>` +
+      `<span style="color:var(--dim)">${esc(s)}</span>` +
+      `<span style="color:var(--mute);font-size:10px">${esc(gw.claimed_order || '')}</span></span>`;
+  }).join('');
+  /* the same numbers as a table */
+  let tb = `<table class="mx"><tr><th class="lab">set size</th>` + STR.map(s => `<th>${esc(s)}</th>`).join('') + '</tr>';
+  for (const r of rows) {
+    tb += `<tr><td class="lab"><b>${bgNum(r.miners)}</b> m <span style="color:var(--mute)">/ ${bgNum(r.validators)} v</span></td>` +
+      STR.map(s => {
+        const sd = r[s];
+        if (!sd) return '<td>&ndash;</td>';
+        return `<td class="${sd.under_target ? 'pass' : ''}" title="running ${usd(sd.running)} + payouts ${usd(sd.payout)} \xb7 ${usd(sd.epoch_usd)} an epoch \xb7 ${usd(sd.per_miner)} per miner">${usd(sd.usd_week)}</td>`;
+      }).join('') + '</tr>';
+  }
+  tb += '</table>';
+  $('bg-sc-table').innerHTML = tb;
+  /* claimed order against the measured slope */
+  const gr = d.growth || {};
+  let gt = '<h3 style="margin-bottom:10px">CLAIMED ORDER vs MEASURED SLOPE</h3><table class="cmp"><tr><th>strategy</th><th>claimed order</th>' +
+    '<th>measured slope</th><th>in band</th><th>largest subnet under target</th></tr>';
+  for (const s of STR) {
+    const g2 = gr[s];
+    if (!g2) continue;
+    const band = g2.slope_band || [];
+    const inb = g2.slope != null && band.length === 2 && g2.slope >= band[0] && g2.slope <= band[1];
+    const col = BG_COLORS[s] || '#566d71';
+    gt += `<tr><td><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${col};margin-right:6px"></span>` +
+      `<span title="${esc(g2.label || '')}">${esc(s)}</span>${g2.optimistic ? ' <span style="color:var(--amber)">*</span>' : ''}</td>` +
+      `<td><code>${esc(g2.claimed_order || '')}</code></td>` +
+      `<td><b>${g2.slope != null ? g2.slope.toFixed(2) : '-'}</b> <span style="color:var(--mute)">band ${band.length === 2 ? `${band[0]}–${band[1]}` : '-'}` +
+      (g2.fit_between ? ` \xb7 fit ${fmtM(g2.fit_between[0])}–${fmtM(g2.fit_between[1])}` : '') + '</span></td>' +
+      `<td><span style="color:${inb ? 'var(--teal2)' : 'var(--red)'}" title="${inb ? 'the measured slope matches the claimed order' : 'the measured slope falls outside the band the claimed order predicts'}">${inb ? TICK_SVG : CROSS_SVG}</span></td>` +
+      `<td>${g2.max_n_under_target ? `<b>${bgNum(g2.max_n_under_target)}</b> miners` : '<span style="color:var(--mute)">never</span>'}</td></tr>`;
+  }
+  gt += '</table>';
+  $('bg-growth').innerHTML = gt;
+  const base = gr.baseline || {}, agg = gr.aggregate || {};
+  $('bg-sc-note').innerHTML = (base.slope != null && agg.slope != null)
+    ? `A slope of 1 on this chart means the price doubles when the subnet doubles. <b>baseline</b> measures ` +
+      `<b>${base.slope.toFixed(2)}</b> &mdash; squared growth, ${usd((rows[rows.length - 1].baseline || {}).usd_week)} a week at ` +
+      `${bgNum(rows[rows.length - 1].miners)} miners &mdash; while <b>aggregate</b> measures <b>${agg.slope.toFixed(2)}</b>, ` +
+      `nearly flat, and stays under ${usd(target)} up to <b>${bgNum(agg.max_n_under_target)}</b> miners. ` +
+      `That is the whole argument: the chain stops paying per signature.`
+    : 'A slope of 1 means the price doubles when the subnet doubles.';
+}
+
+async function bgRules() {
+  if (BGRULES) return;
+  let r = null;
+  try { r = await get('rules'); } catch { r = null; }
+  if (!r || !r.rules) { $('bg-rules').innerHTML = '<span class="empty">could not load the rules</span>'; return; }
+  BGRULES = r;
+  if ((r.rules || []).some(x => x.rule === (r.default || 'yuma'))) BRULE = r.default || 'yuma';
+  $('bg-rule-note').innerHTML = `Consensus is a module, not a constant: the same masked round settles under any of these rules. ` +
+    `Scores are 0&ndash;${esc(String(r.max_score))}.` + (r.note ? ` <span style="color:var(--mute)"><code>${esc(r.note)}</code></span>` : '');
+  $('bg-ruletable').innerHTML = '<table class="cmp"><tr><th>rule</th><th>what it does</th><th>aggregate it needs</th></tr>' +
+    r.rules.map(x => `<tr><td>${esc(x.rule)}${x.rule === r.default ? ' <span class="pill">default</span>' : ''}</td>` +
+      `<td>${esc(x.note || '')}</td><td><code>${esc(x.aggregate || '')}</code></td></tr>`).join('') + '</table>';
+  bgRulePills();
+}
+function bgRulePills() {
+  if (!BGRULES) return;
+  $('bg-rules').innerHTML = BGRULES.rules.map(x =>
+    `<span class="rulepill${x.rule === BRULE ? ' on' : ''}" data-rule="${esc(x.rule)}" role="radio" tabindex="0" ` +
+    `aria-checked="${x.rule === BRULE}" title="${esc(x.note || '')}">${esc(x.rule.toUpperCase())} <span style="color:var(--mute)">${esc(x.aggregate || '')}</span></span>`).join('');
+  $('bg-rules').querySelectorAll('.rulepill').forEach(p => {
+    const pick = () => { BRULE = p.dataset.rule; bgRulePills(); };
+    p.onclick = pick;
+    p.onkeydown = ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); pick(); } };
+  });
+}
+
+$('bg-run').onclick = async () => {
+  if (_bgAggBusy) return;
+  const btn = $('bg-run');
+  const V = Math.min(16, parseInt(BSET.bgav, 10) || 8);
+  const T = Math.min(8, parseInt(BSET.bgat, 10) || 4);
+  const D = Math.max(0, Math.min(parseInt(BSET.bgad, 10) || 0, V - 1));
+  _bgAggBusy = true; btn.disabled = true; btn.classList.add('running');
+  $('bg-agg-state').textContent = 'running…';
+  $('bg-agg').innerHTML = `<div class="empty">${V} validators masking ${T} tags, summing, unmasking…</div>`;
+  let a = null;
+  try { a = await get('aggregate', `?validators=${V}&tags=${T}&rule=${encodeURIComponent(BRULE)}&drop=${D}`); } catch { a = null; }
+  _bgAggBusy = false; btn.disabled = false; btn.classList.remove('running');
+  if (!a || a.error || !a.hists) {
+    $('bg-agg-state').textContent = 'error';
+    $('bg-agg').innerHTML = `<div class="empty">${esc((a && a.error) || 'the round did not come back')}</div>`;
+    return;
+  }
+  $('bg-agg-state').textContent = `${a.rule} \xb7 ${a.reported}/${a.validators}`;
+  bgAggRender(a);
+};
+
+function bgAggRender(a) {
+  const ok = !!(a.exact && a.matches_plain);
+  const st = a.settled || {}, tags = st.tags || {};
+  const refs = a.reference_scores || {}, hists = a.hists || {}, rhists = a.reference_hists || {};
+  const nz = h => (h || []).map((cnt, s) => [s, cnt]).filter(([, cnt]) => cnt > 0);
+  let h = `<div class="vrow" style="grid-template-columns:76px 1fr"><div class="vb ${ok ? 'pass' : 'fail'}">${ok ? 'PASS' : 'FAIL'}</div>` +
+    `<div class="vd">${ok
+      ? 'The aggregate equals the histogram of the scores in the clear, and no single score was revealed.'
+      : `The recovered aggregate does not match the scores in the clear (exact ${a.exact}, matches_plain ${a.matches_plain}).`}` +
+    `<div style="margin-top:4px;color:var(--mute)">rule <b>${esc(a.rule)}</b> \xb7 ${a.reported} of ${a.validators} validators reported` +
+    (a.dropped ? ` \xb7 <span class="warn2">${a.dropped} went silent, recovered from the survivors' pads</span>` : ' \xb7 nobody went silent') +
+    ` \xb7 modulus 2^${Math.round(Math.log2(a.modulus || 1))}</div></div></div>`;
+  h += '<table style="margin-top:12px"><tr><th>tag</th><th>scores in the clear</th><th>recovered histogram</th><th>C</th><th>R</th><th>share</th><th>same</th></tr>';
+  for (const tag of Object.keys(hists)) {
+    const d = tags[tag] || {}, scores = refs[tag] || [];
+    const same = JSON.stringify(hists[tag]) === JSON.stringify(rhists[tag] || hists[tag]);
+    const buckets = nz(hists[tag]).map(([s, cnt]) => `<span class="hbk"><b>${s}</b>${cnt > 1 ? ' \xd7' + cnt : ''}</span>`).join('');
+    h += `<tr><td class="tag">${esc(tag)}</td>` +
+      `<td style="vertical-align:middle;padding:2px 4px">${scoreSpark(scores, d.consensus != null ? d.consensus : 0)}` +
+      `<div style="color:var(--mute);font-size:10px;max-width:220px;white-space:normal;margin-top:4px">${esc(scores.join(' '))}</div></td>` +
+      `<td style="white-space:normal;max-width:260px">${buckets || '<span style="color:var(--mute)">empty</span>'}</td>` +
+      `<td><b>${d.consensus != null ? d.consensus : '-'}</b></td><td>${d.rank != null ? bgNum(d.rank) : '-'}</td>` +
+      `<td>${d.share != null ? `${bgNum(d.share)} <span style="color:var(--mute)">/ ${bgNum(st.emission)}</span>` : '-'}</td>` +
+      `<td style="color:${same ? 'var(--teal2)' : 'var(--red)'}">${same ? TICK_SVG : CROSS_SVG}</td></tr>`;
+  }
+  h += '</table>';
+  h += `<p class="note">Only the non-zero buckets are shown: each tag's histogram is ${(a.wire || {}).buckets || 101} buckets wide, ` +
+    `and the aggregate recovers all of them. <b>C</b> is the consensus the rule picks, <b>R</b> the rank it emits, ` +
+    `and share is out of ${bgNum(st.emission)} with ${bgNum(st.rank_total)} points emitted across ${Object.keys(tags).length} tags ` +
+    `(it needs ${bgNum(st.need)} of ${bgNum(st.validators)} validators).</p>`;
+  const w = a.wire || {};
+  h += `<div class="grid" style="grid-template-columns:1fr 1fr;margin-top:8px">` +
+    `<div class="card" style="background:var(--panel2)"><h3>WHAT WENT ON THE WIRE</h3><div class="kv">` +
+    `<span>buckets per tag</span><span>${bgNum(w.buckets)}</span>` +
+    `<span>values per validator</span><span>${bgNum(w.vector_values)}</span>` +
+    `<span>bytes per validator</span><span>${bgNum(w.vector_bytes)} B</span>` +
+    `<span>every masked vector</span><span>${bgNum(w.masked_total_bytes)} B</span>` +
+    `<span>the aggregate</span><span>${bgNum(w.aggregate_bytes)} B</span>` +
+    `<span>pair masks each holds</span><span>${bgNum(w.pairmasks_per_validator)}</span>` +
+    `</div><p class="note">Masked. Every <code>y_i</code> is a one-time pad; the pads cancel only in the sum.</p></div>` +
+    `<div class="card" style="background:var(--panel2)"><h3>WHAT THE CHAIN STORES</h3>` +
+    `<div class="big" style="color:var(--teal2)">${bgNum(w.onchain_values)}<small>values</small></div>` +
+    `<p class="note">One settled number per tag instead of ${bgNum(w.vector_values)} masked ones per validator. ` +
+    `The chain never sees a score, only the set's histogram.</p>` +
+    `<div class="kv" style="margin-top:10px"><span>leaked</span><span style="white-space:normal;color:var(--teal2)">${esc(a.leaked || '')}</span></div></div></div>`;
+  $('bg-agg').innerHTML = h;
+}
+
+/* ---------------- tests : only this chain ---------------- */
+async function renderTests() {
+  await testsP;
+  const c = CHAIN, x = (TESTS || {})[c];
+  const head = `<h3><span class="chainbadge ${c}">${CH[c].name.toUpperCase()}</span> ${CH[c].runner.toUpperCase()}<span class="sp"></span>`;
+  if (!x) { $('tlist').innerHTML = `${head}</h3><div class="empty">not run yet: <code>m ztao/test chain=${c}</code></div>`; return; }
+  const tot = x.passed + (x.failed || 0), f = tot ? x.passed / tot : 0, R = 30, L2 = 2 * Math.PI * R;
+  $('tlist').innerHTML = `${head}<span class="pill ${x.ok ? 'open' : ''}">${x.passed} passed${x.failed ? ` · ${x.failed} failed` : ''}</span></h3>
+    <div class="tsum"><svg class="ring" viewBox="0 0 74 74"><circle cx="37" cy="37" r="${R}" fill="none" stroke="#152126" stroke-width="7"/>
+      <circle cx="37" cy="37" r="${R}" fill="none" stroke="${x.failed ? 'var(--red)' : 'var(--acc)'}" stroke-width="7" stroke-linecap="round"
+        stroke-dasharray="${L2 * f} ${L2}" transform="rotate(-90 37 37)"/>
+      <text x="37" y="42" text-anchor="middle" fill="#e6f2f1" style="font:700 15px var(--mono)">${x.passed}/${tot}</text></svg>
+      <div><div style="font:600 14px var(--sans)">${x.ok ? 'Every test passes' : 'Some tests fail'} on the ${esc(CH[c].lang)}</div>
+      <div style="color:var(--mute);font:12px var(--mono);margin-top:4px">${esc(CH[c].runner)} · ran ${ago(Date.now() / 1000 - x.at)} · rerun: <code>m ztao/test chain=${c}</code></div></div></div>
+    <div class="tgrid">${x.tests.map(([st, n]) => `<div class="trow"><span class="${st === 'PASS' ? 'ok2' : 'bad2'}">${st}</span><span>${esc(n.replace(/^test_/, '').replace(/_/g, ' '))}</span></div>`).join('')}</div>`;
+}
+
+function _renderFcAllChart(strat) {
+  const fc2 = _fc2AllChains;
+  const felF = $('allforecast');
+  if (!fc2) { felF.innerHTML = ''; return; }
+  const chainsF = Object.entries((fc2.chains) || {})
+    .filter(([, cd]) => Array.isArray(cd.rows) && cd.rows.some(r => r[strat] && r[strat].month != null));
+  if (!chainsF.length) { felF.innerHTML = ''; return; }
+  const anyLabels = (chainsF[0][1].labels) || {};
+  const stratLabel = anyLabels[strat] || strat.toUpperCase();
+  const selOpts = Object.keys(FC_COLORS).map(s => {
+    const lbl = anyLabels[s] || s.toUpperCase();
+    return `<option value="${s}"${s === strat ? ' selected' : ''}>${lbl}</option>`;
+  }).join('');
+  const selHtml = `<select id="allfc-strat" style="margin-left:10px;background:var(--panel2);color:var(--dim);border:1px solid var(--border);padding:2px 6px;font:11px var(--mono);border-radius:3px">${selOpts}</select>`;
+  const FCW = 560, FCH = 240, fcl = 64, fcr = 16, fct = 22, fcb = 38;
+  const allFVals = chainsF.flatMap(([, cd]) => cd.rows.map(r => r[strat] && r[strat].month).filter(v => v != null && v > 0));
+  const maxFV = Math.max(...allFVals) * 1.12 || 1;
+  const rawF = maxFV / 4, pF = Math.pow(10, Math.floor(Math.log10(rawF)));
+  const stepF = [1, 2, 2.5, 5, 10].map(k => k * pF).find(k => k >= rawF) || rawF;
+  const allRows0 = chainsF[0][1].rows;
+  const nMF = allRows0.length;
+  const xpF = i => fcl + i * (FCW - fcl - fcr) / Math.max(nMF - 1, 1);
+  const ypF = v => fct + (FCH - fct - fcb) * (1 - v / maxFV);
+  let fh = `<svg viewBox="0 0 ${FCW} ${FCH}" role="img" aria-label="${esc(stratLabel)} monthly cost forecast all chains">`;
+  for (let v = 0; v <= maxFV * 1.01; v += stepF) {
+    fh += `<line x1="${fcl}" x2="${FCW - fcr}" y1="${ypF(v)}" y2="${ypF(v)}" stroke="#152126"/>`;
+    fh += `<text x="${fcl - 6}" y="${ypF(v) + 4}" text-anchor="end" fill="#566d71" style="font:11px var(--mono)">${fc_ylab(v)}</text>`;
+  }
+  for (let i = 0; i < nMF; i++) {
+    if (nMF <= 13 || i % Math.ceil(nMF / 12) === 0)
+      fh += `<text x="${xpF(i).toFixed(1)}" y="${FCH - fcb + 18}" text-anchor="middle" fill="#8aa3a6" style="font:10px var(--mono)">mo ${allRows0[i].month}</text>`;
+  }
+  for (const [ch, cd] of chainsF) {
+    const col = CHAIN_COLORS[ch] || '#566d71';
+    const pts = cd.rows.map((r, i) => { const v = r[strat] && r[strat].month; return v != null ? `${xpF(i).toFixed(1)},${ypF(v).toFixed(1)}` : null; }).filter(Boolean);
+    if (pts.length > 1) fh += `<polyline points="${pts.join(' ')}" fill="none" stroke="${col}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>`;
+    cd.rows.forEach((r, i) => { const v = r[strat] && r[strat].month; if (v != null) fh += `<circle cx="${xpF(i).toFixed(1)}" cy="${ypF(v).toFixed(1)}" r="2.2" fill="${col}"/>`; });
+  }
+  const colWF = (FCW - fcl - fcr) / Math.max(nMF - 1, 1);
+  chainsF[0][1].rows.forEach((r, i) => {
+    const rx = i === 0 ? fcl : xpF(i) - colWF / 2;
+    const rend = i === nMF - 1 ? FCW - fcr : xpF(i) + colWF / 2;
+    fh += `<rect x="${rx.toFixed(1)}" y="${fct}" width="${(rend - rx).toFixed(1)}" height="${FCH - fct - fcb}" fill="transparent" data-fi="${i}"/>`;
+  });
+  fh += `<text x="${fcl - 52}" y="${fct - 8}" fill="#566d71" style="font:10px var(--mono)">$/month</text></svg><div class="tip"></div>`;
+  const legF = chainsF.map(([ch]) => {
+    const col = CHAIN_COLORS[ch] || '#566d71';
+    return `<span style="display:inline-flex;align-items:center;gap:5px;margin-right:16px"><span style="display:inline-block;width:18px;height:3px;background:${col};border-radius:2px"></span><span style="color:var(--dim)">${esc(CH[ch].name)}</span></span>`;
+  }).join('');
+  const stratCol = FC_COLORS[strat] || 'var(--dim)';
+  felF.innerHTML = `<h3 style="display:flex;align-items:center"><span style="color:${stratCol}">${esc(stratLabel)}</span>&nbsp;MONTHLY COST · AS SUBNET GROWS${selHtml}</h3><div style="overflow-x:auto">${fh}</div><div style="display:flex;flex-wrap:wrap;margin-top:10px;font:12px var(--mono)">${legF}</div>`;
+  const selEl = felF.querySelector('#allfc-strat');
+  if (selEl) selEl.onchange = () => { _fcAllStrat = selEl.value; _renderFcAllChart(_fcAllStrat); };
+  const tipF = felF.querySelector('.tip');
+  felF.querySelectorAll('rect[data-fi]').forEach(rc => {
+    rc.onmousemove = ev => {
+      const i = +rc.dataset.fi, bb4 = felF.getBoundingClientRect();
+      const anyRow = chainsF[0][1].rows[i];
+      const lines = chainsF.map(([ch, cd]) => {
+        const v = cd.rows[i] && cd.rows[i][strat] && cd.rows[i][strat].month;
+        const col = CHAIN_COLORS[ch] || '#566d71';
+        return `<span style="color:${col}">${esc(CH[ch].name)}</span> ${usd(v)}`;
+      }).join('<br>');
+      tipF.innerHTML = `<div style="color:var(--dim);margin-bottom:3px;font-weight:700">mo ${anyRow.month} · M=${anyRow.miners} V=${anyRow.validators}</div>${lines}`;
+      tipF.style.left = Math.max(0, Math.min(ev.clientX - bb4.left + 12, bb4.width - 220)) + 'px';
+      tipF.style.top = (ev.clientY - bb4.top - 34) + 'px'; tipF.style.opacity = 1;
+    };
+    rc.onmouseleave = () => { tipF.style.opacity = 0; };
+  });
+}
+
+/* ---------------- all chains : the one cross-chain view ---------------- */
+async function renderAll() {
+  await Promise.all([cmpP, testsP, econP]);
+  $('allcards').innerHTML = ORDER.map(c => {
+    const v = verifyCost(c), x = (CMP || {})[c] || {};
+    return `<div class="acard" data-chain="${c}"><div class="top"><span class="gl">${GLYPH[c]}</span><b>${CH[c].name.toUpperCase()}</b></div>
+      <div class="kv"><span>verify ring 4</span><span>${v ? `${v[0]} ${v[1]}` : '-'}</span><span>max ring</span><span>${CH[c].cap}</span>
+      <span>mainnet / action</span><span>${econOf(c) ? usd(econOf(c).usd) : '-'}</span>
+      <span>full epoch</span><span>${x.seconds ? x.seconds + 's' : '-'}</span><span>tests</span><span>${testsOf(c)}</span>
+      <span>language</span><span>${esc(CH[c].lang)}</span></div></div>`;
+  }).join('');
+  document.querySelectorAll('.acard').forEach(a => a.onclick = () => { location.hash = 'live'; setChain(a.dataset.chain, true); });
+  /* ---- cost-by-ring-size chart ---- */
+  const chainsWithData = ORDER.filter(ch => {
+    const ce = ((ECON || {}).chains || {})[ch];
+    return ce && Array.isArray(ce.by_ring) && ce.by_ring.some(d => d.usd != null);
+  });
+  if (chainsWithData.length > 0) {
+    const CW = 560, CH2 = 240, cl = 64, cr = 16, ct = 22, cb = 38;
+    const allUSD = chainsWithData.flatMap(ch => ((ECON || {}).chains || {})[ch].by_ring.filter(d => d.usd != null).map(d => d.usd));
+    const maxUSD = Math.max(...allUSD) * 1.12 || 1;
+    const rawS = maxUSD / 4, pS = Math.pow(10, Math.floor(Math.log10(rawS)));
+    const stepS = [1, 2, 2.5, 5, 10].map(k => k * pS).find(k => k >= rawS) || rawS;
+    const allRingNums = chainsWithData.flatMap(ch => ((ECON || {}).chains || {})[ch].by_ring.filter(d => d.usd != null).map(d => d.ring));
+    const allMaxRings = chainsWithData.map(ch => ((ECON || {}).chains || {})[ch].max_ring || Math.max(...allRingNums));
+    const minRing = Math.min(...allRingNums, 2);
+    const globalMaxRing = Math.max(...allMaxRings, ...allRingNums, 4);
+    const xring = ring => cl + (ring - minRing) / Math.max(globalMaxRing - minRing, 1) * (CW - cl - cr);
+    const yusd = v => ct + (CH2 - ct - cb) * (1 - v / maxUSD);
+    let h = `<svg viewBox="0 0 ${CW} ${CH2}" role="img" aria-label="mainnet cost per action all chains">`;
+    for (let v = 0; v <= maxUSD * 1.01; v += stepS) {
+      h += `<line x1="${cl}" x2="${CW - cr}" y1="${yusd(v)}" y2="${yusd(v)}" stroke="#152126"/>`;
+      h += `<text x="${cl - 6}" y="${yusd(v) + 4}" text-anchor="end" fill="#566d71" style="font:11px var(--mono)">${usd(v)}</text>`;
+    }
+    const ringTicks = [];
+    for (let rt = 2; rt <= globalMaxRing; rt *= 2) ringTicks.push(rt);
+    if (!ringTicks.includes(globalMaxRing)) ringTicks.push(globalMaxRing);
+    ringTicks.forEach(rt => {
+      h += `<text x="${xring(rt).toFixed(1)}" y="${CH2 - cb + 18}" text-anchor="middle" fill="#8aa3a6" style="font:10px var(--mono)">${rt}</text>`;
+    });
+    for (const ch of chainsWithData) {
+      const ce = ((ECON || {}).chains || {})[ch], col = CHAIN_COLORS[ch] || '#566d71';
+      const sorted = ce.by_ring.filter(d => d.usd != null).slice().sort((a, b2) => a.ring - b2.ring);
+      const pts = sorted.map(d => `${xring(d.ring).toFixed(1)},${yusd(d.usd).toFixed(1)}`);
+      if (pts.length > 1) h += `<polyline points="${pts.join(' ')}" fill="none" stroke="${col}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>`;
+      else if (pts.length === 1) { const [px, py] = pts[0].split(','); h += `<circle cx="${px}" cy="${py}" r="3" fill="${col}" opacity="0.9"/>`; }
+      if (ce.max_ring) h += `<line x1="${xring(ce.max_ring).toFixed(1)}" x2="${xring(ce.max_ring).toFixed(1)}" y1="${ct}" y2="${CH2 - cb}" stroke="${col}" stroke-dasharray="4 3" stroke-width="1" opacity="0.5"/>`;
+    }
+    h += `<text x="${cl - 52}" y="${ct - 8}" fill="#566d71" style="font:10px var(--mono)">$/action</text>`;
+    h += `<text x="${cl + (CW - cl - cr) / 2}" y="${CH2 - 6}" text-anchor="middle" fill="#566d71" style="font:10px var(--mono);letter-spacing:1.2px">RING SIZE (MEMBERS)</text>`;
+    h += '</svg>';
+    const leg = chainsWithData.map(ch => {
+      const ce = ((ECON || {}).chains || {})[ch], col = CHAIN_COLORS[ch] || '#566d71';
+      return `<span style="display:inline-flex;align-items:center;gap:5px;margin-right:16px"><span style="display:inline-block;width:18px;height:3px;background:${col};border-radius:2px"></span><span style="color:var(--dim)">${esc(CH[ch].name)}</span><span style="color:var(--mute);font-size:10px">max ring ${ce.max_ring}</span></span>`;
+    }).join('');
+    $('allchart').innerHTML = `<h3>MAINNET COST PER ACTION · ALL CHAINS</h3><div style="overflow-x:auto">${h}</div><div style="display:flex;flex-wrap:wrap;margin-top:10px;font:12px var(--mono)">${leg}</div>`;
+  } else {
+    $('allchart').innerHTML = '';
+  }
+  /* ---- growth forecast chart (strategy-switchable, all chains) ---- */
+  try {
+    const fc2 = await get('forecast', '?miners=16,256&validators=4,64&months=12&epoch_hours=1');
+    _fc2AllChains = fc2;
+    _renderFcAllChart(_fcAllStrat);
+  } catch { $('allforecast').innerHTML = ''; }
+  const key = {contract: ['contract', 'program']};
+  const rowsK = ['contract', 'curve math', 'Poseidon', 'subnet felt', 'recipient', 'max ring', 'hash to point', 'tests', 'local chain'];
+  const val = (c, k) => { const ks = key[k] || [k]; const r = CH[c].how.find(([kk]) => ks.includes(kk)); return r ? r[1] : '-'; };
+  $('alltable').innerHTML = `<table class="cmp"><tr><th></th>${ORDER.map(c => `<th><span class="chainbadge ${c}">${CH[c].name.toUpperCase()}</span></th>`).join('')}</tr>
+    <tr class="same"><td>scheme</td><td colspan="4">LSAG over the STARK curve, Poseidon challenges, key image I = x · Hp(scope). One Cairo signer for every chain</td></tr>
+    ${rowsK.map(k => `<tr><td>${k}</td>${ORDER.map(c => `<td>${val(c, k)}</td>`).join('')}</tr>`).join('')}
+    <tr><td>verify cost, ring 4</td>${ORDER.map(c => { const v = verifyCost(c); return `<td>${v ? `<b>${v[0]}</b> ${v[1]}` : '-'}</td>`; }).join('')}</tr>
+    <tr><td>mainnet USD / action</td>${ORDER.map(c => `<td>${econOf(c) ? `<b>${usd(econOf(c).usd)}</b>` : '-'}</td>`).join('')}</tr>
+    <tr><td>1 h epoch</td>${ORDER.map(c => { const e = ((ECON || {}).chains || {})[c]; return `<td>${e ? `${e.min_tempo.toLocaleString()} blocks` : '-'}</td>`; }).join('')}</tr></table>`;
+}
+
+/* ---------------- paper ---------------- */
+function inline(t) {
+  return esc(t).replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>').replace(/\*([^*]+)\*/g, '<em>$1</em>');
+}
+function md(src) {
+  const lines = src.split('\n'); let h = '', i = 0;
+  while (i < lines.length) {
+    const ln = lines[i];
+    if (ln.startsWith('```')) { const buf = []; i++; while (i < lines.length && !lines[i].startsWith('```')) buf.push(lines[i++]); i++; h += `<pre><code>${esc(buf.join('\n'))}</code></pre>`; continue; }
+    const hm = ln.match(/^(#{1,3}) (.*)/); if (hm) { h += `<h${hm[1].length}>${inline(hm[2])}</h${hm[1].length}>`; i++; continue; }
+    if (ln.startsWith('|')) { const rows = []; while (i < lines.length && lines[i].startsWith('|')) rows.push(lines[i++]);
+      const cells = r => r.split('|').slice(1, -1).map(c => c.trim());
+      h += '<table class="cmp"><tr>' + cells(rows[0]).map(c => `<th>${inline(c)}</th>`).join('') + '</tr>' +
+        rows.slice(2).map(r => '<tr>' + cells(r).map(c => `<td>${inline(c)}</td>`).join('') + '</tr>').join('') + '</table>'; continue; }
+    if (/^(- |\d+\. )/.test(ln)) { const ol = /^\d/.test(ln), items = [];
+      while (i < lines.length && (/^(- |\d+\. )/.test(lines[i]) || (/^ {2,}\S/.test(lines[i]) && items.length))) {
+        if (/^ {2,}\S/.test(lines[i])) items[items.length - 1] += ' ' + lines[i].trim(); else items.push(lines[i].replace(/^(- |\d+\. )/, '')); i++; }
+      h += `<${ol ? 'ol' : 'ul'}>${items.map(x => `<li>${inline(x)}</li>`).join('')}</${ol ? 'ol' : 'ul'}>`; continue; }
+    if (ln.startsWith(':::')) { const cap = ln.match(/\|(.+)$/); h += cap ? `<p class="note"><em>${inline(cap[1].trim())}</em></p>` : ''; i++; continue; }
+    if (!ln.trim()) { i++; continue; }
+    const buf = []; while (i < lines.length && lines[i].trim() && !/^(#|```|\||- |\d+\. |:::)/.test(lines[i])) buf.push(lines[i++]);
+    h += `<p>${inline(buf.join(' '))}</p>`;
+  }
+  return h;
+}
+let paperKind = 'technical';
+function setPaperKind(kind) {
+  paperKind = kind;
+  $('btn-technical').className = 'pill' + (kind === 'technical' ? ' open' : '');
+  $('btn-simple').className = 'pill' + (kind === 'simple' ? ' open' : '');
+  loadPaper();
+}
+async function loadPaper() {
+  const t = await get('whitepaper', `?kind=${paperKind}`);
+  $('paper').innerHTML = t ? md(t) : '<div class="empty">no WHITEPAPER.md</div>';
+}
+/* ---------------- yuma sandbox ---------------- */
+function provisionalC(scores, totalV) {
+  if (!scores || !scores.length) return 0;
+  const need = Math.ceil(Math.max(scores.length, totalV) / 2);
+  const h = new Array(101).fill(0);
+  scores.forEach(s => { if (s >= 0 && s <= 100) h[Math.round(s)]++; });
+  let above = 0;
+  for (let s = 100; s >= 0; s--) { above += h[s]; if (above >= need) return s; }
+  return 0;
+}
+function scoreSpark(rawScores, consensus) {
+  if (!rawScores.length) return '';
+  const W = 180, H = 32, pad = 2;
+  const bw = Math.max(2, Math.floor((W - pad) / rawScores.length) - 1);
+  const clipY = H - Math.round((consensus / 100) * H);
+  let bars = '';
+  rawScores.forEach((s, i) => {
+    const bh = Math.max(1, Math.round((s / 100) * H));
+    const x = pad + i * (bw + 1);
+    const y = H - bh;
+    const fill = s > consensus ? 'var(--amber)' : 'var(--teal)';
+    bars += `<rect x="${x}" y="${y}" width="${bw}" height="${bh}" fill="${fill}" rx="1"/>`;
+  });
+  const clipLine = `<line x1="0" x2="${W}" y1="${clipY}" y2="${clipY}" stroke="var(--teal2)" stroke-width="1" stroke-dasharray="3 2" opacity="0.8"/>`;
+  return `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" style="display:block;overflow:visible">${bars}${clipLine}</svg>`;
+}
+let yumaTimer = null;
+function yumaPopulate(sim) {
+  if (!sim || !sim.events) return;
+  const byTag = {};
+  for (const e of sim.events) {
+    if (e.kind !== 'score') continue;
+    const key = short(e.tag);
+    (byTag[key] = byTag[key] || []).push(e.score);
+  }
+  if (!Object.keys(byTag).length) return;
+  $('yuma-input').value = Object.entries(byTag).map(([t, ss]) => `${t}: ${ss.join(' ')}`).join('\n');
+  yumaRun();
+}
+const YUMA_PRESETS = {
+  honest: 'alpha: 80 78 82 79\nbeta: 76 74 77 75\ngamma: 85 83 84 86',
+  gaming: 'alpha: 100 79 78 80\nbeta: 79 78 77 80\ngamma: 80 79 78 81',
+  split:  'alpha: 90 20 85 22\nbeta: 50 55 48 52\ngamma: 10 88 12 90',
+};
+function yumaPreset(name) {
+  $('yuma-input').value = YUMA_PRESETS[name] || '';
+  yumaRun();
+}
+async function yumaRun() {
+  const raw = ($('yuma-input').value || '').trim();
+  if (!raw) { $('yuma-result').innerHTML = ''; return; }
+  const scores = {};
+  for (const line of raw.split('\n')) {
+    const m = line.match(/^\s*(\S+)\s*:\s*(.+)/);
+    if (!m) continue;
+    const ns = m[2].trim().split(/\s+/).map(Number).filter(n => !isNaN(n) && n >= 0 && n <= 100);
+    if (ns.length) scores[m[1]] = ns;
+  }
+  if (!Object.keys(scores).length) { $('yuma-result').innerHTML = ''; return; }
+  $('yuma-state').textContent = '…';
+  const r = await post('yuma', {scores, validators: +$('yuma-v').value, emission: +$('yuma-e').value}).catch(() => null);
+  if (!r || r.error) { $('yuma-state').textContent = 'error'; return; }
+  $('yuma-state').textContent = 'live';
+  const tags = r.tags || {};
+  let h = '<table><tr><th>tag</th><th>scores</th><th>C</th><th>R</th><th>share</th><th>clipped</th></tr>';
+  for (const [tag, d] of Object.entries(tags)) {
+    const rawScores = scores[tag] || [];
+    const scoreList = scoreSpark(rawScores, d.consensus);
+    const clipStyle = d.clipped ? 'color:var(--amber)' : 'color:var(--mute)';
+    h += `<tr><td class="tag">${esc(tag)}</td><td style="vertical-align:middle;padding:2px 4px">${scoreList}</td>` +
+      `<td><b>${d.consensus}</b></td><td>${d.rank}</td><td>${d.share}</td>` +
+      `<td style="${clipStyle}">${d.clipped}</td></tr>`;
+  }
+  h += '</table>';
+  const BAR_W = 220;
+  h += '<div style="margin-top:14px;display:flex;flex-direction:column;gap:5px">';
+  for (const [tag, d] of Object.entries(tags)) {
+    const base = d.raw || 1;
+    const tealW = Math.round((d.rank / base) * BAR_W);
+    const amberW = Math.round((d.clipped / base) * BAR_W);
+    const label = esc(tag.length > 12 ? tag.slice(0, 11) + '…' : tag);
+    h += `<div style="display:flex;align-items:center;gap:8px;font:11px var(--mono)">` +
+      `<span style="color:var(--dim);width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${label}</span>` +
+      `<div style="display:flex;height:10px;border-radius:5px;overflow:hidden;background:var(--panel2);width:${BAR_W}px">` +
+      `<div style="width:${tealW}px;background:var(--teal)" title="rank ${d.rank}"></div>` +
+      (amberW ? `<div style="width:${amberW}px;background:var(--amber)" title="clipped ${d.clipped}"></div>` : '') +
+      `</div>` +
+      `<span style="color:var(--mute)">C=${d.consensus} · ${d.share}</span>` +
+      `</div>`;
+  }
+  h += '</div>';
+  const sumClipped = Object.values(tags).reduce((a, d) => a + d.clipped, 0);
+  const sumRaw = Object.values(tags).reduce((a, d) => a + d.raw, 0);
+  const clipMsg = sumClipped
+    ? `${sumClipped} pts clipped (${Math.round(100 * sumClipped / (sumRaw || 1))}% waste)`
+    : 'no clipping';
+  h += `<div style="margin-top:8px;font:11px var(--mono);color:var(--dim)">` +
+    `need ${r.need} of ${r.validators} validators · ${r.rank_total} pts emitted · ${clipMsg}</div>`;
+  $('yuma-result').innerHTML = h;
+}
+$('yuma-input').addEventListener('input', () => { clearTimeout(yumaTimer); yumaTimer = setTimeout(yumaRun, 300); });
+$('yuma-v').addEventListener('change', yumaRun);
+$('yuma-e').addEventListener('change', yumaRun);
+
+initStage();
+setChain(CHAIN);
+get('networks').then(list => {
+  if (!adoptNetworks(list)) return;
+  $('hsub').textContent = `anonymous subnets · one signature scheme, ${ORDER.length} chains`;
+  renderSwitch(); renderBanner();
+  if (CH[WANT] && WANT !== CHAIN && !busy) setChain(WANT);
+}).catch(() => {});
+get('sim').then(s => { if (s.running) { if (s.chain && s.chain !== CHAIN) setChain(s.chain); toast('an epoch is running: following it'); followRunning(); } });
+</script>
+</body>
+</html>

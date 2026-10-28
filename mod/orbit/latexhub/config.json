@@ -20,6 +20,7 @@
   },
   "port": 50200,
   "app_port": 3200,
+  "route": true,
   "endpoints": [
     {
       "path": "/health",

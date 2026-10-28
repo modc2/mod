@@ -1,0 +1,180 @@
+//! Token: A fungible token written out in full, no library: balances in a LookupMap, owner-only mint, burn, and ft_transfer with the one-yoctoNEAR safety deposit every NEAR wallet expects
+//!
+//! A NEP-141 fungible token written out by hand so every rule is visible.
+//! Real deployments usually pull `near-contract-standards`; this is the
+//! same interface with nothing hidden.
+use near_sdk::json_types::U128;
+use near_sdk::store::LookupMap;
+use near_sdk::{assert_one_yocto, env, near, require, AccountId, PanicOnDefault};
+
+#[near(serializers = [json])]
+pub struct Metadata {
+    pub spec: String,
+    pub name: String,
+    pub symbol: String,
+    pub decimals: u8,
+}
+
+#[near(contract_state)]
+#[derive(PanicOnDefault)]
+pub struct Token {
+    owner: AccountId,
+    name: String,
+    symbol: String,
+    decimals: u8,
+    total_supply: u128,
+    balances: LookupMap<AccountId, u128>,
+}
+
+#[near]
+impl Token {
+    #[init]
+    pub fn new(name: String, symbol: String, decimals: u8) -> Self {
+        Self {
+            owner: env::predecessor_account_id(),
+            name,
+            symbol,
+            decimals,
+            total_supply: 0,
+            balances: LookupMap::new(b"b".to_vec()),
+        }
+    }
+
+    // ---- NEP-148 metadata + NEP-141 views ---------------------------------
+
+    pub fn ft_metadata(&self) -> Metadata {
+        Metadata {
+            spec: "ft-1.0.0".into(),
+            name: self.name.clone(),
+            symbol: self.symbol.clone(),
+            decimals: self.decimals,
+        }
+    }
+
+    pub fn ft_total_supply(&self) -> U128 {
+        U128(self.total_supply)
+    }
+
+    pub fn ft_balance_of(&self, account_id: AccountId) -> U128 {
+        U128(*self.balances.get(&account_id).unwrap_or(&0))
+    }
+
+    pub fn owner(&self) -> AccountId {
+        self.owner.clone()
+    }
+
+    // ---- changes -----------------------------------------------------------
+
+    /// Your rule, not the standard's: here only the owner creates coins.
+    pub fn mint(&mut self, account_id: AccountId, amount: U128) {
+        require!(env::predecessor_account_id() == self.owner, "only the owner can mint");
+        require!(amount.0 > 0, "amount must be positive");
+        let before = env::storage_usage();
+        let bal = *self.balances.get(&account_id).unwrap_or(&0);
+        self.balances.insert(account_id.clone(), bal + amount.0);
+        self.total_supply += amount.0;
+        let _new_bytes = env::storage_usage().saturating_sub(before); // what a new holder costs
+        emit("ft_mint", &format!("{{\"owner_id\":\"{}\",\"amount\":\"{}\"}}", account_id, amount.0));
+    }
+
+    pub fn burn(&mut self, amount: U128) {
+        let who = env::predecessor_account_id();
+        let bal = *self.balances.get(&who).unwrap_or(&0);
+        require!(bal >= amount.0, "not enough balance to burn");
+        self.balances.insert(who.clone(), bal - amount.0);
+        self.total_supply -= amount.0;
+        emit("ft_burn", &format!("{{\"owner_id\":\"{}\",\"amount\":\"{}\"}}", who, amount.0));
+    }
+
+    /// NEP-141 transfer. The 1 yoctoNEAR deposit proves a full-access key signed.
+    #[payable]
+    pub fn ft_transfer(&mut self, receiver_id: AccountId, amount: U128, memo: Option<String>) {
+        assert_one_yocto();
+        let sender = env::predecessor_account_id();
+        require!(sender != receiver_id, "cannot send to yourself");
+        require!(amount.0 > 0, "amount must be positive");
+        let from = *self.balances.get(&sender).unwrap_or(&0);
+        require!(from >= amount.0, "not enough balance");
+        let to = *self.balances.get(&receiver_id).unwrap_or(&0);
+        self.balances.insert(sender.clone(), from - amount.0);
+        self.balances.insert(receiver_id.clone(), to + amount.0);
+        emit("ft_transfer", &format!(
+            "{{\"old_owner_id\":\"{}\",\"new_owner_id\":\"{}\",\"amount\":\"{}\",\"memo\":{}}}",
+            sender, receiver_id, amount.0,
+            memo.map(|m| format!("\"{}\"", m.replace('"', "'"))).unwrap_or("null".into())
+        ));
+    }
+}
+
+/// NEP-297 event with the nep141 standard tag, so indexers show it as a token event.
+fn emit(event: &str, data: &str) {
+    env::log_str(&format!(
+        "EVENT_JSON:{{\"standard\":\"nep141\",\"version\":\"1.0.0\",\"event\":\"{}\",\"data\":[{}]}}",
+        event, data
+    ));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use near_sdk::test_utils::VMContextBuilder;
+    use near_sdk::{testing_env, NearToken};
+
+    fn as_user(who: &str, deposit_yocto: u128) {
+        let ctx = VMContextBuilder::new()
+            .predecessor_account_id(who.parse().unwrap())
+            .attached_deposit(NearToken::from_yoctonear(deposit_yocto))
+            .build();
+        testing_env!(ctx);
+    }
+
+    fn fresh() -> Token {
+        as_user("owner.testnet", 0);
+        Token::new("Workshop Token".into(), "WRK".into(), 6)
+    }
+
+    #[test]
+    fn metadata_and_mint() {
+        let mut t = fresh();
+        assert_eq!(t.ft_metadata().symbol, "WRK");
+        t.mint("alice.testnet".parse().unwrap(), U128(1_000_000));
+        assert_eq!(t.ft_balance_of("alice.testnet".parse().unwrap()).0, 1_000_000);
+        assert_eq!(t.ft_total_supply().0, 1_000_000);
+    }
+
+    #[test]
+    #[should_panic(expected = "only the owner can mint")]
+    fn stranger_cannot_mint() {
+        let mut t = fresh();
+        as_user("bob.testnet", 0);
+        t.mint("bob.testnet".parse().unwrap(), U128(5));
+    }
+
+    #[test]
+    fn transfer_with_one_yocto() {
+        let mut t = fresh();
+        t.mint("alice.testnet".parse().unwrap(), U128(100));
+        as_user("alice.testnet", 1);
+        t.ft_transfer("bob.testnet".parse().unwrap(), U128(40), Some("thanks".into()));
+        assert_eq!(t.ft_balance_of("alice.testnet".parse().unwrap()).0, 60);
+        assert_eq!(t.ft_balance_of("bob.testnet".parse().unwrap()).0, 40);
+    }
+
+    #[test]
+    #[should_panic(expected = "Requires attached deposit of exactly 1 yoctoNEAR")]
+    fn transfer_without_yocto_fails() {
+        let mut t = fresh();
+        t.mint("alice.testnet".parse().unwrap(), U128(100));
+        as_user("alice.testnet", 0);
+        t.ft_transfer("bob.testnet".parse().unwrap(), U128(1), None);
+    }
+
+    #[test]
+    #[should_panic(expected = "not enough balance")]
+    fn cannot_overspend() {
+        let mut t = fresh();
+        t.mint("alice.testnet".parse().unwrap(), U128(10));
+        as_user("alice.testnet", 1);
+        t.ft_transfer("bob.testnet".parse().unwrap(), U128(11), None);
+    }
+}

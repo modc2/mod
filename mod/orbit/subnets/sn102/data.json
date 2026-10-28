@@ -1,0 +1,189 @@
+{
+  "netuid": 102,
+  "name": "ConnitoAI",
+  "symbol": "ვ",
+  "owner": "5Hf5DCoutc7oKxjpvVr6YvhNmBimiw7YsMwaBH4htSNFJZYA",
+  "description": "Contributors train specialized expert modules that are aggregated into powerful AI systems, without massive centralized compute.",
+  "github": "https://github.com/Connito-AI/Connito",
+  "url": "https://connito.ai/",
+  "discord": "isabella618033",
+  "logo": "https://connito.ai/images/logo.png",
+  "registered_at": 7840965,
+  "tempo": 360,
+  "active": true,
+  "block": 9322663,
+  "related": [],
+  "market": {
+    "price": 0.005394286,
+    "moving_price": 0.005446914117783308,
+    "market_cap": 9596.772282337504,
+    "tao_in": 3377.234527609,
+    "alpha_in": 626076.286594946,
+    "alpha_out": 1152986.277447358,
+    "volume": 250604.738248,
+    "vol_24h": 152.46437425899785,
+    "emission": 0.0,
+    "change_1h": 0.0035594485376044815,
+    "change_24h": -2.060114544009972,
+    "change_7d": -4.879373020078493
+  },
+  "spark_24h": [
+    0.005507752,
+    0.005508052,
+    0.005486548,
+    0.005486765,
+    0.005486763,
+    0.005486909,
+    0.005486909,
+    0.005487053,
+    0.005487053,
+    0.005487178,
+    0.005487068,
+    0.005487068,
+    0.00543458,
+    0.005432748,
+    0.005432748,
+    0.005432836,
+    0.005432809,
+    0.005432937,
+    0.005432937,
+    0.005425016,
+    0.005425147,
+    0.00542577,
+    0.0054259,
+    0.0054259,
+    0.005426187,
+    0.005425833,
+    0.00541019,
+    0.00541019,
+    0.00541019,
+    0.00541019,
+    0.005410927,
+    0.005410927,
+    0.005411043,
+    0.005411043,
+    0.005411154,
+    0.005411406,
+    0.005411565,
+    0.005411739,
+    0.005393546,
+    0.005393546,
+    0.005393689,
+    0.005393837,
+    0.005393837,
+    0.00539383,
+    0.005393949,
+    0.005394094,
+    0.005394094,
+    0.005394286
+  ],
+  "trades_24h": {
+    "trades": 33,
+    "buys": 11,
+    "sells": 22,
+    "buy_tao": 55.82659061,
+    "sell_tao": 85.106317826,
+    "net_tao": -29.279727215999998,
+    "traders": 18
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5G1sRKrcfSuEbpJbNSd5ToVF5gMvnt8UqWXNUMTChDrF4tFs",
+      "net_tao": -3.3902763810000005,
+      "gross_tao": 48.361876381,
+      "trades": 6
+    },
+    {
+      "coldkey": "5EHcE9wZ9PDLVGtyVVbNXhnKbY1MEW8RN8QVwi6z3RWZsrs9",
+      "net_tao": 0.13477121600000075,
+      "gross_tao": 27.865228784,
+      "trades": 2
+    },
+    {
+      "coldkey": "5DchHMHPi93sT4Rbmt36bqYaXuu2ZKXKp1Q131TkGYnARMAF",
+      "net_tao": -9.891248007,
+      "gross_tao": 19.891248007,
+      "trades": 2
+    },
+    {
+      "coldkey": "5H62mYcRGPfqP4wo4Pg87zwxKVtXfz2M5EBvXBN3nLW7JV2m",
+      "net_tao": 0.008093261000000851,
+      "gross_tao": 17.991906739,
+      "trades": 2
+    },
+    {
+      "coldkey": "5HEkeGyprHQ7arHpfVEo6ba7kSATo5PWeMwWGk2uL3SP3M6m",
+      "net_tao": -6.329864134,
+      "gross_tao": 6.329864134,
+      "trades": 1
+    }
+  ],
+  "news": [
+    {
+      "ts": 1792177808,
+      "kind": "release",
+      "source": "github",
+      "title": "v0.7.1",
+      "url": "https://github.com/Connito-AI/Connito/releases/tag/v0.7.1",
+      "publisher": "Connito-AI/Connito"
+    },
+    {
+      "ts": 1792176000,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #298 from Connito-AI/staging_v3",
+      "url": "https://github.com/Connito-AI/Connito/commit/6fa4ac3e08daf670ea37289b47c2a9387e7aa2c4",
+      "publisher": "Connito-AI/Connito"
+    },
+    {
+      "ts": 1792171679,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #297 from Connito-AI/fix/freeze-chain-read",
+      "url": "https://github.com/Connito-AI/Connito/commit/2fab8c41d614c954f0cc918c19b61e7b49c40f11",
+      "publisher": "Connito-AI/Connito"
+    },
+    {
+      "ts": 1792093881,
+      "kind": "commit",
+      "source": "github",
+      "title": "✅ test(validator): after a skipped round, stale weights take the fall…",
+      "url": "https://github.com/Connito-AI/Connito/commit/73cb3ef11346f4946b87a8f0f33614d4b6eb19d0",
+      "publisher": "Connito-AI/Connito"
+    },
+    {
+      "ts": 1792092160,
+      "kind": "commit",
+      "source": "github",
+      "title": "🐛 fix(validator): skip the Validate and Merge waits for a skipped round",
+      "url": "https://github.com/Connito-AI/Connito/commit/70b187c053f4d9f8ff093cb4ea3027296c879da4",
+      "publisher": "Connito-AI/Connito"
+    },
+    {
+      "ts": 1792092160,
+      "kind": "commit",
+      "source": "github",
+      "title": "✅ test(validator): a skip past Merge reaches ValidatorCommit, and the…",
+      "url": "https://github.com/Connito-AI/Connito/commit/d5ad6da6a5f7bd4e3c74f14bed8db281be52dd57",
+      "publisher": "Connito-AI/Connito"
+    },
+    {
+      "ts": 1792072946,
+      "kind": "release",
+      "source": "github",
+      "title": "v0.7.0",
+      "url": "https://github.com/Connito-AI/Connito/releases/tag/v0.7.0",
+      "publisher": "Connito-AI/Connito"
+    },
+    {
+      "ts": 1792072929,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #295 from Connito-AI/staging_v3",
+      "url": "https://github.com/Connito-AI/Connito/commit/aa5e246badee6c50d4f86b8c139febe9e6030036",
+      "publisher": "Connito-AI/Connito"
+    }
+  ],
+  "updated": 1792474861,
+  "updated_day": "2026-10-20"
+}

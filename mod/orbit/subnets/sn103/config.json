@@ -1,0 +1,48 @@
+{
+    "name": "sn103",
+    "version": "1.0.0",
+    "description": "SN103 ayp \u2014 Bittensor subnet. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+    "icon": "\u0531",
+    "chain": "bittensor",
+    "netuid": 103,
+    "subnet": "ayp",
+    "symbol": "\u0531",
+    "owner": "5FHb1T5Qmh5o1S8KdXjCQp1vx7PSg5mXb1eYh5gYp1xuPzXz",
+    "github": null,
+    "url": null,
+    "discord": null,
+    "logo": null,
+    "related": [],
+    "active": true,
+    "route": false,
+    "generated_by": "subnets",
+    "updated": "2026-10-20",
+    "urls": {
+        "bt": "/bt/markets?sn=103",
+        "news": "/bt/news?netuid=103"
+    },
+    "fns": [
+        "info",
+        "price",
+        "news",
+        "trades",
+        "daily",
+        "history",
+        "validators",
+        "neurons",
+        "links",
+        "snapshot",
+        "readme",
+        "refresh"
+    ],
+    "previous": [
+        {
+            "subnet": "Consted",
+            "owner": "5H3SQ4du9ThumJcUQb1VL2dixRBDKtt8hDRWLyPuANhHon7Y",
+            "github": null,
+            "url": null,
+            "updated": "2026-10-19"
+        }
+    ],
+    "schema": "QmPS88qR7Eykf76Yc2zpChEazzjUhNT8nTPNRM9mCDUfYJ"
+}

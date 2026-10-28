@@ -1,0 +1,24 @@
+{
+    "name": "starknet.zuma",
+    "submod_of": "starknet",
+    "version": "0.1.0",
+    "description": "The zuma mod (anonymous subnet), as a Starknet app.",
+    "anchor": "mod.py",
+    "app": {
+        "title": "Zuma",
+        "icon": "Y",
+        "tone": "#22d3ee",
+        "tag": "privacy",
+        "kind": "mod",
+        "mod": "ztensor",
+        "order": 70,
+        "pitch": "A Bittensor-style subnet where miners and validators stay anonymous: every action is a ring signature checked by a Starknet contract."
+    },
+    "fns": [
+        "facts"
+    ],
+    "depends": [
+        "zuma"
+    ],
+    "schema": "QmWwaR442tryBhaNkhBkfHGEon1qvKc9jS7PiQ3QHagAqH"
+}

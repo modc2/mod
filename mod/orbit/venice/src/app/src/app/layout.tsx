@@ -3,7 +3,9 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "venice — a generative atelier",
-  description: "Venice AI: text, image & video in one thread. Bring your own key, or pay per turn in USDC. Wallet auth.",
+  // No pay-per-turn claim here: whether that path exists is per-deployment
+  // (x402 + a backend key), and static metadata can't check.
+  description: "Venice AI: text, image & video in one thread. Bring your own key. Wallet auth.",
 };
 
 // Paint the stored mode before first paint — otherwise every reload flashes

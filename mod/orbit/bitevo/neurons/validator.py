@@ -9,6 +9,8 @@ from core.prompts import VALIDATOR_SYSTEM_PROMPT, VALIDATOR_USER_PROMPT
 from core.scoring import composite_score, IncentiveMechanism
 from core.challenge import ChallengeGenerator
 from core.llm import get_llm
+from core.zuma import ZumaSubnet
+from core import zuma as zp
 
 DEFAULT_MODELS = {
     'claude': 'haiku',
@@ -16,6 +18,11 @@ DEFAULT_MODELS = {
     'venice': 'llama-3.3-70b',
     'chutes': 'unsloth/Llama-3.3-70B-Instruct',
 }
+
+
+def zp_normalize(scores):
+    from core.scoring import normalize_scores
+    return normalize_scores(scores)
 
 
 class BitevoValidator:
@@ -47,7 +54,20 @@ class BitevoValidator:
         self.temperature = temperature
         self.storage_path = os.path.expanduser(storage_path)
 
-        self.epochs = self._last_archived_epoch()
+        # zuma: validators and miners are public SETS; every submission,
+        # score and claim is a ring signature (see core/zuma.py)
+        self.zuma = ZumaSubnet(storage_path=storage_path)
+        self.zuma_key = wallet_name
+        self.zuma.keygen(self.zuma_key, 'validator')
+        # a ring needs min_ring members; standby validators fill a fresh
+        # local subnet (they hold keys but never act)
+        i = 1
+        while len(self.zuma.members['validator']) < self.zuma.min_ring:
+            self.zuma.keygen(f'{wallet_name}-standby-{i}', 'validator')
+            i += 1
+
+        self.epochs = max([self._last_archived_epoch()] +
+                          [int(k) for k in self.zuma.epochs])
         self.epoch_time = 0
 
         self._llm = None
@@ -69,31 +89,92 @@ class BitevoValidator:
 
     # ── Epoch ─────────────────────────────────────────────────────
 
-    def epoch(self, challenge: Challenge = None, **kwargs) -> EpochResult:
+    def epoch(self, challenge: Challenge = None, progress_callback=None, **kwargs) -> EpochResult:
         t0 = time.time()
         self.epochs += 1
 
+        def _cb(msg):
+            if progress_callback:
+                progress_callback(msg)
+
+        _cb("generating challenge…")
         if challenge is None:
             challenge = self.challenge_gen.generate(epoch=self.epochs)
         print(f"[epoch {self.epochs}] challenge: {challenge.prompt[:80]}...")
 
-        responses = self._query_miners(challenge)
-        print(f"[epoch {self.epochs}] {len(responses)} responses received")
+        ring = self.zuma.ring('miner')
+        if len(ring) < self.zuma.min_ring:
+            self.epochs -= 1
+            raise ValueError(
+                f'zuma: {len(ring)} registered miner(s), need at least '
+                f'{self.zuma.min_ring} for an anonymous ring — add miners first')
 
+        _cb(f"querying miners ({len(ring)} registered)…")
+        raw = self._query_miners(challenge)
+        _cb("verifying zuma submissions…")
+        responses, rejected = [], []
+        for resp in raw:
+            try:
+                tag = self.zuma.submit(self.epochs, int(resp.work, 16), resp.zuma_sig)
+                responses.append(resp)
+                print(f"  submit tag {tag[:12]}… verified (ring {len(resp.zuma_sig['ring'])})")
+            except Exception as e:
+                rejected.append({'tag': resp.tag, 'reason': str(e)})
+                print(f"  submission rejected: {e}")
+        print(f"[epoch {self.epochs}] {len(responses)} anonymous submissions accepted")
+
+        _cb("scoring responses…")
         scores = []
         for resp in responses:
             try:
                 score = self._score_response(challenge, resp)
+                score.tag = resp.tag
+                zscore = max(0, min(zp.MAX_SCORE, round(score.composite_score * 20)))
+                sig = zp.sign(self.zuma.ring('validator'),
+                              self.zuma.secret(self.zuma_key),
+                              zp.score_scope(self.zuma.subnet, self.epochs, int(resp.tag, 16)),
+                              zscore)
+                score.nullifier = self.zuma.score(self.epochs, resp.tag, zscore, sig)
                 scores.append(score)
-                print(f"  miner {resp.miner_uid}: {score.composite_score:.2f} — {score.feedback[:60]}")
+                print(f"  tag {resp.tag[:12]}…: {score.composite_score:.2f} — {score.feedback[:60]}")
             except Exception as e:
-                print(f"  miner {resp.miner_uid} scoring failed: {e}")
+                print(f"  tag {resp.tag[:12]}… scoring failed: {e}")
 
-        epoch_scores = {s.miner_uid: s.composite_score for s in scores}
-        weights = self.incentive.compute_weights(epoch_scores)
+        _cb("computing weights…")
+        # weights are per TAG: the validator never learns which miner it scored
+        tags = [s.tag for s in scores]
+        weights = dict(zip(tags, zp_normalize([s.composite_score for s in scores])))
+        self.zuma.close(self.epochs)
+
+        # claims: each local miner re-signs the closed scope to its payout
+        claims = []
+        composite_by_tag = {s.tag: s.composite_score for s in scores}
+        for miner in (self._local_miners if self.local else []):
+            try:
+                tag = miner.zuma_tag(self.zuma, self.epochs)
+                if tag not in composite_by_tag:
+                    continue
+                amount = miner.zuma_claim(self.zuma, self.epochs)
+                self.incentive.update(miner.payout, composite_by_tag[tag])
+                claims.append({'recipient': miner.payout, 'amount': amount})
+            except Exception as e:
+                print(f"  claim failed for {miner.payout}: {e}")
 
         if not self.local and self._subtensor and self.netuid:
             self._set_chain_weights(weights)
+
+        zuma_record = {
+            'protocol': 'zuma',
+            'subnet': hex(self.zuma.subnet),
+            'epoch': self.epochs,
+            'miner_ring': len(ring),
+            'validator_ring': len(self.zuma.ring('validator')),
+            'submissions': len(responses),
+            'rejected': rejected,
+            'tally': self.zuma.tally(self.epochs),
+            'claims': claims,
+            'audit': self.zuma.audit(self.epochs),
+        }
 
         result = EpochResult(
             epoch=self.epochs,
@@ -101,11 +182,13 @@ class BitevoValidator:
             responses=responses,
             scores=scores,
             weights=weights,
+            zuma=zuma_record,
         )
         self._save_epoch(result)
         self.incentive.save(self._incentive_path)
         self.epoch_time = time.time()
 
+        _cb(f"done (epoch {self.epochs})")
         print(f"[epoch {self.epochs}] done in {time.time() - t0:.1f}s | weights: {weights}")
         return result
 
@@ -117,13 +200,15 @@ class BitevoValidator:
         return self._query_chain(challenge)
 
     def _query_local(self, challenge: Challenge) -> List[MinerResponse]:
+        import random
         responses = []
         for miner in self._local_miners:
             try:
                 resp = miner.forward(challenge)
-                responses.append(resp)
+                responses.append(miner.zuma_submit(self.zuma, self.epochs, resp))
             except Exception as e:
-                print(f"  miner {miner.uid} failed: {e}")
+                print(f"  a miner failed: {e}")
+        random.shuffle(responses)  # arrival order must not leak who is who
         return responses
 
     def _query_chain(self, challenge: Challenge) -> List[MinerResponse]:
@@ -204,6 +289,11 @@ class BitevoValidator:
     # ── Chain weights ─────────────────────────────────────────────
 
     def _set_chain_weights(self, weights: Dict[str, float]):
+        # zuma weights are keyed by anonymous tag, not uid: there is no uid
+        # to set on chain without breaking anonymity
+        if not all(str(k).lstrip('-').isdigit() for k in weights):
+            print("  zuma: weights are per tag — skipping uid-weight set_weights")
+            return
         import bittensor as bt
         import torch
         uids = [int(k) for k in weights.keys()]
@@ -242,6 +332,9 @@ class BitevoValidator:
     # ── Local sim helpers ─────────────────────────────────────────
 
     def add_miner(self, miner):
+        """Register the miner's ring key; one local miner per uid."""
+        miner.zuma_register(self.zuma)
+        self._local_miners = [m for m in self._local_miners if m.uid != miner.uid]
         self._local_miners.append(miner)
 
     # ── On-chain setup ────────────────────────────────────────────

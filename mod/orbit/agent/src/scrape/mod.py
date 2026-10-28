@@ -45,11 +45,19 @@ import requests
 from ..discover.mod import parse_frontmatter, FRONTMATTER
 
 # Identify honestly, in the compatible-token form servers expect. Not cosmetic:
+# (and never set Content-Type by hand on the search POST — requests adds it
+# itself, and the hand-set header order is what DuckDuckGo answers with a 202
+# challenge page; measured 2026-10-02: hand-set 202, default 200, every time)
 # DuckDuckGo serves its no-results challenge page to UAs that pretend to be a
 # browser, and answers a self-declared bot normally.
 UA = "Mozilla/5.0 (compatible; ModAgent/1.0; +https://github.com/mod)"
 
 SEARCH_URL = "https://html.duckduckgo.com/html/"
+# the html endpoint answers some clients with a 202 challenge page and no
+# results; the lite one still serves them — tried second, same politeness
+SEARCH_LITE_URL = "https://lite.duckduckgo.com/lite/"
+LITE_LINK = re.compile(r"""<a[^>]+href="([^"]+)"[^>]*class=['"]result-link['"][^>]*>(.*?)</a>""", re.S)
+LITE_SNIP = re.compile(r"""<td[^>]*class=['"]result-snippet['"][^>]*>(.*?)</td>""", re.S)
 
 # budgets — a scraper is a bounded errand, not a crawler farm
 MAX_PAGES = 10          # pages fetched per run (hard cap MAX_PAGES_CAP)
@@ -307,12 +315,31 @@ class Scrapers:
         """Web search for a topic — result URLs with titles and snippets."""
         self._wait(SEARCH_URL)
         r = requests.post(SEARCH_URL, data={"q": q}, timeout=self.timeout,
-                          headers={"User-Agent": UA,
-                                   "Content-Type": "application/x-www-form-urlencoded"})
+                          headers={"User-Agent": UA})
         r.raise_for_status()
         snips = {_unwrap(h): _strip_html(s)[:300] for h, s in DDG_SNIP.findall(r.text)}
+        links = DDG_LINK.findall(r.text)
+        # a 202 is DuckDuckGo throttling a burst, not "no results": back off
+        # and try the lite endpoint, then the html one once more
+        for attempt, (url, link_re) in enumerate(((SEARCH_LITE_URL, LITE_LINK),
+                                                  (SEARCH_URL, DDG_LINK))):
+            if links or r.status_code != 202:
+                break
+            time.sleep(1.5 * (attempt + 1))
+            self._wait(url)
+            r = requests.post(url, data={"q": q}, timeout=self.timeout,
+                              headers={"User-Agent": UA})
+            r.raise_for_status()
+            links = link_re.findall(r.text)
+            if links and url == SEARCH_LITE_URL:
+                lite = [_strip_html(x)[:300] for x in LITE_SNIP.findall(r.text)]
+                snips = {_unwrap(h): (lite[i] if i < len(lite) else "")
+                         for i, (h, _) in enumerate(links)}
+            elif links:
+                snips = {_unwrap(h): _strip_html(x)[:300]
+                         for h, x in DDG_SNIP.findall(r.text)}
         out, seen = [], set()
-        for href, title in DDG_LINK.findall(r.text):
+        for href, title in links:
             url = _unwrap(href)
             key = _norm_url(url)
             if key in seen or not url.startswith(("http://", "https://")):

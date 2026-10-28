@@ -1,0 +1,11 @@
+state/
+__pycache__/
+*.pyc
+api/target/
+app/node_modules/
+app/out/
+app/.next*
+app/next-env.d.ts
+app/tsconfig.tsbuildinfo
+dist
+releases/

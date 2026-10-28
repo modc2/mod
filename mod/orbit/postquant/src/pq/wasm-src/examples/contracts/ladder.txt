@@ -1,0 +1,17 @@
+ladder — a state machine with no code to run.
+
+state   32 bytes: the current hash (empty = 32 zero bytes, the genesis)
+input   any bytes: a label for the step
+step    valid iff the prover supplies a nonce such that
+          state_out = SHAKE256(state_in || input || nonce)   (32 bytes)
+        and state_out has at least 16 leading zero bits.
+
+Finding a nonce takes ~65,000 hashes; checking one takes a single hash. The
+machine is accepted by a proof (the pow-ladder pqp1 verifier), never
+re-executed, so this contract's "code" is only its specification.
+
+  pq_contract action=verifier_deploy example=pow-ladder name=pow-ladder
+  pq_contract action=deploy example=ladder name=ladder
+  pq_contract action=policy name=ladder system=wasm verifier=pow-ladder
+  pq_contract action=solve name=ladder input=<hex>     # mine a nonce
+  pq_contract action=submit name=ladder input=<hex> state_out_b64=... proof_b64=...

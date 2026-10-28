@@ -26,6 +26,7 @@ class BitevoMiner:
         network: str = 'finney',
         local: bool = True,
         temperature: float = 0.9,
+        payout: str = None,
         **kwargs,
     ):
         self.backend = backend
@@ -38,6 +39,10 @@ class BitevoMiner:
         self.local = local
         self.temperature = temperature
         self._llm = None
+        # zuma identity: a ring key registered as a miner; payout is where
+        # claims are credited (the miner's choice — it is never linked to a tag)
+        self.zuma_key = f'miner-{uid}'
+        self.payout = payout or self.zuma_key
 
     @property
     def llm(self):
@@ -78,6 +83,40 @@ class BitevoMiner:
             model_used=f"{self.backend}/{self.model}",
             generation_time=round(time.time() - t0, 2),
         )
+
+    # -- zuma: anonymous submit + claim --
+
+    def zuma_register(self, subnet):
+        return subnet.keygen(self.zuma_key, 'miner')
+
+    def zuma_submit(self, subnet, epoch: int, response: MinerResponse) -> MinerResponse:
+        """Strip identity, commit to the pitch and ring-sign the commitment in
+        the epoch mine scope. The key image is this epoch's tag."""
+        from core import zuma
+        work = zuma.commit(response.pitch.model_dump())
+        sig = zuma.sign(subnet.ring('miner'), subnet.secret(self.zuma_key),
+                        zuma.mine_scope(subnet.subnet, epoch), work)
+        return MinerResponse(
+            challenge_id=response.challenge_id, pitch=response.pitch,
+            generation_time=response.generation_time,
+            tag=sig['tag'], work=hex(work), zuma_sig=sig,
+        )
+
+    def zuma_tag(self, subnet, epoch: int) -> str:
+        """Own tag for an epoch — only the key holder can compute it."""
+        from core import zuma
+        img = zuma.key_image(subnet.secret(self.zuma_key),
+                             zuma.mine_scope(subnet.subnet, epoch))
+        return hex(zuma.key_id(img))
+
+    def zuma_claim(self, subnet, epoch: int):
+        """Re-sign the closed epoch's mine scope (same image = same tag) with
+        msg = payout; the subnet credits the payout with this tag's share."""
+        from core import zuma
+        sig = zuma.sign(subnet.ring('miner'), subnet.secret(self.zuma_key),
+                        zuma.mine_scope(subnet.subnet, epoch),
+                        zuma.felt(self.payout))
+        return subnet.claim(epoch, self.payout, sig)
 
     def _parse_pitch(self, raw: str) -> StartupPitch:
         text = raw.strip()

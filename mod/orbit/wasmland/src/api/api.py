@@ -13,8 +13,11 @@ result can be re-derived by a party who trusts nobody.
     /runs/{id}/verify   replay it and attest — this is the verification
     /games              the ones the arena will seat agents against
 
-The console is served from the same port at /wasmland, and talks to /wasmland/_api
-so one page works behind the gateway and on a bare port alike.
+This is the API half. The console runs as its own service (src/app/server.py,
+:50481) and reaches the API through its own origin at /wasmland/_api, so one
+page works behind the gateway and on a bare port alike. The same console mount
+is kept here as a fallback, which is what makes a single-process deployment —
+this file alone, no app service — still a whole module.
 
 WHAT THIS SERVER WILL NOT DO
     It will not run a module outside the sandbox, it will not serve a paid

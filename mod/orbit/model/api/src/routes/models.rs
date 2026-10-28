@@ -26,8 +26,14 @@ pub async fn list(
     let key = extract_key(&headers)?;
 
     let url = format!("{}/models", cfg.url.trim_end_matches('/'));
-    let resp = s.http.get(&url)
-        .bearer_auth(&key)
+    let mut req = s.http.get(&url);
+    req = if cfg.models_auth.as_deref() == Some("x-api-key") {
+        req.header("x-api-key", &key)
+    } else {
+        req.bearer_auth(&key)
+    };
+    for (k, v) in &cfg.models_headers { req = req.header(k, v); }
+    let resp = req
         .send().await
         .map_err(|e| (StatusCode::BAD_GATEWAY, format!("{}/models failed: {e}", p.provider)))?;
     let status = resp.status();

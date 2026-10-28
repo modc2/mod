@@ -1,0 +1,211 @@
+{
+    "name": "jev",
+    "version": "0.2.0",
+    "title": "jev \u00b7 typed questions over the Jev model, paid in crypto",
+    "description": "Complete wrapper over jevgo, the Go client for TypeSafe AI's System One API and its Jev model (github.com/fgn/jevgo), served over the mod protocol. One static Go bridge binary does every call \u2014 client options, retries, headers, logging, tracing, error sentinels \u2014 and mod.py is a thin shell onto it: ask typed questions (noul yes/no, choice, score, raw) about any state and get probability distributions back. Anyone can ask over HTTP or MCP and pay per question in USDC with no account and no KYC: x402 (HTTP 402, sign an EIP-3009 transfer, retry) or prepaid credits under a mod-protocol wallet token. The operator's TypeSafe key stays in the environment; the facilitator settles; the owner's address receives.",
+    "icon": "\u2696",
+    "color": "#7aa2f7",
+    "anchor": "mod.py",
+    "network": "local",
+    "port": 50127,
+    "app_port": 50127,
+    "gateway_port": 50127,
+    "base_path": "/jev",
+    "route": true,
+    "deps": [],
+    "urls": {
+        "app": "http://localhost:50127/jev/",
+        "api": "http://localhost:50127/jev/api",
+        "mcp": "http://localhost:50127/jev/mcp",
+        "upstream": "https://api.typesafe.ai",
+        "client": "https://pkg.go.dev/github.com/fgn/jevgo"
+    },
+    "env": {
+        "TYPESAFE_API_KEY": "required for answers \u2014 System One API key (secret, env only)",
+        "TYPESAFE_BASE_URL": "optional \u2014 default https://api.typesafe.ai",
+        "TYPESAFE_DEFAULT_MODEL": "optional \u2014 default jev-latest",
+        "TYPESAFE_LOG_LEVEL": "optional \u2014 debug|info|warn|error|off, jevgo's own slog output",
+        "JEV_PAY_TO": "optional \u2014 receiving EVM address; overrides ~/.mod/jev/pay.json",
+        "JEV_FREE": "optional \u2014 1 = charge nobody",
+        "JEV_FACILITATOR": "optional \u2014 x402 facilitator base URL"
+    },
+    "pay": {
+        "price_usd": 0.001,
+        "currency": "USDC",
+        "networks": [
+            "base"
+        ],
+        "facilitator": "https://facilitator.payai.network",
+        "min_topup_usd": 0.25,
+        "max_questions": 32,
+        "kyc": "none",
+        "note": "public defaults; pay_to and overrides live in ~/.mod/jev/pay.json (m jev/pricing pay_to=0x\u2026)"
+    },
+    "state": "~/.mod/jev/pay.json (owner overrides) \u00b7 ~/.mod/jev/pay.db (payments, credits, ledger)",
+    "endpoints": {
+        "app": {
+            "method": "GET",
+            "auth": false,
+            "docs": "GET /jev/ -> the console (web/index.html): ask, pay per call with a browser wallet, credits"
+        },
+        "health": {
+            "method": "GET",
+            "auth": false,
+            "docs": "liveness, whether the bridge is built and payment is on"
+        },
+        "info": {
+            "method": "GET",
+            "auth": false,
+            "docs": "what the jevgo client would use: base URL, model, retry defaults, key present"
+        },
+        "price": {
+            "method": "GET",
+            "auth": false,
+            "docs": "price per question, chains (USDC asset + EIP-712 domain), pay_to, facilitator, credits rules"
+        },
+        "models": {
+            "method": "GET",
+            "auth": false,
+            "docs": "ListModels"
+        },
+        "encode": {
+            "method": "POST",
+            "auth": false,
+            "docs": "{state, questions} -> validate offline, return the wire body jevgo would send"
+        },
+        "noul": {
+            "method": "POST",
+            "auth": "pay",
+            "docs": "{state, instructions, criteria?, model?} -> {noul, model, usage, payment}"
+        },
+        "choice": {
+            "method": "POST",
+            "auth": "pay",
+            "docs": "{state, instructions, options, model?} -> {choice, confidence, probabilities, ...}"
+        },
+        "score": {
+            "method": "POST",
+            "auth": "pay",
+            "docs": "{state, instructions, levels, model?} -> {score, level, confidence, legend, probabilities, ...}"
+        },
+        "ask": {
+            "method": "POST",
+            "auth": "pay",
+            "docs": "{state, questions:{name:{kind,instructions,criteria}}, model?, timeout_s?, retry?, headers?, trace?} -> {answers, ...}; priced per question"
+        },
+        "topup": {
+            "method": "POST",
+            "auth": "x402",
+            "docs": "X-PAYMENT for any amount >= min_topup_usd -> credits for the PAYING address"
+        },
+        "whoami": {
+            "method": "GET",
+            "auth": false,
+            "docs": "who the server thinks you are (token: header -> wallet), whether you pay, your credits"
+        },
+        "balance": {
+            "method": "GET",
+            "auth": false,
+            "docs": "?address=0x\u2026 or token: header -> credits"
+        },
+        "grant": {
+            "method": "POST",
+            "auth": "owner",
+            "docs": "{address, usd} -> give credits (this box only)"
+        },
+        "pricing": {
+            "method": "POST",
+            "auth": "owner",
+            "docs": "{pay_to, price_usd, networks, facilitator, enabled, free_local, min_topup_usd} (this box only)"
+        },
+        "ledger": {
+            "method": "GET",
+            "auth": "owner",
+            "docs": "credit movements"
+        },
+        "payments": {
+            "method": "GET",
+            "auth": "owner",
+            "docs": "settled x402 payments + totals"
+        },
+        "mcp": {
+            "method": "POST",
+            "auth": "pay",
+            "docs": "MCP JSON-RPC at /jev/mcp: jev_noul, jev_choice, jev_score, jev_ask (paid), jev_models, jev_price, jev_balance, jev_encode (free)"
+        }
+    },
+    "paid": {
+        "how": "402 -> sign accepts[i] (EIP-3009 transferWithAuthorization, USDC) -> retry with X-PAYMENT; or POST /topup once and send a mod-protocol token",
+        "x402Version": 1,
+        "identity": "mod-protocol token in `token:` (or Authorization: Bearer): {data,time,key,signature} base64url, EIP-191 personal_sign of {\"data\":..,\"time\":..}",
+        "gate": "Mod().paywall exposes gate_check(fn, headers) for the protocol's own serve: m.serve('jev', paywall=...)"
+    },
+    "mcp": {
+        "http": "http://localhost:50127/jev/mcp",
+        "transport": "http",
+        "tools": [
+            "jev_noul",
+            "jev_choice",
+            "jev_score",
+            "jev_ask",
+            "jev_models",
+            "jev_price",
+            "jev_balance",
+            "jev_encode"
+        ]
+    },
+    "fns": [
+        "forward",
+        "info",
+        "version",
+        "ask",
+        "noul",
+        "choice",
+        "score",
+        "encode",
+        "models",
+        "price",
+        "pay",
+        "pricing",
+        "grant",
+        "balance",
+        "ledger",
+        "payments",
+        "stats",
+        "build",
+        "serve",
+        "kill",
+        "readme",
+        "status",
+        "test"
+    ],
+    "api_fns": [
+        "info",
+        "version",
+        "health",
+        "status",
+        "price",
+        "pay",
+        "models",
+        "encode",
+        "noul",
+        "choice",
+        "score",
+        "ask",
+        "topup",
+        "whoami",
+        "balance",
+        "readme",
+        "stats",
+        "tools"
+    ],
+    "notes": {
+        "bridge": "src/cmd/jevbridge \u2014 every network call goes through the Go client; Python never speaks the protocol itself, so the CLI and the library can never disagree with jevgo. Ops: system_one, models, encode (offline validate + wire body), info, version.",
+        "questions": "System One takes a state plus named questions: noul (probability of yes, optional {true,false} criteria), choice (pick an option, per-option probabilities), score (position against ordered levels, per-level probabilities), raw (pass-through for unknown kinds)",
+        "options": "every jevgo option is reachable from any call: model, timeout_s, max_retries, retry{max_retries,initial_backoff_ms,max_backoff_ms,jitter,statuses,respect_retry_after,max_retry_after_ms,connection_errors,timeouts,total_timeout_ms}, headers{}, log_level, include_headers, include_raw, trace, extra{}",
+        "errors": "jevgo sentinels surface as {error, code[, status, message, request_id, retry_after_ms]}: bad_request, authentication, permission_denied, not_found, unprocessable, rate_limit, overloaded, internal, connection, timeout, response_too_large, invalid_response, invalid_request, invalid_config",
+        "paying": "callers from this box (CLI, loopback with no forwarding header) are the owner and never pay; everyone else pays per question in USDC via x402 or prepaid credits. A failed answer is never charged (verify before, settle after). Replays are refused by nonce.",
+        "secrets": "The TypeSafe key is read from the environment by the Go binary and never written anywhere in this module. pay_to is public; the ledger is private state under ~/.mod/jev."
+    },
+    "schema": "QmZrokrob58a7zbR5CfEjS4oJNUxQwd5mZyGDLa8BfKTpq"
+}

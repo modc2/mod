@@ -31,12 +31,13 @@ import { DEFAULT_STRATS } from "./defaultStrats";
 import {
   HUB_BACKTEST_DAYS, HUB_WINDOWS, TTL_MS, templateBacktestKey, signature,
   backtestOne, backtestTemplate, forwardVerdict,
-  type ForwardCheck, type ForwardVerdict, type HubBacktest, type TraderFeed,
+  type ForwardCheck, type ForwardVerdict, type HoldoutCheck, type HubBacktest, type TraderFeed,
+  type WinRecord,
 } from "./hubReplay";
-import { fetchWorkerBacktests, publishHubManifest, type WorkerStatus } from "./hubCache";
+import { fetchWorkerBacktests, publishHubManifest, requestWorkerPass, type WorkerStatus } from "./hubCache";
 
 export { HUB_BACKTEST_DAYS, HUB_WINDOWS, templateBacktestKey, forwardVerdict };
-export type { HubBacktest, ForwardCheck, ForwardVerdict };
+export type { HubBacktest, ForwardCheck, ForwardVerdict, HoldoutCheck, WinRecord };
 
 const SNAPSHOT_KEY = "poly_hub_backtest_v1";
 
@@ -88,7 +89,25 @@ export interface HubBacktestState {
   refresh: () => void;
 }
 
-export function useHubBacktests(indexes: SavedIndex[], days = HUB_BACKTEST_DAYS): HubBacktestState {
+export interface HubBacktestOptions {
+  /** Hand this roster to the background worker. TRUE for the strat hub, whose
+      strats live in localStorage and are invisible to the server otherwise.
+      FALSE for the COPY DESK, whose leaders the worker reads straight from the
+      copy book (api/src/copy.rs) — publishing them here would overwrite the
+      hub's manifest with the desk's roster and stop the worker replaying the
+      saved strats entirely. */
+  publish?: boolean;
+  /** Also replay the RECOMMENDED templates. The hub renders them as cards; the
+      desk doesn't, and each one costs a leaderboard query. */
+  templates?: boolean;
+}
+
+export function useHubBacktests(
+  indexes: SavedIndex[],
+  days = HUB_BACKTEST_DAYS,
+  options: HubBacktestOptions = {},
+): HubBacktestState {
+  const { publish: shouldPublish = true, templates: withTemplates = true } = options;
   const [results, setResults] = useState<Record<string, HubBacktest>>({});
   const [pending, setPending] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
@@ -136,9 +155,10 @@ export function useHubBacktests(indexes: SavedIndex[], days = HUB_BACKTEST_DAYS)
   // test strats it knows about, and they live in this browser's localStorage.
   const sigs = indexes.map((i) => `${i.id}:${signature(i, days)}`).join("|");
   useEffect(() => {
+    if (!shouldPublish) return;
     void publishHubManifest(indexes, days);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sigs]);
+  }, [sigs, shouldPublish]);
 
   // Fill the gaps the worker hasn't covered: strats it has never seen, strats
   // edited since its last pass, or a window it doesn't run.
@@ -175,7 +195,9 @@ export function useHubBacktests(indexes: SavedIndex[], days = HUB_BACKTEST_DAYS)
       // A template's signature depends on a roster only a fetch can resolve,
       // so its freshness is the TTL alone — which is also what you want: the
       // recommendation is "top N as of now", and it should age like one.
-      const templateQueue = DEFAULT_STRATS.filter((t) => !fresh(templateBacktestKey(t.slug)));
+      const templateQueue = withTemplates
+        ? DEFAULT_STRATS.filter((t) => !fresh(templateBacktestKey(t.slug)))
+        : [];
       if (queue.length === 0 && templateQueue.length === 0) return;
       setPending(new Set([
         ...queue.map((i) => i.id),
@@ -203,7 +225,92 @@ export function useHubBacktests(indexes: SavedIndex[], days = HUB_BACKTEST_DAYS)
     void run();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sigs, days, nonce, loading]);
+  }, [sigs, days, nonce, loading, withTemplates]);
 
   return { results, pending, loading, worker, refresh };
+}
+
+// ── THE WINDOW LADDER ───────────────────────────────────────────
+//
+// The hook above answers "every card, over ONE window". The /strats cards ask
+// the other question — "this strat, over 1, 3, 7, 14 AND 30 days" — because a
+// strat that only works over one of them is a strat fitted to that window.
+//
+// Read-only on purpose: five windows × every strat is a server job (the worker
+// replays the whole ladder every pass, out of its feed cache), not something
+// to grind through in a browser tab. This hook publishes the roster so the
+// worker knows the strats exist, reads its cache for EVERY window at once,
+// folds in whatever this browser already replayed, and nudges a pass when a
+// strat has no numbers at all.
+
+/** One strat's results by window (days → replay). */
+export type WindowRow = Record<number, HubBacktest & { stale?: boolean }>;
+
+export interface StratWindowsState {
+  /** strat id → its ladder. A window absent from the row hasn't been run. */
+  byId: Record<string, WindowRow>;
+  loading: boolean;
+  worker: WorkerStatus | null;
+}
+
+/** Poll faster while the worker is mid-pass — the long windows land minutes
+    after the short ones, and the strip should fill in as they do. */
+const LADDER_POLL_RUNNING_MS = 30_000;
+const LADDER_POLL_IDLE_MS = 5 * 60_000;
+
+export function useStratWindows(indexes: SavedIndex[]): StratWindowsState {
+  const [raw, setRaw] = useState<Record<string, HubBacktest>>({});
+  const [loading, setLoading] = useState(true);
+  const [worker, setWorker] = useState<WorkerStatus | null>(null);
+  const nudged = useRef(false);
+
+  // Publish the roster — the worker can only replay strats it has been told
+  // about, and they live in this browser.
+  const sigs = indexes.map((i) => `${i.id}:${signature(i, HUB_BACKTEST_DAYS)}`).join("|");
+  useEffect(() => {
+    if (indexes.length > 0) void publishHubManifest(indexes, HUB_BACKTEST_DAYS);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sigs]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const load = async () => {
+      const cache = await fetchWorkerBacktests(0); // 0 = every window, keys `<id>@<N>d`
+      if (cancelled) return;
+      const merged: Record<string, HubBacktest> = { ...loadSnapshots() };
+      for (const [k, v] of Object.entries(cache?.results ?? {})) {
+        if (!merged[k] || merged[k].at < v.at) merged[k] = v;
+      }
+      setRaw(merged);
+      setWorker(cache?.status ?? null);
+      setLoading(false);
+      timer = setTimeout(load, cache?.status?.running ? LADDER_POLL_RUNNING_MS : LADDER_POLL_IDLE_MS);
+    };
+    void load();
+    return () => { cancelled = true; if (timer) clearTimeout(timer); };
+  }, []);
+
+  const byId: Record<string, WindowRow> = {};
+  for (const idx of indexes) {
+    const row: WindowRow = {};
+    for (const d of HUB_WINDOWS) {
+      const bt = raw[snapKey(idx.id, d)];
+      // Edited since the replay → the number belongs to a different strat.
+      // Kept (it's still the nearest thing we have) but marked.
+      if (bt) row[d] = bt.sig && bt.sig !== signature(idx, d) ? { ...bt, stale: true } : bt;
+    }
+    byId[idx.id] = row;
+  }
+
+  // A strat with no numbers in ANY window is one the worker has never seen
+  // (new, or the manifest was stale). Don't make it wait a full interval.
+  const missing = !loading && indexes.some((i) => Object.keys(byId[i.id] ?? {}).length === 0);
+  useEffect(() => {
+    if (!missing || nudged.current || worker?.running) return;
+    nudged.current = true;
+    void requestWorkerPass();
+  }, [missing, worker?.running]);
+
+  return { byId, loading, worker };
 }

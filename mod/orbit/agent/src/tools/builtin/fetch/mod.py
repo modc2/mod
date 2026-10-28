@@ -1,6 +1,6 @@
 """fetch - HTTP requests and web content fetching"""
 import requests
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 from html.parser import HTMLParser
 
 

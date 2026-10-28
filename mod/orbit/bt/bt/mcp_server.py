@@ -20,8 +20,9 @@ import traceback
 
 from . import tools
 
-SERVER_INFO = {'name': 'bittensor', 'version': '2.2.0'}
+SERVER_INFO = {'name': 'bittensor', 'version': '3.2.0'}
 PROTOCOL_VERSION = '2025-06-18'
+PROTOCOL_VERSIONS = (PROTOCOL_VERSION, '2025-03-26', '2024-11-05')
 
 
 def _reply(id_, result=None, error=None):
@@ -41,7 +42,8 @@ def handle(msg: dict):
     if method == 'initialize':
         client_ver = (msg.get('params') or {}).get('protocolVersion')
         _reply(id_, {
-            'protocolVersion': client_ver or PROTOCOL_VERSION,
+            'protocolVersion': client_ver if client_ver in PROTOCOL_VERSIONS
+                               else PROTOCOL_VERSION,
             'capabilities': {'tools': {}},
             'serverInfo': SERVER_INFO,
             'instructions': (
@@ -55,7 +57,10 @@ def handle(msg: dict):
                 'bt_trader and bt_trader_flows serve its equity curve, PnL '
                 'and inferred trades from the same local index. Tools '
                 'marked as real on-chain trades move real TAO — confirm '
-                'with the user before calling them.'),
+                'with the user before calling them. bt_view is the one tool '
+                'that touches no chain: it opens a view in the bt console '
+                'the caller is looking at, so an answer about a subnet or a '
+                'trader lands on their screen.'),
         })
     elif method == 'ping':
         _reply(id_, {})

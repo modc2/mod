@@ -3,7 +3,8 @@
     "version": "0.1.0",
     "desc": "A Python package for mod utilities",
     "shortcuts": {
-        "local": "server"
+        "local": "server",
+        "zuma": "ztensor"
     },
     "expose": [
         "forward",

@@ -1,0 +1,189 @@
+{
+  "netuid": 21,
+  "name": "AdTAO",
+  "symbol": "φ",
+  "owner": "5HjCYVfrWSkzTfJM5rkWBW3qTTJqXEFUzZrKty5hodpgfjyW",
+  "description": "Counterfactual impact prediction for advertising interventions",
+  "github": "https://github.com/ippcteam/SN21-adtao",
+  "url": "https://adtao.io",
+  "discord": null,
+  "logo": "https://www.ppcrebel.com/i/adtao.png",
+  "registered_at": 3156578,
+  "tempo": 360,
+  "active": true,
+  "block": 9322663,
+  "related": [],
+  "market": {
+    "price": 0.004115591,
+    "moving_price": 0.004167558392509818,
+    "market_cap": 25679.898323700145,
+    "tao_in": 8297.1063617,
+    "alpha_in": 2016018.227236312,
+    "alpha_out": 4223644.150220569,
+    "volume": 656750.998623222,
+    "vol_24h": 2019.013034316944,
+    "emission": 0.0,
+    "change_1h": -0.00024297787856175646,
+    "change_24h": -4.532069023028928,
+    "change_7d": -22.860911298850706
+  },
+  "spark_24h": [
+    0.004310967,
+    0.004310967,
+    0.004212121,
+    0.004192089,
+    0.004197284,
+    0.004197284,
+    0.004186882,
+    0.004186882,
+    0.004186882,
+    0.004146335,
+    0.004146326,
+    0.004146326,
+    0.004146475,
+    0.004134556,
+    0.004134556,
+    0.004122965,
+    0.004122601,
+    0.004122601,
+    0.004141453,
+    0.004122465,
+    0.004122465,
+    0.004122363,
+    0.004122363,
+    0.004122363,
+    0.004164195,
+    0.004164163,
+    0.004164848,
+    0.004164848,
+    0.004164848,
+    0.004164848,
+    0.004164848,
+    0.004122105,
+    0.004122105,
+    0.004122105,
+    0.004122105,
+    0.004122104,
+    0.004122104,
+    0.004122104,
+    0.004122103,
+    0.004122103,
+    0.004122103,
+    0.004122103,
+    0.004120876,
+    0.004115603,
+    0.004115601,
+    0.004115601,
+    0.004115601,
+    0.004115591
+  ],
+  "trades_24h": {
+    "trades": 180,
+    "buys": 81,
+    "sells": 99,
+    "buy_tao": 957.429958665,
+    "sell_tao": 1104.135770774,
+    "net_tao": -146.70581210900014,
+    "traders": 90
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5Gp5B45qzEuaS6QCn5qC6WYmxdLwrawzDWLR7HEyHR1dXfE1",
+      "net_tao": 0.37875992600000075,
+      "gross_tao": 206.427833322,
+      "trades": 10
+    },
+    {
+      "coldkey": "5GjBouDTGpwFKsoCTjEhGVvLb8RQv91KmydopE2RxeUs5jha",
+      "net_tao": 0.9986916360000038,
+      "gross_tao": 179.001308364,
+      "trades": 5
+    },
+    {
+      "coldkey": "5Gb23Q7n115ypiHr6jAMRhkhADhEkRFYa5ovgipVApqMt3FV",
+      "net_tao": -0.5821487040000015,
+      "gross_tao": 106.582148704,
+      "trades": 6
+    },
+    {
+      "coldkey": "5CXwAFZG5JGxidYjeAwn2mzgHwktUPNczqtGi6HpNaJvWszN",
+      "net_tao": 0.021861441999998732,
+      "gross_tao": 99.978138558,
+      "trades": 4
+    },
+    {
+      "coldkey": "5FA7bVGgG8xta6S2QbDzEYmH7tTRuytiCiuVHqdtSzd64FXC",
+      "net_tao": -0.369837179000001,
+      "gross_tao": 90.369837179,
+      "trades": 6
+    }
+  ],
+  "news": [
+    {
+      "ts": 1792418458,
+      "kind": "commit",
+      "source": "github",
+      "title": "feat(scoring): the pooled count score can be published before the cou…",
+      "url": "https://github.com/ippcteam/SN21-adtao/commit/5be3c8faec1aedfe86ae2082ba3e55fa9a0f9254",
+      "publisher": "ippcteam/SN21-adtao"
+    },
+    {
+      "ts": 1792418423,
+      "kind": "commit",
+      "source": "github",
+      "title": "feat(scoring): conversions on small campaigns can be scored as a coun…",
+      "url": "https://github.com/ippcteam/SN21-adtao/commit/935a8677a45e0ef2f641615887ead26a4372b4c9",
+      "publisher": "ippcteam/SN21-adtao"
+    },
+    {
+      "ts": 1792379103,
+      "kind": "commit",
+      "source": "github",
+      "title": "feat(executor): the scored run can wait for the basket's change descr…",
+      "url": "https://github.com/ippcteam/SN21-adtao/commit/e2d4c12c7bcc472840240e484653ea22d8a51af3",
+      "publisher": "ippcteam/SN21-adtao"
+    },
+    {
+      "ts": 1792378068,
+      "kind": "commit",
+      "source": "github",
+      "title": "docs(privacy): the planned rule keeps an earning model closed to all …",
+      "url": "https://github.com/ippcteam/SN21-adtao/commit/3142e6bbbcfc8847809ea93a2133b4d64482e06d",
+      "publisher": "ippcteam/SN21-adtao"
+    },
+    {
+      "ts": 1792377951,
+      "kind": "commit",
+      "source": "github",
+      "title": "feat(registry): a hotkey whose new model waits or was rejected keeps …",
+      "url": "https://github.com/ippcteam/SN21-adtao/commit/bf655959f3500b4a0bc228ad8d198f012f05f6a2",
+      "publisher": "ippcteam/SN21-adtao"
+    },
+    {
+      "ts": 1792253995,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(executor): unpacked images are removed even with read-only direct…",
+      "url": "https://github.com/ippcteam/SN21-adtao/commit/c4575db4fbf14e1287798d9d6cf7e958931e5d25",
+      "publisher": "ippcteam/SN21-adtao"
+    },
+    {
+      "ts": 1792253995,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(scripts): the curve-tail preview removes its ledger copies when i…",
+      "url": "https://github.com/ippcteam/SN21-adtao/commit/a9f0ba3095672741c188b5c218d9bed856869bfb",
+      "publisher": "ippcteam/SN21-adtao"
+    },
+    {
+      "ts": 1792251718,
+      "kind": "commit",
+      "source": "github",
+      "title": "ops(executor): each run reports models that failed on our side and th…",
+      "url": "https://github.com/ippcteam/SN21-adtao/commit/a7115e071fa781dd732f95ccb33fa71baa5a12df",
+      "publisher": "ippcteam/SN21-adtao"
+    }
+  ],
+  "updated": 1792474861,
+  "updated_day": "2026-10-20"
+}

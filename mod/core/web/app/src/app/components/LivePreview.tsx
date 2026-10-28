@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { Icon } from "./Icon";
 
 // A module's "image" is its running app, rendered live. The preview alternates
 // between two device modes: a desktop frame scaled down to fill the container
@@ -216,7 +217,7 @@ export function LivePreview({
           onClick={onOpen}
           title="Open the interactive app"
         >
-          ▶ play
+          <Icon name="play" /> Play
         </button>
       )}
     </div>

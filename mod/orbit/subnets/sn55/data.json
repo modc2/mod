@@ -1,0 +1,181 @@
+{
+  "netuid": 55,
+  "name": "NIOME",
+  "symbol": "ث",
+  "owner": "5GeWUxaFP6duJyNg8EUv6Jfcv6ZNkoERywAcbSw4FAuEMpDq",
+  "description": "NIOME is a decentralized AI subnet that enables privacy-safe genomic intelligence by replacing real human genomes with high-fidelity synthetic genomic profiles",
+  "github": "https://github.com/genomesio/subnet-niome",
+  "url": "https://niome.genomes.io",
+  "discord": "https://discord.gg/7mJkaJZX",
+  "logo": "https://miro.medium.com/v2/resize:fit:1400/format:webp/1*pgi-9hji1nosR-l7taHQeA.png",
+  "registered_at": 4703386,
+  "tempo": 360,
+  "active": true,
+  "block": 9322663,
+  "related": [],
+  "market": {
+    "price": 0.002652587,
+    "moving_price": 0.002520144684240222,
+    "market_cap": 15235.370336829503,
+    "tao_in": 6545.305431924,
+    "alpha_in": 2467517.805741881,
+    "alpha_out": 3276071.50417689,
+    "volume": 600110.551219401,
+    "vol_24h": 6370.138211412937,
+    "emission": 0.0,
+    "change_1h": -0.04943669672432538,
+    "change_24h": 24.707200388142848,
+    "change_7d": 13.19448030181929
+  },
+  "spark_24h": [
+    0.002127052,
+    0.002125599,
+    0.002602159,
+    0.002649512,
+    0.002681708,
+    0.002682535,
+    0.002682547,
+    0.002681701,
+    0.002665884,
+    0.002613343,
+    0.002612896,
+    0.002610305,
+    0.002680241,
+    0.002617662,
+    0.002617662,
+    0.002602415,
+    0.002602811,
+    0.002614869,
+    0.002614869,
+    0.002616434,
+    0.00263009,
+    0.002629327,
+    0.002629327,
+    0.002648186,
+    0.002649805,
+    0.002649797,
+    0.002631942,
+    0.002631942,
+    0.002632115,
+    0.002632127,
+    0.002632127,
+    0.002632127,
+    0.002640203,
+    0.002640203,
+    0.002640709,
+    0.002640708,
+    0.002640708,
+    0.002641516,
+    0.002641516,
+    0.002641516,
+    0.002641516,
+    0.002641516,
+    0.002649607,
+    0.00265309,
+    0.002653089,
+    0.002653899,
+    0.002653899,
+    0.002652587
+  ],
+  "trades_24h": {
+    "trades": 616,
+    "buys": 324,
+    "sells": 292,
+    "buy_tao": 3527.441105346,
+    "sell_tao": 2840.152735154,
+    "net_tao": 687.288370192,
+    "traders": 123
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5Cw2qFy2tZy9ZLt4LsJc9b68nffQndZDHF1KZynmVbA4Z3pC",
+      "net_tao": -2.496963888,
+      "gross_tao": 472.496963888,
+      "trades": 18
+    },
+    {
+      "coldkey": "5CkqhiXivJzuYEZKCTBXTm9oK8LH6L9EyDxJooyPFvHS2GXr",
+      "net_tao": 147.965710545,
+      "gross_tao": 412.034289455,
+      "trades": 10
+    },
+    {
+      "coldkey": "5Gb23Q7n115ypiHr6jAMRhkhADhEkRFYa5ovgipVApqMt3FV",
+      "net_tao": -2.3869227879999997,
+      "gross_tao": 362.386922788,
+      "trades": 13
+    },
+    {
+      "coldkey": "5F1XjkDCLVygZb73otM2ePzRgyZ6U2g2F6CMLD4uwuktzi8g",
+      "net_tao": -3.6308130689999993,
+      "gross_tao": 303.630813069,
+      "trades": 31
+    },
+    {
+      "coldkey": "5GW9Nb89AR9SVvAuQW2b62KZkTYAcbJ2yAW4UGWx8bxrVoPD",
+      "net_tao": 11.505209697999998,
+      "gross_tao": 272.494790302,
+      "trades": 32
+    }
+  ],
+  "news": [
+    {
+      "ts": 1792419518,
+      "kind": "commit",
+      "source": "github",
+      "title": "pass receiver ss58",
+      "url": "https://github.com/genomesio/subnet-niome/commit/64b946ee6cb3abadaa4aa73699750e5bb0029524",
+      "publisher": "genomesio/subnet-niome"
+    },
+    {
+      "ts": 1792305760,
+      "kind": "commit",
+      "source": "github",
+      "title": "download file with retry logic",
+      "url": "https://github.com/genomesio/subnet-niome/commit/4625b3c6e32edbed043a2940370def7de0d2daaf",
+      "publisher": "genomesio/subnet-niome"
+    },
+    {
+      "ts": 1792301443,
+      "kind": "commit",
+      "source": "github",
+      "title": "set weights using valid scores",
+      "url": "https://github.com/genomesio/subnet-niome/commit/4f288294f219d9b343d1c4e04bf798f050b82aa7",
+      "publisher": "genomesio/subnet-niome"
+    },
+    {
+      "ts": 1792289274,
+      "kind": "commit",
+      "source": "github",
+      "title": "reduce burning rate to 0.1%",
+      "url": "https://github.com/genomesio/subnet-niome/commit/21942bd1c9b3097cae21582ebb5ecc4a04cc2d2e",
+      "publisher": "genomesio/subnet-niome"
+    },
+    {
+      "ts": 1792281048,
+      "kind": "commit",
+      "source": "github",
+      "title": "improve uploading flow",
+      "url": "https://github.com/genomesio/subnet-niome/commit/21ed3f0cb0f739dcfcdad7e39f535a08fc4be9de",
+      "publisher": "genomesio/subnet-niome"
+    },
+    {
+      "ts": 1792274556,
+      "kind": "commit",
+      "source": "github",
+      "title": "add google drive provider",
+      "url": "https://github.com/genomesio/subnet-niome/commit/017aaae607ef784fccbb962e2bc9393f4ef59274",
+      "publisher": "genomesio/subnet-niome"
+    },
+    {
+      "ts": 1790163798,
+      "kind": "commit",
+      "source": "github",
+      "title": "use block hashes to generate seeds",
+      "url": "https://github.com/genomesio/subnet-niome/commit/9d9347a7ffab85a04eda6c36b9e87c59c8bb4049",
+      "publisher": "genomesio/subnet-niome"
+    }
+  ],
+  "updated": 1792474861,
+  "updated_day": "2026-10-20"
+}

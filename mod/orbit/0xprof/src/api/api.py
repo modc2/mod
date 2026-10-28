@@ -37,7 +37,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import Body, FastAPI, File, Form, Header, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 
 SRC = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SRC.parent))
@@ -109,7 +109,8 @@ def root():
         'endpoints': ['/systems', '/methods', '/verify', '/prove', '/proofs',
                       '/proofs/{id}', '/proofs/{id}/verify', '/proofs/{id}/checks',
                       '/proofs/{id}/attest', '/proofs/{id}/buy', '/proofs/{id}/refund',
-                      '/verifiers', '/bounties', '/bounties/{id}/submit',
+                      '/verifiers', '/bounties', '/bounties/{id}/join',
+                      '/bounties/{id}/submit', '/bounties/{id}/settle',
                       '/account/{address}', '/auth/*'],
         'signed': {'/proofs/{id}/verify': 'needs a personal_sign naming the proof — '
                                           'the re-run is published under that address'},
@@ -195,12 +196,52 @@ def verify_now(payload: Dict[str, Any] = Body(...)):
         raise HTTPException(400, str(e))
 
 
+@app.post('/verify/stream')
+def verify_stream(payload: Dict[str, Any] = Body(...)):
+    """Like /verify, but streams each verdict via SSE as it completes.
+
+    Emits `data: <verdict_json>\\n\\n` for each method the moment it finishes,
+    then `data: [DONE] <consensus_json>\\n\\n` once all methods are done.
+    """
+    proof = payload.get('proof')
+    if not isinstance(proof, dict):
+        raise HTTPException(400, 'send {"proof": {...}} — the proof object itself')
+    statement = (payload.get('statement') or payload.get('vkey')
+                 or payload.get('verification_key') or {})
+    signals = (payload.get('public_signals') or payload.get('publicSignals') or [])
+    try:
+        system = (systems.resolve(payload['system']) if payload.get('system')
+                  else systems.sniff({'proof': proof, 'vkey': statement}))
+    except (KeyError, verify.VerifyError) as e:
+        raise HTTPException(400, str(e))
+    quorum = int(payload.get('quorum') or verify.QUORUM)
+    method_names = payload.get('methods')
+
+    def generate():
+        verdicts = []
+        try:
+            for verdict in verify.verify_stream(system, proof, statement, signals,
+                                                method_names=method_names, quorum=quorum):
+                verdicts.append(verdict)
+                yield f'data: {json.dumps(verdict)}\n\n'
+        except verify.VerifyError as e:
+            yield f'data: {json.dumps({"error": str(e)})}\n\n'
+            return
+        done = {'system': system, 'verdicts': verdicts,
+                **verify.consensus(verdicts, quorum)}
+        yield f'data: [DONE] {json.dumps(done)}\n\n'
+
+    return StreamingResponse(generate(), media_type='text/event-stream')
+
+
 @app.post('/prove')
 def prove(payload: Dict[str, Any] = Body(...)):
     """Make a proof, for the systems whose prover fits in this module.
 
-    schnorr, dleq and merkle are a hash and a couple of multiplications, so they
-    are proved here. The snark systems need a proving key and a compiled
+    schnorr, dleq, pedersen and merkle are a hash and a couple of
+    multiplications, so they are proved here — which is every system on this box
+    whose prover does not need a trusted setup, and it means the PROVE tab can
+    make a listing for each of them. The snark systems need a proving key and a compiled
     circuit; send them as base64 (`zkey`, `wasm`) with the witness `inputs` and
     snarkjs does the work.
     """
@@ -215,6 +256,9 @@ def prove(payload: Dict[str, Any] = Body(...)):
             made = native.prove_merkle(payload['leaves'], int(payload.get('index', 0)),
                                        payload.get('hash', 'sha256'),
                                        bool(payload.get('sorted', False)))
+        elif system == 'pedersen':
+            made = native.prove_pedersen(payload['value'], payload.get('blinding'),
+                                         payload.get('context', ''), payload.get('H'))
         elif system in ('groth16', 'plonk', 'fflonk'):
             import base64
             zkey = payload.get('zkey')
@@ -228,7 +272,8 @@ def prove(payload: Dict[str, Any] = Body(...)):
             made['statement'] = snarkjs.export_vkey(zkey_bytes)
         else:
             raise HTTPException(400, f'cannot prove {system!r} here — '
-                                     'schnorr, dleq, merkle, groth16, plonk, fflonk')
+                                     'schnorr, dleq, pedersen, merkle, '
+                                     'groth16, plonk, fflonk')
     except HTTPException:
         raise
     except Exception as e:
@@ -352,6 +397,69 @@ def one_proof(proof_id: str, authorization: Optional[str] = Header(None)):
     return record
 
 
+@app.get('/proofs/{proof_id}/badge.svg')
+def proof_badge(proof_id: str):
+    """SVG badge with one colored pip per verifier verdict.
+
+    Read-only, no auth, public. Embed in a README as:
+        [![verified by 0xprof](…/badge.svg)](…#market/{id})
+    """
+    try:
+        record = proofs.get(proof_id)
+    except proofs.ProofError as e:
+        raise HTTPException(404, str(e))
+
+    def _xe(s: str) -> str:
+        return s.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('"', '&quot;')
+
+    PIP_COLORS = {
+        'valid':       '#34d399',
+        'invalid':     '#f87171',
+        'error':       '#fbbf24',
+        'unavailable': '#2a2f3d',
+    }
+
+    verdicts = record.get('verdicts') or []
+    pips = verdicts if verdicts else [{'method': 'none', 'status': 'unavailable'}]
+
+    char_w = 6.5
+    pad = 12
+    left_text = _xe('◈ 0xprof')
+    lw = max(int(len('◈ 0xprof') * char_w + pad), 80)
+
+    pip_r = 5
+    pip_spacing = 13  # 10px diameter + 3px gap
+    pip_pad = 6
+    rw = max(pip_pad * 2 + len(pips) * pip_spacing - 3, 30)
+    total = lw + rw
+    ly = 14
+    lx = lw // 2
+
+    circles = []
+    for i, v in enumerate(pips):
+        cx = lw + pip_pad + pip_r + i * pip_spacing
+        color = PIP_COLORS.get(v.get('status', 'unavailable'), '#2a2f3d')
+        method = _xe(str(v.get('method', '')))
+        vstatus = _xe(str(v.get('status', 'unavailable')))
+        circles.append(
+            f'<circle cx="{cx}" cy="10" r="{pip_r}" fill="{color}">'
+            f'<title>{method}: {vstatus}</title>'
+            f'</circle>'
+        )
+
+    svg = (
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{total}" height="20">'
+        f'<rect width="{lw}" height="20" fill="#1c202b"/>'
+        f'<rect x="{lw}" width="{rw}" height="20" fill="#12161f"/>'
+        f'<text x="{lx}" y="{ly}" fill="#fff" font-family="Verdana,Arial,sans-serif"'
+        f' font-size="11" text-anchor="middle">{left_text}</text>'
+        f'{"".join(circles)}'
+        f'</svg>'
+    )
+    return Response(content=svg, media_type='image/svg+xml',
+                    headers={'Cache-Control': 'max-age=60'})
+
+
 @app.post('/proofs/{proof_id}/verify/challenge')
 def reverify_challenge(proof_id: str, payload: Dict[str, Any] = Body(...)):
     """The message to sign before the methods will run again on this proof."""
@@ -471,7 +579,9 @@ def create_bounty(payload: Dict[str, Any] = Body(...),
             require=payload.get('require') or [],
             title=payload.get('title', ''), description=payload.get('description', ''),
             status=payload.get('accept_status', 'verified'),
-            ttl=float(payload.get('ttl') or bounties.DEFAULT_TTL))
+            ttl=float(payload.get('ttl') or bounties.DEFAULT_TTL),
+            stake=float(payload.get('stake') or 0),
+            settle=payload.get('settle') or 'daily')
     except (bounties.BountyError, market.MarketError, KeyError) as e:
         raise fail(e)
 
@@ -482,6 +592,31 @@ def one_bounty(bounty_id: str):
         return bounties.get(bounty_id)
     except bounties.BountyError as e:
         raise HTTPException(404, str(e))
+
+
+@app.post('/bounties/{bounty_id}/join')
+def join_bounty(bounty_id: str, authorization: Optional[str] = Header(None)):
+    """Sign in for a staked round: lock the stake, take the next token.
+
+    A dollar for a seat, locked until the reset. The token's number is the
+    order of signing, and it is the tiebreak when the round settles — first
+    prover to sign, not first to upload.
+    """
+    who = caller(authorization)
+    try:
+        return bounties.join(bounty_id, who)
+    except (bounties.BountyError, market.MarketError) as e:
+        raise fail(e)
+
+
+@app.post('/bounties/{bounty_id}/settle')
+def settle_bounty(bounty_id: str):
+    """Run the reset, if it is due. Open to anyone — the clock decides, and
+    every credit this moves goes where the round's rules already said."""
+    try:
+        return bounties.settle(bounty_id)
+    except (bounties.BountyError, market.MarketError) as e:
+        raise fail(e)
 
 
 @app.post('/bounties/{bounty_id}/submit')

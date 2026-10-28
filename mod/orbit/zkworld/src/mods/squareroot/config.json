@@ -1,0 +1,26 @@
+{
+    "name": "squareroot",
+    "title": "Squareroot",
+    "description": "Prove you know a square root of a public number without revealing it.",
+    "version": "0.1.0",
+    "submod_of": "zkworld",
+    "framework": "noir",
+    "kind": "noir-project",
+    "template": "square",
+    "anchor": "mod.py",
+    "fns": [
+        "forward",
+        "info",
+        "build",
+        "test",
+        "vibe",
+        "abi",
+        "tree",
+        "read",
+        "write",
+        "clean",
+        "app",
+        "witness"
+    ],
+    "schema": "QmPBkc4rYZm38RSpqHrQxdJUMebPVswhAQcRL7tzDrNYvv"
+}

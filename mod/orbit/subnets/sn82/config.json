@@ -1,0 +1,39 @@
+{
+    "name": "sn82",
+    "version": "1.0.0",
+    "description": "SN82 Noah \u2014 Bittensor subnet. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+    "icon": "\u16a2",
+    "chain": "bittensor",
+    "netuid": 82,
+    "subnet": "Noah",
+    "symbol": "\u16a2",
+    "owner": "5GGrRdUatgDLiJxnytdWfYCwsAb1Cyo4U5Dw1HmLiAcbWj88",
+    "github": "https://github.com/Vora-Inc/NOAH",
+    "url": "https://subnet82.com",
+    "discord": null,
+    "logo": "https://subnet82.com/noah-n-512.png",
+    "related": [],
+    "active": true,
+    "route": false,
+    "generated_by": "subnets",
+    "updated": "2026-10-20",
+    "urls": {
+        "bt": "/bt/markets?sn=82",
+        "news": "/bt/news?netuid=82"
+    },
+    "fns": [
+        "info",
+        "price",
+        "news",
+        "trades",
+        "daily",
+        "history",
+        "validators",
+        "neurons",
+        "links",
+        "snapshot",
+        "readme",
+        "refresh"
+    ],
+    "schema": "QmPS88qR7Eykf76Yc2zpChEazzjUhNT8nTPNRM9mCDUfYJ"
+}

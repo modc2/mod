@@ -1,8 +1,7 @@
 """debug - analyze errors, stack traces, and diagnose issues"""
 import re
-import traceback
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any
 
 
 class Tool:

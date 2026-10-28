@@ -1,0 +1,91 @@
+{
+  "scores": {
+    "0": 0.6636021740216,
+    "5FQrkv63LhBJxcZnYEi2X3EZcFdFEDV6wKYJLQSrtxo3v2Ck": 0.7438077806520731
+  },
+  "hotkey": "5HdTUa9S4sScox8X2dPi3JCKiRnmUm6gYg9T42py3EJAmBXq",
+  "last_epoch": {
+    "validator": "5HdTUa9S4sScox8X2dPi3JCKiRnmUm6gYg9T42py3EJAmBXq",
+    "network": "local",
+    "netuid": 0,
+    "miners": 1,
+    "results": {
+      "0": {
+        "hotkey": "5FQrkv63LhBJxcZnYEi2X3EZcFdFEDV6wKYJLQSrtxo3v2Ck",
+        "epoch_score": 0.7749,
+        "ema_score": 0.7438,
+        "samples": [
+          {
+            "score": 0.9766666666666666,
+            "task": "block_header",
+            "elapsed": 0.288,
+            "signature_ok": true,
+            "correct": true
+          },
+          {
+            "score": 0.5678030204758813,
+            "task": "gas_price",
+            "elapsed": 3.445,
+            "signature_ok": true,
+            "correct": true
+          },
+          {
+            "score": 0.8026966587044386,
+            "task": "account_state",
+            "elapsed": 3.418,
+            "signature_ok": true,
+            "correct": true
+          },
+          {
+            "score": 0.6963241637113688,
+            "task": "block_header",
+            "elapsed": 3.259,
+            "signature_ok": true,
+            "correct": true
+          },
+          {
+            "score": 1.0,
+            "task": "gas_price",
+            "elapsed": 0.467,
+            "signature_ok": true,
+            "correct": true
+          },
+          {
+            "score": 0.47215962778502324,
+            "task": "account_state",
+            "elapsed": 6.452,
+            "signature_ok": true,
+            "correct": true
+          },
+          {
+            "score": 0.8833333333333333,
+            "task": "block_header",
+            "elapsed": 0.325,
+            "signature_ok": true,
+            "correct": true
+          },
+          {
+            "score": 0.8004339794008073,
+            "task": "gas_price",
+            "elapsed": 3.457,
+            "signature_ok": true,
+            "correct": true
+          }
+        ]
+      }
+    },
+    "at": 1793192725,
+    "weights": {
+      "0": 1.0
+    },
+    "set_weights": {
+      "ok": true,
+      "epoch": 449,
+      "consensus": "yuma",
+      "incentive": {
+        "0": 1.0
+      }
+    }
+  },
+  "updated": 1793192738
+}

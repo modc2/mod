@@ -9,11 +9,35 @@ const SEV_ORDER = ["critical", "high", "medium", "low", "info", "unknown"];
 export function ScanReport({ id }: { id: string }) {
   const [scan, setScan] = useState<Scan | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [filterSevs, setFilterSevs] = useState<Set<string>>(new Set());
+  const [filterCats, setFilterCats] = useState<Set<string>>(new Set());
+  const [filterText, setFilterText] = useState<string>("");
+
+  function toggleSev(sev: string) {
+    setFilterSevs((prev) => {
+      const next = new Set(prev);
+      if (next.has(sev)) next.delete(sev);
+      else next.add(sev);
+      return next;
+    });
+  }
+
+  function toggleCat(cat: string) {
+    setFilterCats((prev) => {
+      const next = new Set(prev);
+      if (next.has(cat)) next.delete(cat);
+      else next.add(cat);
+      return next;
+    });
+  }
 
   useEffect(() => {
     let cancel = false;
     setScan(null);
     setError(null);
+    setFilterSevs(new Set());
+    setFilterCats(new Set());
+    setFilterText("");
     async function tick() {
       try {
         const s = await getScan(id);
@@ -37,9 +61,15 @@ export function ScanReport({ id }: { id: string }) {
   if (error) return <div className="text-critical p-6">{error}</div>;
   if (!scan) return <div className="text-muted p-6">loading scan…</div>;
 
-  const findings = (scan.findings ?? []).slice().sort((a, b) => {
+  const allFindings = (scan.findings ?? []).slice().sort((a, b) => {
     return SEV_ORDER.indexOf(a.severity) - SEV_ORDER.indexOf(b.severity);
   });
+  const findings = allFindings.filter(
+    (f) =>
+      (filterSevs.size === 0 || filterSevs.has(f.severity)) &&
+      (filterCats.size === 0 || filterCats.has(f.category ?? "")) &&
+      (filterText === "" || [f.file, f.title, f.description, f.recommendation].some(t => t?.toLowerCase().includes(filterText.toLowerCase())))
+  );
 
   const stats = scan.stats?.by_severity || {};
 
@@ -62,33 +92,119 @@ export function ScanReport({ id }: { id: string }) {
             {scan.branch && (
               <span className="ml-2 text-muted text-sm">@ {scan.branch}</span>
             )}
+            {scan.subdir && (
+              <span className="ml-2 text-muted text-sm">· {scan.subdir}</span>
+            )}
+            {scan.reviewer && (
+              <span className="ml-2 text-muted text-sm font-mono">reviewer: {truncateAddr(scan.reviewer)}</span>
+            )}
           </div>
-          <StatusLine scan={scan} />
+          <div className="flex items-center gap-2">
+            {scan.status === "done" && (
+              <button
+                onClick={() => {
+                  const payload = {
+                    repo: scan.repo,
+                    branch: scan.branch,
+                    subdir: scan.subdir,
+                    stats: scan.stats,
+                    findings: scan.findings,
+                  };
+                  const blob = new Blob([JSON.stringify(payload, null, 2)], {
+                    type: "application/json",
+                  });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  const slug = prettyRepo(scan.repo).replace(/\//g, "-");
+                  const date = new Date().toISOString().slice(0, 10);
+                  a.href = url;
+                  a.download = `securescan-${slug}-${date}.json`;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                }}
+                className="text-xs border border-border rounded px-2.5 py-1 text-muted hover:text-accent hover:border-accent/50 transition-colors"
+              >
+                ↓ JSON
+              </button>
+            )}
+            <StatusLine scan={scan} />
+          </div>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mt-4">
-          {SEV_ORDER.slice(0, 5).map((sev) => {
-            const colorMap: Record<string, string> = {
-              critical: "text-critical",
-              high: "text-high",
-              medium: "text-medium",
-              low: "text-low",
-              info: "text-info",
-            };
-            return (
-              <div
-                key={sev}
-                className="bg-panel2 border border-border rounded px-3 py-2"
+        <div className="mt-4">
+          {(filterSevs.size > 0 || filterCats.size > 0 || filterText !== "") && (
+            <div className="flex justify-end mb-1">
+              <button
+                onClick={() => { setFilterSevs(new Set()); setFilterCats(new Set()); setFilterText(""); }}
+                className="text-xs text-muted hover:text-accent"
               >
-                <div className="text-[10px] uppercase tracking-wider text-muted">
-                  {sev}
-                </div>
-                <div className={`text-xl font-mono mt-0.5 ${colorMap[sev] || "text-text"}`}>
-                  {stats[sev] || 0}
-                </div>
+                × clear filter
+              </button>
+            </div>
+          )}
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+            {SEV_ORDER.slice(0, 5).map((sev) => {
+              const colorMap: Record<string, string> = {
+                critical: "text-critical",
+                high: "text-high",
+                medium: "text-medium",
+                low: "text-low",
+                info: "text-info",
+              };
+              const active = filterSevs.has(sev);
+              return (
+                <button
+                  key={sev}
+                  onClick={() => toggleSev(sev)}
+                  className={`bg-panel2 border rounded px-3 py-2 text-left transition-colors ${
+                    active
+                      ? "border-accent ring-1 ring-accent"
+                      : "border-border hover:border-accent/50"
+                  }`}
+                >
+                  <div className="text-[10px] uppercase tracking-wider text-muted">
+                    {sev}
+                  </div>
+                  <div className={`text-xl font-mono mt-0.5 ${colorMap[sev] || "text-text"}`}>
+                    {stats[sev] || 0}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+          {(() => {
+            const byCat = scan.stats?.by_category;
+            if (!byCat) return null;
+            const cats = Object.entries(byCat).filter(([, n]) => (n as number) > 0);
+            if (cats.length === 0) return null;
+            return (
+              <div className="flex flex-wrap gap-2 mt-3">
+                {cats.map(([cat, count]) => {
+                  const active = filterCats.has(cat);
+                  return (
+                    <button
+                      key={cat}
+                      onClick={() => toggleCat(cat)}
+                      className={`border rounded px-2.5 py-1 text-xs transition-colors ${
+                        active
+                          ? "border-accent ring-1 ring-accent text-text"
+                          : "border-border hover:border-accent/50 text-muted"
+                      }`}
+                    >
+                      {cat} ({count})
+                    </button>
+                  );
+                })}
               </div>
             );
-          })}
+          })()}
+          <input
+            type="search"
+            placeholder="search findings…"
+            value={filterText}
+            onChange={(e) => setFilterText(e.target.value)}
+            className="bg-panel2 border border-border rounded px-3 py-1.5 text-sm font-mono w-full mt-3"
+          />
         </div>
       </header>
 
@@ -99,11 +215,22 @@ export function ScanReport({ id }: { id: string }) {
       )}
 
       {findings.length > 0 ? (
-        <ul className="space-y-3">
-          {findings.map((f, i) => (
-            <FindingCard key={i} f={f} />
-          ))}
-        </ul>
+        <>
+          {(filterSevs.size > 0 || filterCats.size > 0 || filterText !== "") && (
+            <div className="text-xs text-muted font-mono px-1">
+              {findings.length} / {allFindings.length} findings
+            </div>
+          )}
+          <ul className="space-y-3">
+            {findings.map((f, i) => (
+              <FindingCard key={i} f={f} repoUrl={scan.repo} branch={scan.branch} />
+            ))}
+          </ul>
+        </>
+      ) : filterSevs.size > 0 || filterCats.size > 0 || filterText !== "" ? (
+        <div className="bg-panel border border-border rounded-lg p-6 text-muted text-center">
+          No matching findings.
+        </div>
       ) : scan.status === "done" ? (
         <div className="bg-panel border border-border rounded-lg p-6 text-muted text-center">
           No vulnerabilities detected.
@@ -119,7 +246,22 @@ export function ScanReport({ id }: { id: string }) {
 
 function StatusLine({ scan }: { scan: Scan }) {
   const isWorking = ["queued", "cloning", "scanning"].includes(scan.status);
-  const elapsed = scan.elapsed_seconds
+  const [liveElapsed, setLiveElapsed] = useState<number>(0);
+
+  useEffect(() => {
+    if (!isWorking) return;
+    const tick = () => {
+      const origin = scan.started_at ?? Date.now() / 1000;
+      setLiveElapsed(Math.floor(Date.now() / 1000 - origin));
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [isWorking, scan.started_at]);
+
+  const elapsed = isWorking
+    ? ` · ${liveElapsed}s`
+    : scan.elapsed_seconds
     ? ` · ${scan.elapsed_seconds}s`
     : "";
   return (
@@ -141,7 +283,13 @@ function StatusLine({ scan }: { scan: Scan }) {
   );
 }
 
-function FindingCard({ f }: { f: Finding }) {
+function FindingCard({ f, repoUrl, branch }: { f: Finding; repoUrl?: string; branch?: string | null }) {
+  const fileLabel = f.file ? `${f.file}${f.line ? `:${f.line}` : ""}` : null;
+  const fileHref =
+    f.file && repoUrl && repoUrl.includes("github.com")
+      ? `${prettyRepoUrl(repoUrl)}/blob/${branch || "HEAD"}/${f.file}${f.line ? `#L${f.line}` : ""}`
+      : undefined;
+
   return (
     <li className="bg-panel border border-border rounded-lg p-4">
       <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -153,11 +301,14 @@ function FindingCard({ f }: { f: Finding }) {
             </span>
           )}
         </div>
-        {f.file && (
-          <code className="text-xs text-accent break-all">
-            {f.file}
-            {f.line ? `:${f.line}` : ""}
-          </code>
+        {fileLabel && (
+          fileHref ? (
+            <a href={fileHref} target="_blank" rel="noreferrer" className="font-mono text-xs text-accent hover:underline break-all">
+              {fileLabel}
+            </a>
+          ) : (
+            <code className="text-xs text-accent break-all">{fileLabel}</code>
+          )
         )}
       </div>
       <div className="mt-2 font-medium">{f.title || "Untitled finding"}</div>
@@ -183,4 +334,8 @@ function prettyRepo(url: string) {
 }
 function prettyRepoUrl(url: string) {
   return url.replace(/\.git$/, "");
+}
+function truncateAddr(addr: string) {
+  if (addr.length <= 12) return addr;
+  return `${addr.slice(0, 6)}…${addr.slice(-4)}`;
 }

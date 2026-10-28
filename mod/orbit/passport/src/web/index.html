@@ -1,0 +1,24 @@
+<!doctype html><html><head><meta charset="utf-8"><title>passport</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>body{font:15px/1.5 system-ui,sans-serif;max-width:720px;margin:40px auto;padding:0 16px;background:#0d1117;color:#d6deeb}
+code,pre{background:#161b22;border-radius:6px;padding:2px 6px}pre{padding:12px;overflow:auto}
+button{font:inherit;padding:8px 14px;border-radius:8px;border:1px solid #7aa2ff;background:#1b2440;color:#fff;cursor:pointer}
+.k{color:#8b949e}</style></head><body>
+<h1>passport</h1>
+<p>One sign-in for every module. Sign in here, in build, or in any console that uses passport, and the rest recognise you.</p>
+<p id="who" class="k">checking…</p>
+<p><button id="in">Sign in with wallet</button> <button id="out">Sign out</button></p>
+<h3>Protocol</h3><pre id="proto" class="k">…</pre>
+<script src="passport.js"></script>
+<script>
+const who = document.getElementById('who')
+const show = async s => {
+  if (!s) { who.textContent = 'Not signed in.'; return }
+  const v = await Passport.verify(s.token)
+  who.textContent = v.address ? `Signed in as ${v.address} (via ${s.via || s.scheme})` : `Session no longer valid: ${v.error}`
+}
+Passport.ready().then(show); Passport.onChange(show)
+document.getElementById('in').onclick = () => Passport.signIn('passport').catch(e => who.textContent = e.message)
+document.getElementById('out').onclick = () => Passport.signOut()
+fetch('protocol').then(r => r.json()).then(p => document.getElementById('proto').textContent = JSON.stringify(p, null, 2))
+</script></body></html>

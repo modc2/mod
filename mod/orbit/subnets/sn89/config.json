@@ -1,0 +1,39 @@
+{
+    "name": "sn89",
+    "version": "1.0.0",
+    "description": "SN89 InfiniteQuant \u2014 Proof of Edge - Trading signals. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+    "icon": "\u16d2",
+    "chain": "bittensor",
+    "netuid": 89,
+    "subnet": "InfiniteQuant",
+    "symbol": "\u16d2",
+    "owner": "5Dc5NmEUptDeMLrxDSvg8kfCToxJkiF47apAYSVTycAVvDN4",
+    "github": "https://github.com/DeltaCompute24/InfiniteQuant-Subnet",
+    "url": "https://infinitequant.app",
+    "discord": null,
+    "logo": "https://raw.githubusercontent.com/DeltaCompute24/InfiniteQuant-Subnet/master/docs/assets/iq_logo.png",
+    "related": [],
+    "active": true,
+    "route": false,
+    "generated_by": "subnets",
+    "updated": "2026-10-20",
+    "urls": {
+        "bt": "/bt/markets?sn=89",
+        "news": "/bt/news?netuid=89"
+    },
+    "fns": [
+        "info",
+        "price",
+        "news",
+        "trades",
+        "daily",
+        "history",
+        "validators",
+        "neurons",
+        "links",
+        "snapshot",
+        "readme",
+        "refresh"
+    ],
+    "schema": "QmPS88qR7Eykf76Yc2zpChEazzjUhNT8nTPNRM9mCDUfYJ"
+}

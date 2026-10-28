@@ -1,0 +1,21 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: #0a0a0f;
+  color: #e5e5e5;
+  font-family: 'SF Mono', 'Fira Code', 'IBM Plex Mono', monospace;
+  min-height: 100vh;
+}
+
+.Toastify__toast {
+  background: rgba(20, 20, 30, 0.95) !important;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: white;
+  font-family: monospace;
+  font-size: 12px;
+}

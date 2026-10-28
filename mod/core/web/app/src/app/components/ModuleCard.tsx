@@ -5,6 +5,7 @@ import { useCallback } from "react";
 import { gatewayUrl, type Module } from "@/lib/api";
 import { bloc } from "@/lib/chain";
 import { LivePreview } from "./LivePreview";
+import { Icon } from "./Icon";
 
 // Deterministic accent for modules that don't declare a color — hash the name
 // into a pleasant hue so the grid stays colorful without being random per-render.
@@ -14,12 +15,9 @@ function hueFromName(name: string): string {
   return `hsl(${h} 70% 64%)`;
 }
 
-// Middle-truncate long identifiers (addresses, CIDs) so they fit one line but
-// stay recognizable by their head/tail — the full value rides along in `title`.
-function shorten(s: string, head = 6, tail = 4): string {
-  return s.length > head + tail + 1 ? `${s.slice(0, head)}…${s.slice(-tail)}` : s;
-}
-
+// One card per module. Reads top-down the way a visitor scans it: what it
+// looks like (live preview), what it's called, what it does, then one clear
+// action. Developer facts (owner, CID, ports) live on the detail page.
 export function ModuleCard({
   m,
   index,
@@ -33,9 +31,7 @@ export function ModuleCard({
   const glow = m.color || hueFromName(m.name);
   const label = (m.icon || m.name[0] || "m").slice(0, 1);
   const depCount = m.deps?.length ?? 0;
-  const owner =
-    typeof m.config?.owner === "string" && m.config.owner ? (m.config.owner as string) : null;
-  const cid = m.schema || null;
+  const openable = m.has_app && m.on_web;
 
   // Feed the cursor position to the CSS spotlight (.card::after).
   const track = useCallback((e: React.MouseEvent<HTMLAnchorElement>) => {
@@ -47,7 +43,7 @@ export function ModuleCard({
   return (
     <Link
       href={`/mods/${m.name}`}
-      className="card"
+      className={`card${openable ? " openable" : ""}`}
       onMouseMove={track}
       style={
         {
@@ -65,57 +61,49 @@ export function ModuleCard({
         <span className="avatar" style={{ background: glow }}>
           {label}
         </span>
-        <div>
+        <div className="card-title-wrap">
           <div className="title">{m.name}</div>
           <div className="ver">v{m.version}</div>
         </div>
         {m.on_web && (
-          <span className="onweb" title={`Live on the web at ${gatewayUrl(m.name)}`}>
-            ● live
+          <span className="onweb" title={`Running now at ${gatewayUrl(m.name)}`}>
+            <i className="live-dot" />
+            Live
           </span>
         )}
         {m.registered && (
           <span className="onchain" title="Registered in the on-chain Registry">
-            ⛓ on-chain
+            <Icon name="chain" />
+            On-chain
           </span>
         )}
       </div>
-      <div className="desc">{m.description || "No description provided."}</div>
-      {(owner || cid) && (
-        <div className="card-meta">
-          {owner && (
-            <span className="meta-row" title={`Owner: ${owner}`}>
-              <span className="meta-k">owner</span>
-              <span className="meta-v">{shorten(owner)}</span>
+      <div className="desc">{m.description || "No description yet."}</div>
+      <div className="card-foot">
+        <div className="card-tags">
+          {staked > 0 && (
+            <span className="tag bloc" title="BlocTime staked to this module">
+              <Icon name="clock" /> {bloc(staked)} BLOC
             </span>
           )}
-          {cid && (
-            <span className="meta-row" title={`CID: ${cid}`}>
-              <span className="meta-k">cid</span>
-              <span className="meta-v">{shorten(cid)}</span>
+          {m.has_app && <span className="tag app">app</span>}
+          {m.fn_count > 0 && (
+            <span className="tag fns" title="Functions you can call over its API">
+              {m.fn_count} function{m.fn_count === 1 ? "" : "s"}
+            </span>
+          )}
+          {m.has_rust && <span className="tag rust">rust</span>}
+          {depCount > 0 && (
+            <span className="tag deps" title={`Uses: ${m.deps.join(", ")}`}>
+              uses {depCount}
             </span>
           )}
         </div>
-      )}
-      <div className="card-foot">
-        {staked > 0 && (
-          <span className="tag bloc" title="BlocTime staked to this module">
-            ⧗ {bloc(staked)} BLOC
-          </span>
-        )}
-        {m.has_rust && <span className="tag rust">rust</span>}
-        {m.has_app && <span className="tag app">app</span>}
-        {m.fn_count > 0 && <span className="tag fns">{m.fn_count} fns</span>}
-        {depCount > 0 && (
-          <span className="tag deps" title={`Depends on: ${m.deps.join(", ")}`}>
-            ↳ {depCount} dep{depCount > 1 ? "s" : ""}
-          </span>
-        )}
-        {m.port && <span className="tag">:{m.port}</span>}
+        <span className="card-open">
+          {openable ? "Open" : "Details"}
+          <Icon name="arrow-right" />
+        </span>
       </div>
-      <span className="card-go" aria-hidden>
-        →
-      </span>
     </Link>
   );
 }

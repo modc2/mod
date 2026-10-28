@@ -1,0 +1,504 @@
+"""Tail Caddy's JSON access log into a small SQLite file of who used which app.
+
+A "user" is one browser: a salted hash of the real client IP (Cloudflare's
+Cf-Connecting-Ip, else the socket address) plus the User-Agent. The raw IP is
+never written down. Every request is attributed to the app whose route it hit
+(/<app>/..., /<app>/api/..., /api/<app>/...), so an open console that polls its
+own API counts as someone using that app.
+
+    seen(app, minute, vid, hits)   one row per app x minute x user
+"""
+
+import builtins
+import collections
+import hashlib
+import ipaddress
+import json
+import os
+import re
+import secrets
+import sqlite3
+import threading
+import time
+
+LOG = os.environ.get("TRAFFIC_LOG", "/var/log/caddy/access.log")
+DIR = os.path.expanduser(os.environ.get("TRAFFIC_DIR", "~/.mod/traffic"))
+SITE = os.environ.get("TRAFFIC_SITE", "/etc/caddy/mod_site.caddy")
+KEEP_DAYS = 35
+LIVE_WINDOW = 300  # seconds: "currently using" = any request in the last 5 min
+
+BOT = re.compile(
+    r"bot|crawl|spider|slurp|curl|wget|python|httpx|aiohttp|go-http|okhttp|java/|"
+    r"headless|lighthouse|monitor|uptime|preview|scan|fetch|axios|node-fetch|"
+    r"facebookexternalhit|embedly|whatsapp|telegram|discord|slack", re.I)
+ROUTE = re.compile(r"^\s*@([A-Za-z0-9_.-]+?)_(app|api|alias)\s+path\s")
+ALIAS = re.compile(r"redir \* /([A-Za-z0-9_.-]+)\{uri\}")
+
+
+def _hdr(headers, name):
+    v = (headers or {}).get(name)
+    return v[0] if isinstance(v, list) and v else (v if isinstance(v, str) else "")
+
+
+def _internal(ip):
+    try:
+        a = ipaddress.ip_address(ip)
+        return a.is_loopback or a.is_private
+    except ValueError:
+        return False
+
+
+def load_routes(path=SITE):
+    """App names the router serves, plus alias -> target."""
+    apps, aliases, last = set(), {}, None
+    try:
+        with open(path) as f:
+            for line in f:
+                m = ROUTE.match(line)
+                if m:
+                    last = m.group(1) if m.group(2) == "alias" else None
+                    if m.group(2) != "alias":
+                        apps.add(m.group(1))
+                    continue
+                if last:
+                    a = ALIAS.search(line)
+                    if a:
+                        aliases[last] = a.group(1)
+                        last = None
+    except OSError:
+        pass
+    return apps, aliases
+
+
+def app_of(uri, apps, aliases, root="build"):
+    path = uri.split("?", 1)[0]
+    parts = [p for p in path.split("/") if p]
+    if not parts:
+        return root  # the bare host lands on /build
+    first = parts[0]
+    if first == "api" and len(parts) > 1:
+        first = parts[1]
+    first = aliases.get(first, first)
+    return first if first in apps else None
+
+
+class Store:
+    def __init__(self, dir=DIR):
+        os.makedirs(dir, exist_ok=True)
+        self.dir = dir
+        self.db = sqlite3.connect(os.path.join(dir, "traffic.db"), check_same_thread=False)
+        self.lock = threading.Lock()
+        with self.lock:
+            self.db.executescript("""
+                PRAGMA journal_mode=WAL;
+                CREATE TABLE IF NOT EXISTS seen(app TEXT, minute INTEGER, vid TEXT,
+                    hits INTEGER, PRIMARY KEY(app, minute, vid)) WITHOUT ROWID;
+                CREATE INDEX IF NOT EXISTS seen_minute ON seen(minute);
+                CREATE TABLE IF NOT EXISTS visitor(vid TEXT PRIMARY KEY, first INTEGER,
+                    last INTEGER, country TEXT);
+                CREATE TABLE IF NOT EXISTS cursor(path TEXT PRIMARY KEY, inode INTEGER,
+                    offset INTEGER);
+            """)
+        salt_path = os.path.join(dir, "salt")
+        if not os.path.exists(salt_path):
+            with open(salt_path, "w") as f:
+                f.write(secrets.token_hex(16))
+            os.chmod(salt_path, 0o600)
+        self.salt = open(salt_path).read().strip()
+        self.recent = collections.deque(maxlen=200)
+
+    def vid(self, ip, ua):
+        return hashlib.sha256(f"{self.salt}|{ip}|{ua}".encode()).hexdigest()[:16]
+
+    def add(self, rows, visitors):
+        with self.lock:
+            self.db.executemany(
+                "INSERT INTO seen VALUES(?,?,?,?) ON CONFLICT(app,minute,vid) "
+                "DO UPDATE SET hits=hits+excluded.hits", rows)
+            self.db.executemany(
+                "INSERT INTO visitor VALUES(?,?,?,?) ON CONFLICT(vid) DO UPDATE SET "
+                "last=max(last,excluded.last), first=min(first,excluded.first)", visitors)
+            self.db.commit()
+
+    def cursor(self, path):
+        r = self.db.execute("SELECT inode, offset FROM cursor WHERE path=?", (path,)).fetchone()
+        return r or (None, 0)
+
+    def set_cursor(self, path, inode, offset):
+        with self.lock:
+            self.db.execute("INSERT OR REPLACE INTO cursor VALUES(?,?,?)", (path, inode, offset))
+            self.db.commit()
+
+    def prune(self):
+        cut = int(time.time() // 60) - KEEP_DAYS * 1440
+        with self.lock:
+            self.db.execute("DELETE FROM seen WHERE minute < ?", (cut,))
+            self.db.commit()
+
+    def q(self, sql, args=()):
+        with self.lock:
+            return self.db.execute(sql, args).fetchall()
+
+
+class Collector:
+    def __init__(self, store, log=LOG, site=SITE):
+        self.store, self.log, self.site = store, log, site
+        self.apps, self.aliases = load_routes(site)
+        self.routes_at = time.time()
+        self.lines = 0
+
+    def parse(self, line):
+        """One log line -> (app, minute, vid, country, ts) or None."""
+        try:
+            e = json.loads(line)
+        except ValueError:
+            return None
+        req = e.get("request") or {}
+        h = req.get("headers") or {}
+        ua = _hdr(h, "User-Agent")
+        ip = _hdr(h, "Cf-Connecting-Ip") or req.get("client_ip") or req.get("remote_ip", "")
+        if not ua or BOT.search(ua):
+            return None
+        if not _hdr(h, "Cf-Connecting-Ip") and _internal(ip):
+            return None  # health checks, screenshots, the box talking to itself
+        app = app_of(req.get("uri", "/"), self.apps, self.aliases)
+        if not app:
+            return None
+        ts = float(e.get("ts") or time.time())
+        return app, int(ts // 60), self.store.vid(ip, ua), _hdr(h, "Cf-Ipcountry"), int(ts)
+
+    def step(self):
+        """Read whatever was appended since last time. Handles rotation."""
+        if time.time() - self.routes_at > 300:
+            self.apps, self.aliases = load_routes(self.site)
+            self.routes_at = time.time()
+        try:
+            st = os.stat(self.log)
+        except OSError:
+            return 0
+        inode, offset = self.store.cursor(self.log)
+        if inode != st.st_ino or st.st_size < offset:
+            offset = 0  # rotated or truncated: start the new file from the top
+        if st.st_size == offset:
+            return 0
+        agg, vis = {}, {}
+        with open(self.log, "rb") as f:
+            f.seek(offset)
+            chunk = f.read(32 * 1024 * 1024)
+            end = chunk.rfind(b"\n") + 1
+            for raw in chunk[:end].splitlines():
+                p = self.parse(raw)
+                if not p:
+                    continue
+                app, minute, vid, country, ts = p
+                self.store.recent.append((int(ts), app, country or ''))
+                agg[(app, minute, vid)] = agg.get((app, minute, vid), 0) + 1
+                v = vis.get(vid)
+                vis[vid] = (vid, min(v[1], ts) if v else ts, max(v[2], ts) if v else ts,
+                            country or (v[3] if v else ""))
+        if agg:
+            self.store.add([(*k, n) for k, n in agg.items()], list(vis.values()))
+        self.store.set_cursor(self.log, st.st_ino, offset + end)
+        self.lines += end and chunk[:end].count(b"\n")
+        return len(agg)
+
+    def run(self, every=2.0):
+        n = 0
+        while True:
+            try:
+                while self.step():
+                    pass
+                n += 1
+                if n % 1800 == 0:
+                    self.store.prune()
+            except Exception as e:  # noqa: BLE001 — never let the tail die
+                print("traffic collector:", e, flush=True)
+            time.sleep(every)
+
+
+# ── queries ─────────────────────────────────────────────────────────────
+
+RANGES = {  # range -> (span seconds, bucket seconds)
+    "1h": (3600, 60), "6h": (6 * 3600, 300), "24h": (86400, 900),
+    "7d": (7 * 86400, 3600), "30d": (30 * 86400, 6 * 3600),
+}
+
+
+def live(store, window=LIVE_WINDOW, now=None):
+    now = now or time.time()
+    since = int((now - window) // 60)
+    rows = store.q("SELECT app, COUNT(DISTINCT vid), SUM(hits) FROM seen WHERE minute >= ? "
+                   "GROUP BY app ORDER BY 2 DESC, 3 DESC", (since,))
+    total = store.q("SELECT COUNT(DISTINCT vid) FROM seen WHERE minute >= ?", (since,))[0][0]
+    return {"window": window, "total": total, "at": int(now),
+            "apps": [{"app": a, "users": u, "hits": h} for a, u, h in rows]}
+
+
+def series(store, range="24h", top=8, apps=None, now=None):
+    """Distinct users per bucket, per app, over the range. Apps ranked by users
+    in the range; `apps` (comma list) pins which ones come back."""
+    rng = range if range in RANGES else "24h"
+    span, step = RANGES[rng]
+    now = int(now or time.time())
+    end = (now // step + 1) * step
+    start = end - span
+    smin, per = start // 60, step // 60
+    ranked = store.q("SELECT app, COUNT(DISTINCT vid), SUM(hits) FROM seen WHERE minute >= ? "
+                     "GROUP BY app ORDER BY 2 DESC, 3 DESC", (smin,))
+    pick = [a for a in (apps.split(",") if isinstance(apps, str) else apps or []) if a]
+    names = pick or [a for a, _, _ in ranked[:int(top)]]
+    buckets = [start + i * step for i in builtins.range(span // step)]
+    out = {a: [0] * len(buckets) for a in names}
+    total = [0] * len(buckets)
+    for app, b, users in store.q(
+            "SELECT app, (minute - ?) / ? AS b, COUNT(DISTINCT vid) FROM seen "
+            "WHERE minute >= ? GROUP BY app, b", (smin, per, smin)):
+        if app in out and 0 <= b < len(buckets):
+            out[app][b] = users
+    for b, users in store.q(
+            "SELECT (minute - ?) / ? AS b, COUNT(DISTINCT vid) FROM seen WHERE minute >= ? "
+            "GROUP BY b", (smin, per, smin)):
+        if 0 <= b < len(buckets):
+            total[b] = users
+    lv = {r["app"]: r["users"] for r in live(store, now=now)["apps"]}
+    prev_smin = smin - (span // 60)
+    prev_rows = store.q("SELECT app, COUNT(DISTINCT vid) FROM seen WHERE minute >= ? AND minute < ? GROUP BY app",
+                        (prev_smin, smin))
+    prev_users = {a: u for a, u in prev_rows}
+    new_rows = store.q(
+        "SELECT s.app, COUNT(DISTINCT s.vid) FROM seen s JOIN visitor v ON s.vid=v.vid "
+        "WHERE s.minute >= ? AND v.first >= ? GROUP BY s.app",
+        (smin, smin * 60))
+    new_users = {a: u for a, u in new_rows}
+    range_unique = store.q("SELECT COUNT(DISTINCT vid) FROM seen WHERE minute >= ?", (smin,))[0][0] or 0
+    dwell_map = {a: d for a, d in store.q(
+        "SELECT app, ROUND(AVG(span), 1) FROM ("
+        "SELECT app, vid, MAX(minute) - MIN(minute) + 1 AS span "
+        "FROM seen WHERE minute >= ? GROUP BY app, vid) GROUP BY app", (smin,))}
+    return {"range": rng, "step": step, "buckets": buckets, "total": total, "range_unique": range_unique,
+            "series": [{"app": a, "values": out[a]} for a in names],
+            "table": [{"app": a, "users": u, "hits": h, "live": lv.get(a, 0), "prev": prev_users.get(a, 0),
+                       "new": new_users.get(a, 0), "dwell": dwell_map.get(a)}
+                      for a, u, h in ranked],
+            "first": (store.q("SELECT MIN(minute) FROM seen")[0][0] or 0) * 60}
+
+
+def app_series(store, range="24h", now=None):
+    """Every app's per-bucket users at once — the sparklines in the table."""
+    span, step = RANGES.get(range, RANGES["24h"])
+    now = int(now or time.time())
+    end = (now // step + 1) * step
+    smin, per, n = (end - span) // 60, step // 60, span // step
+    out = {}
+    for app, b, users in store.q(
+            "SELECT app, (minute - ?) / ? AS b, COUNT(DISTINCT vid) FROM seen "
+            "WHERE minute >= ? GROUP BY app, b", (smin, per, smin)):
+        if 0 <= b < n:
+            out.setdefault(app, [0] * n)[b] = users
+    return out
+
+
+def countries(store, range="24h", app=None, now=None):
+    """Distinct users by country over the range, top 25. Pass app to filter to one app."""
+    span, _ = RANGES.get(range, RANGES["24h"])
+    now = int(now or time.time())
+    smin = (now - span) // 60
+    if app:
+        rows = store.q(
+            "SELECT v.country, COUNT(DISTINCT s.vid) FROM seen s JOIN visitor v ON s.vid=v.vid "
+            "WHERE s.minute >= ? AND s.app = ? AND v.country != '' GROUP BY v.country ORDER BY 2 DESC LIMIT 25",
+            (smin, app))
+    else:
+        rows = store.q(
+            "SELECT v.country, COUNT(DISTINCT s.vid) FROM seen s JOIN visitor v ON s.vid=v.vid "
+            "WHERE s.minute >= ? AND v.country != '' GROUP BY v.country ORDER BY 2 DESC LIMIT 25",
+            (smin,))
+    return {"range": range, "countries": [{"code": c, "users": u} for c, u in rows]}
+
+
+def affinities(store, app, range="24h", now=None):
+    """Apps whose users overlap most with app over the range, top 6."""
+    span, _ = RANGES.get(range, RANGES["24h"])
+    now = int(now or time.time())
+    smin = (now - span) // 60
+    rows = store.q(
+        "SELECT s2.app, COUNT(DISTINCT s2.vid) FROM seen s1 "
+        "JOIN seen s2 ON s1.vid = s2.vid "
+        "WHERE s1.minute >= ? AND s1.app = ? AND s2.app != ? "
+        "GROUP BY s2.app ORDER BY 2 DESC LIMIT 6",
+        (smin, app, app))
+    return {"app": app, "range": range, "affinities": [{"app": a, "users": u} for a, u in rows]}
+
+
+def funnel(store, range="24h", now=None):
+    """How many visitors used exactly 1, 2, or 3+ apps over the range."""
+    span, _ = RANGES.get(range, RANGES["24h"])
+    now = int(now or time.time())
+    smin = (now - span) // 60
+    rows = store.q(
+        "SELECT app_count, COUNT(*) FROM ("
+        "  SELECT vid, COUNT(DISTINCT app) AS app_count FROM seen WHERE minute >= ? GROUP BY vid"
+        ") GROUP BY app_count ORDER BY app_count",
+        (smin,))
+    steps = [{"apps": c, "visitors": n} for c, n in rows]
+    return {"range": range, "steps": steps}
+
+
+def dwell(store, range="24h", now=None):
+    """Avg session length in minutes per app over the range."""
+    span, _ = RANGES.get(range, RANGES["24h"])
+    now = int(now or time.time())
+    smin = (now - span) // 60
+    rows = store.q(
+        "SELECT app, ROUND(AVG(span), 1) FROM ("
+        "SELECT app, vid, MAX(minute) - MIN(minute) + 1 AS span "
+        "FROM seen WHERE minute >= ? GROUP BY app, vid) GROUP BY app", (smin,))
+    return {"range": range, "dwell": {a: d for a, d in rows}}
+
+
+def pairs(store, range="24h", limit=10, now=None):
+    """Top app pairs co-visited by the same person over the range."""
+    span, _ = RANGES.get(range, RANGES["24h"])
+    now = int(now or time.time())
+    smin = (now - span) // 60
+    rows = store.q(
+        "SELECT s1.app, s2.app, COUNT(DISTINCT s1.vid) FROM seen s1 "
+        "JOIN seen s2 ON s1.vid = s2.vid "
+        "WHERE s1.minute >= ? AND s2.minute >= ? AND s1.app < s2.app "
+        "GROUP BY s1.app, s2.app ORDER BY 3 DESC LIMIT ?",
+        (smin, smin, limit))
+    return {"range": range, "pairs": [{"apps": [a, b], "users": u} for a, b, u in rows]}
+
+
+def cohorts(store, range="24h", now=None):
+    """Per-bucket new vs returning visitors over the range."""
+    rng = range if range in RANGES else "24h"
+    span, step = RANGES[rng]
+    now = int(now or time.time())
+    end = (now // step + 1) * step
+    start = end - span
+    smin, per = start // 60, step // 60
+    n = span // step
+    buckets = [start + i * step for i in builtins.range(n)]
+    total = [0] * n
+    for b, users in store.q(
+            "SELECT (minute - ?) / ? AS b, COUNT(DISTINCT vid) FROM seen "
+            "WHERE minute >= ? GROUP BY b", (smin, per, smin)):
+        if 0 <= b < n:
+            total[b] = users
+    new = [0] * n
+    for b, users in store.q(
+            "SELECT (s.minute - ?) / ? AS b, COUNT(DISTINCT s.vid) FROM seen s "
+            "JOIN visitor v ON s.vid=v.vid "
+            "WHERE s.minute >= ? AND v.first >= ? GROUP BY b", (smin, per, smin, smin * 60)):
+        if 0 <= b < n:
+            new[b] = users
+    returning = [max(0, total[i] - new[i]) for i in builtins.range(n)]
+    return {"range": rng, "step": step, "buckets": buckets, "new": new, "returning": returning}
+
+
+def vintage(store, app, range="24h", now=None):
+    """Visitor vintage: new today / recent (1-7d) / veteran (7+d)."""
+    span, _ = RANGES.get(range, RANGES["24h"])
+    now = int(now or time.time())
+    smin = (now - span) // 60
+    midnight_utc = (now // 86400) * 86400
+    seven_days_ago = now - 7 * 86400
+    if app:
+        row = store.q(
+            "SELECT COUNT(DISTINCT CASE WHEN v.first >= ? THEN s.vid END), "
+            "COUNT(DISTINCT CASE WHEN v.first >= ? AND v.first < ? THEN s.vid END), "
+            "COUNT(DISTINCT CASE WHEN v.first < ? THEN s.vid END) "
+            "FROM seen s JOIN visitor v ON s.vid=v.vid "
+            "WHERE s.minute >= ? AND s.app = ?",
+            (midnight_utc, seven_days_ago, midnight_utc, seven_days_ago, smin, app))
+    else:
+        row = store.q(
+            "SELECT COUNT(DISTINCT CASE WHEN v.first >= ? THEN s.vid END), "
+            "COUNT(DISTINCT CASE WHEN v.first >= ? AND v.first < ? THEN s.vid END), "
+            "COUNT(DISTINCT CASE WHEN v.first < ? THEN s.vid END) "
+            "FROM seen s JOIN visitor v ON s.vid=v.vid "
+            "WHERE s.minute >= ?",
+            (midnight_utc, seven_days_ago, midnight_utc, seven_days_ago, smin))
+    new_today, recent, veteran = row[0] if row else (0, 0, 0)
+    return {"app": app, "range": range,
+            "new": new_today or 0, "recent": recent or 0, "veteran": veteran or 0}
+
+
+def landing_apps(store, range="24h", limit=10, now=None):
+    """First app each new visitor lands on, for visitors whose first request fell in the range."""
+    span, _ = RANGES.get(range, RANGES["24h"])
+    now = int(now or time.time())
+    smin = (now - span) // 60
+    rows = store.q(
+        "SELECT s.app, COUNT(DISTINCT s.vid) FROM seen s JOIN visitor v ON s.vid=v.vid "
+        "WHERE s.minute >= ? AND s.minute = (v.first/60) "
+        "GROUP BY s.app ORDER BY 2 DESC LIMIT ?",
+        (smin, limit))
+    return {"range": range, "apps": [{"app": a, "users": u} for a, u in rows]}
+
+
+def paths(store, range="24h", limit=10, now=None):
+    """Top ordered app navigation sequences visitors take over the range."""
+    span, _ = RANGES.get(range, RANGES["24h"])
+    now = int(now or time.time())
+    smin = (now - span) // 60
+    rows = store.q(
+        "SELECT vid, app, MIN(minute) FROM seen WHERE minute >= ? "
+        "GROUP BY vid, app ORDER BY vid, MIN(minute)",
+        (smin,))
+    visitor_apps = {}
+    for vid, app, _ in rows:
+        visitor_apps.setdefault(vid, []).append(app)
+    path_counts = {}
+    for apps_seq in visitor_apps.values():
+        if len(apps_seq) >= 2:
+            key = tuple(apps_seq)
+            path_counts[key] = path_counts.get(key, 0) + 1
+    top = sorted(path_counts.items(), key=lambda x: -x[1])[:limit]
+    return {"range": range, "paths": [{"apps": list(p), "visitors": n} for p, n in top]}
+
+
+def transitions(store, range="24h", limit=15, now=None):
+    """Pairwise app-to-app step counts extracted from visitor navigation sequences."""
+    span, _ = RANGES.get(range, RANGES["24h"])
+    now = int(now or time.time())
+    smin = (now - span) // 60
+    rows = store.q(
+        "SELECT vid, app, MIN(minute) FROM seen WHERE minute >= ? "
+        "GROUP BY vid, app ORDER BY vid, MIN(minute)",
+        (smin,))
+    visitor_apps = {}
+    for vid, app, _ in rows:
+        visitor_apps.setdefault(vid, []).append(app)
+    step_counts = {}
+    for seq in visitor_apps.values():
+        for i in builtins.range(len(seq) - 1):
+            key = (seq[i], seq[i + 1])
+            step_counts[key] = step_counts.get(key, 0) + 1
+    top = sorted(step_counts.items(), key=lambda x: -x[1])[:limit]
+    return {"range": range, "transitions": [{"from": f, "to": t, "count": c} for (f, t), c in top]}
+
+
+def heatmap(store, range="30d", app=None, now=None):
+    """Distinct users by hour-of-day × day-of-week over the range."""
+    span, _ = RANGES.get(range, RANGES["30d"])
+    now = int(now or time.time())
+    smin = (now - span) // 60
+    if app:
+        rows = store.q(
+            "SELECT CAST(strftime('%w', datetime(minute*60,'unixepoch')) AS INTEGER) AS dow, "
+            "CAST(strftime('%H', datetime(minute*60,'unixepoch')) AS INTEGER) AS hr, "
+            "COUNT(DISTINCT vid) FROM seen WHERE minute >= ? AND app = ? GROUP BY dow, hr",
+            (smin, app))
+    else:
+        rows = store.q(
+            "SELECT CAST(strftime('%w', datetime(minute*60,'unixepoch')) AS INTEGER) AS dow, "
+            "CAST(strftime('%H', datetime(minute*60,'unixepoch')) AS INTEGER) AS hr, "
+            "COUNT(DISTINCT vid) FROM seen WHERE minute >= ? GROUP BY dow, hr",
+            (smin,))
+    grid = [[0] * 24 for _ in builtins.range(7)]
+    for dow, hr, u in rows:
+        grid[dow][hr] = u
+    return {"range": range, "grid": grid,
+            "days": ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]}

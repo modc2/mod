@@ -1,0 +1,14 @@
+{
+  "name": "autostrat",
+  "mod": "polymarket.agents.autostrat",
+  "title": "AUTO STRAT",
+  "glyph": "∞",
+  "kind": "background",
+  "route": "/_api/autostrat",
+  "query": "run=1",
+  "tools": "spawns lab-style runs",
+  "description": "The strat factory: a loop that invents a random new strat every interval while its own ENABLED setting is on. Switching the agent off stops the loop AND blocks manual runs; its own settings are left untouched.",
+  "default_enabled": true,
+  "order": 7,
+  "version": "0.1.0"
+}

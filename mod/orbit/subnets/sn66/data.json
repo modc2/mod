@@ -1,0 +1,189 @@
+{
+  "netuid": 66,
+  "name": "conjectures",
+  "symbol": "ض",
+  "owner": "5CJCRGep3iyMUoaRb1FVNqXSuU8bcijfDBwVvZiQHSmGPTjT",
+  "description": "Incentivizing breakthroughs on decades-old open mathematical conjectures",
+  "github": "https://github.com/conjectures-io/conjectures-validator",
+  "url": "https://conjectures.io",
+  "discord": "wejh",
+  "logo": "https://conjectures.io/favicon.svg",
+  "registered_at": 4958013,
+  "tempo": 360,
+  "active": true,
+  "block": 9322663,
+  "related": [],
+  "market": {
+    "price": 0.002598392,
+    "moving_price": 0.002579932799562812,
+    "market_cap": 15689.88291591246,
+    "tao_in": 6278.127436429,
+    "alpha_in": 2416158.719834363,
+    "alpha_out": 3622146.091723115,
+    "volume": 1434817.052730472,
+    "vol_24h": 1038.9410132351331,
+    "emission": 0.0,
+    "change_1h": -0.0006542465023628985,
+    "change_24h": 4.512337272132738,
+    "change_7d": -11.213377626549681
+  },
+  "spark_24h": [
+    0.002486206,
+    0.00249025,
+    0.00256157,
+    0.002587323,
+    0.002589254,
+    0.002589254,
+    0.00258927,
+    0.00258927,
+    0.002593401,
+    0.002593392,
+    0.002593386,
+    0.002593386,
+    0.002595133,
+    0.002595019,
+    0.002594457,
+    0.002594455,
+    0.002594455,
+    0.002594455,
+    0.002578573,
+    0.002573294,
+    0.002573712,
+    0.002573762,
+    0.002572876,
+    0.002572876,
+    0.00258524,
+    0.002585242,
+    0.002585262,
+    0.002585268,
+    0.002572904,
+    0.002572904,
+    0.002599665,
+    0.002599665,
+    0.002599665,
+    0.002599665,
+    0.00259593,
+    0.00259593,
+    0.00259593,
+    0.00259593,
+    0.00259593,
+    0.002595929,
+    0.002595929,
+    0.002595929,
+    0.002598411,
+    0.00259841,
+    0.002598409,
+    0.002598409,
+    0.002598409,
+    0.002598392
+  ],
+  "trades_24h": {
+    "trades": 100,
+    "buys": 59,
+    "sells": 41,
+    "buy_tao": 587.998545422,
+    "sell_tao": 449.534565847,
+    "net_tao": 138.463979575,
+    "traders": 50
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5Gy3ybnsXLe4HSArvQLdBDK2zn53xH77cQ7Bt78dnihQ268b",
+      "net_tao": -0.025706528000000617,
+      "gross_tao": 104.025706528,
+      "trades": 9
+    },
+    {
+      "coldkey": "5DcWiQsFhyUhU5sMNiN4Xkgu8UDA8qyNraKxVWY8o3biytnP",
+      "net_tao": 100.0,
+      "gross_tao": 100.0,
+      "trades": 3
+    },
+    {
+      "coldkey": "5Cw2qFy2tZy9ZLt4LsJc9b68nffQndZDHF1KZynmVbA4Z3pC",
+      "net_tao": -0.12489673000000145,
+      "gross_tao": 90.12489673,
+      "trades": 4
+    },
+    {
+      "coldkey": "5Gb23Q7n115ypiHr6jAMRhkhADhEkRFYa5ovgipVApqMt3FV",
+      "net_tao": 0.03217567199999927,
+      "gross_tao": 63.967824328,
+      "trades": 4
+    },
+    {
+      "coldkey": "5D31yczGiq9tVJwGgX87sWBks1g6RST5Tju5aajGycvvrijb",
+      "net_tao": 0.030008092999999292,
+      "gross_tao": 59.969991907,
+      "trades": 4
+    }
+  ],
+  "news": [
+    {
+      "ts": 1792435840,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #134 from conjectures-io/hotfix/chat-log-no-omissions",
+      "url": "https://github.com/conjectures-io/conjectures-validator/commit/8c202ab8a03efd5bdefa8530893d99ec731ceae2",
+      "publisher": "conjectures-io/conjectures-validator"
+    },
+    {
+      "ts": 1792435340,
+      "kind": "commit",
+      "source": "github",
+      "title": "Publish no-omissions chat-log packaging guide",
+      "url": "https://github.com/conjectures-io/conjectures-validator/commit/70f51fa904ce403fc529bc374b3acc5030bd9ce9",
+      "publisher": "conjectures-io/conjectures-validator"
+    },
+    {
+      "ts": 1792422636,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #132 from conjectures-io/ci/dev-deploy-pipeline",
+      "url": "https://github.com/conjectures-io/conjectures-validator/commit/8c2fce4a4bb62c274c0b32bc8e827b94ab711466",
+      "publisher": "conjectures-io/conjectures-validator"
+    },
+    {
+      "ts": 1792421814,
+      "kind": "commit",
+      "source": "github",
+      "title": "Unlock the deploy account for key logins on servers without PAM",
+      "url": "https://github.com/conjectures-io/conjectures-validator/commit/ef384de02b4cf252fde31fe2ec882c89384ac1a2",
+      "publisher": "conjectures-io/conjectures-validator"
+    },
+    {
+      "ts": 1792420685,
+      "kind": "commit",
+      "source": "github",
+      "title": "Publish a release with generated notes for every production deploy, a…",
+      "url": "https://github.com/conjectures-io/conjectures-validator/commit/e71d807458715de35ef87cbba40b065cefb7c8b5",
+      "publisher": "conjectures-io/conjectures-validator"
+    },
+    {
+      "ts": 1792419976,
+      "kind": "commit",
+      "source": "github",
+      "title": "Deploy dev to the dev server from GitHub Actions after every merge",
+      "url": "https://github.com/conjectures-io/conjectures-validator/commit/e8eb4f868a2ab8b11bf223c3ed57a312d60085c5",
+      "publisher": "conjectures-io/conjectures-validator"
+    },
+    {
+      "ts": 1792419976,
+      "kind": "commit",
+      "source": "github",
+      "title": "Document the deploy pipeline, the release process and the rules for a…",
+      "url": "https://github.com/conjectures-io/conjectures-validator/commit/8a2613d8b5af38caaa05d146c2b97c7a856e547d",
+      "publisher": "conjectures-io/conjectures-validator"
+    },
+    {
+      "ts": 1792339890,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #130 from conjectures-io/codex/mathlib-headers-202…",
+      "url": "https://github.com/conjectures-io/conjectures-validator/commit/c50b5d55b0025f7fc164a8e92c4be9beefd75f64",
+      "publisher": "conjectures-io/conjectures-validator"
+    }
+  ],
+  "updated": 1792474861,
+  "updated_day": "2026-10-20"
+}

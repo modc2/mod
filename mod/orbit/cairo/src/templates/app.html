@@ -1,0 +1,644 @@
+<!doctype html>
+<!--
+  The default app every Cairo contract gets, served at /cairo/<name>/.
+
+  One plain file, no build step, no dependencies: it reads the contract's ABI
+  from <base>/_api/app?name=<name> and renders a small app over it —
+  reads (views, auto-refreshed), writes (transactions signed by a sandbox
+  account you pick), a deploy form for the constructor, and a live event log.
+  Everything runs against the module's local starknet-devnet.
+
+  Two views of the same page:
+    SIMPLE     (default) plain words, no types/hashes/felts, visual outputs,
+               people instead of addresses. Shaped by the contract's
+               optional app.json (labels, hidden inputs/outputs, visuals,
+               event sentences) — see docs/simple-apps.md.
+    DEVELOPER  every entrypoint, signature, raw value and tx hash.
+
+  A contract that wants its own UI ships src/mods/<name>/app/index.html; it
+  replaces this page for that contract only. Copying this file is the easiest
+  start.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>contract app</title>
+<style>
+  /* the same Inter + JetBrains Mono the console ships (src/app/public/fonts) */
+  @font-face { font-family: 'Inter'; font-style: normal; font-weight: 100 900; font-display: swap;
+    src: url('/cairo/fonts/inter-latin.woff2') format('woff2'); }
+  @font-face { font-family: 'JetBrains Mono'; font-style: normal; font-weight: 100 800; font-display: swap;
+    src: url('/cairo/fonts/jetbrains-mono-latin.woff2') format('woff2'); }
+  :root {
+    --bg: #0d0b0a; --panel: #171311; --panel-2: #201a17; --line: #3a2f29;
+    --text: #f1ebe7; --muted: #a3958c; --accent: #ff6b4a; --accent-dim: #d4502f;
+    --ok: #34d399; --bad: #f87171; --r: 10px;
+    --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --sans: 'Inter', system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.45 var(--sans); }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 22px 18px 60px; }
+  header { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+  .logo { width: 42px; height: 42px; border-radius: 10px; display: grid; place-items: center;
+    font-weight: 800; font-size: 20px; color: #fff;
+    background: linear-gradient(135deg, var(--accent), var(--accent-dim)); flex: none; }
+  h1 { margin: 0; font-size: 22px; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); font-size: 13px; margin-top: 2px; max-width: 620px; }
+  .grow { flex: 1; min-width: 200px; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 18px 0 14px; }
+  .pill { font: 11px var(--mono); padding: 4px 9px; border-radius: 999px;
+    border: 1px solid var(--line); color: var(--muted); cursor: default; white-space: nowrap; }
+  .pill.ok { color: var(--ok); border-color: #1f5b45; }
+  .pill.bad { color: var(--bad); border-color: #6b2b2b; }
+  .pill.click { cursor: pointer; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
+  .seg button { background: transparent; border: 0; color: var(--muted); padding: 5px 12px;
+    font: 12px var(--mono); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+  .seg button.on { background: var(--accent); color: #fff; }
+  .seg button:not(.on):hover { color: var(--text); background: var(--panel-2); }
+  .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 820px) { .grid { grid-template-columns: 1fr; } }
+  section > .label { margin: 4px 2px 8px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r);
+    padding: 14px; margin-bottom: 12px; }
+  .card.hero { border-color: #5a3426; background: linear-gradient(180deg, #221713, var(--panel)); }
+  .card.intro { border-style: dashed; }
+  .intro ol { margin: 8px 0 0; padding-left: 20px; color: var(--muted); }
+  .intro li { margin: 2px 0; }
+  .fn { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+  .fn b { font: 600 14px var(--mono); }
+  .fn .sig { color: var(--muted); font: 12px var(--mono); overflow-wrap: anywhere; }
+  .simple .fn b { font: 600 15px var(--sans); }
+  .help { color: var(--muted); font-size: 12.5px; margin: -4px 0 10px; }
+  .field { display: flex; flex-direction: column; gap: 3px; margin-bottom: 8px; }
+  .field > span { font: 11px var(--mono); color: var(--muted); }
+  .simple .field > span { font: 12.5px var(--sans); }
+  input, select { width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--line);
+    border-radius: 7px; padding: 7px 9px; font: 13px var(--mono); }
+  input:focus, select:focus { outline: none; border-color: var(--accent); }
+  .row { display: flex; gap: 8px; align-items: center; }
+  button.go { background: var(--accent); color: #fff; border: 0; border-radius: 7px;
+    padding: 7px 14px; font: 600 12px var(--mono); letter-spacing: 0.04em; cursor: pointer; }
+  .simple button.go { font: 600 13px system-ui, sans-serif; letter-spacing: 0; padding: 8px 16px; }
+  button.go:hover { background: var(--accent-dim); }
+  button.go.ghost { background: transparent; border: 1px solid var(--line); color: var(--muted); }
+  button.go.ghost:hover { color: var(--text); border-color: var(--muted); }
+  button.go:disabled { opacity: 0.5; cursor: wait; }
+  .value { font: 600 20px var(--mono); overflow-wrap: anywhere; margin-top: 2px; }
+  .big { font: 700 34px/1.1 system-ui, sans-serif; letter-spacing: -0.02em; overflow-wrap: anywhere; }
+  .big small { font-size: 15px; font-weight: 500; color: var(--muted); margin-left: 6px; }
+  .num { font: 600 18px system-ui, sans-serif; }
+  .meter { height: 10px; border-radius: 999px; background: var(--panel-2); margin-top: 10px; overflow: hidden; }
+  .meter > i { display: block; height: 100%; border-radius: 999px; background: var(--accent); }
+  .meter-cap { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-top: 4px; }
+  .spark { display: block; width: 100%; height: 44px; margin-top: 8px; overflow: visible; }
+  .spark-cap { font-size: 11px; color: var(--muted); }
+  .badge { display: inline-flex; align-items: center; gap: 7px; font: 600 15px var(--sans);
+    padding: 5px 12px; border-radius: 999px; border: 1px solid var(--line); }
+  .badge::before { content: ''; width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+  .badge.yes { color: var(--ok); border-color: #1f5b45; }
+  .badge.yes::before { background: var(--ok); }
+  .badge.no { color: var(--muted); }
+  .who-chip { display: inline-flex; align-items: center; gap: 7px; font: 600 14px system-ui, sans-serif; }
+  .ava { width: 22px; height: 22px; border-radius: 50%; display: inline-grid; place-items: center;
+    font: 700 11px system-ui, sans-serif; color: #fff; flex: none; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chips span { padding: 3px 9px; border-radius: 999px; background: var(--panel-2); font: 12px var(--mono); }
+  .out { margin-top: 8px; font: 12px var(--mono); white-space: pre-wrap; overflow-wrap: anywhere;
+    padding: 8px 10px; border-radius: 7px; background: var(--panel-2); }
+  .simple .out { font: 13px system-ui, sans-serif; }
+  .out.err { color: var(--bad); background: #2a1515; }
+  .out.ok { color: var(--ok); }
+  .muted { color: var(--muted); }
+  .empty { color: var(--muted); font-size: 13px; padding: 6px 2px; }
+  table { width: 100%; border-collapse: collapse; font: 12px var(--mono); }
+  td, th { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; }
+  td.ev { color: var(--accent); white-space: nowrap; }
+  td.f { overflow-wrap: anywhere; }
+  .feed { list-style: none; margin: 0; padding: 0; }
+  .feed li { display: flex; gap: 10px; align-items: center; padding: 7px 2px; border-bottom: 1px solid var(--line); }
+  .feed li:last-child { border-bottom: 0; }
+  .feed .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex: none; }
+  .notice { padding: 28px; text-align: center; color: var(--muted); }
+  .warn { color: #fbbf24; font: 12px var(--mono); margin: -6px 0 10px; }
+  .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--panel-2);
+    border: 1px solid var(--line); padding: 8px 14px; border-radius: 8px; font: 12px var(--mono);
+    opacity: 0; transition: opacity .2s; pointer-events: none; }
+  .toast.on { opacity: 1; }
+  /* inside the workbench's APP tab: the console already has the header */
+  html.embedded .wrap { padding-top: 16px; }
+  html.embedded .logo, html.embedded #bench { display: none; }
+  html.embedded h1 { font-size: 19px; }
+</style>
+<script>if (window.self !== window.top) document.documentElement.classList.add('embedded');</script>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="logo" id="logo">C</div>
+    <div class="grow">
+      <h1 id="title">loading…</h1>
+      <div class="sub" id="desc"></div>
+    </div>
+    <a id="bench" href="#">workbench</a>
+  </header>
+  <div class="bar" id="bar"></div>
+  <div id="main"><div class="notice">loading contract…</div></div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+// ---- where am I: /<base>/<contract>/ -> API at /<base>/_api/<fn> ----------
+const segs = location.pathname.replace(/\/index\.html$/, '').split('/').filter(Boolean);
+const NAME = decodeURIComponent(segs[segs.length - 1] || '');
+const BASE = '/' + segs.slice(0, -1).join('/');
+const API = (BASE === '/' ? '' : BASE) + '/_api/';
+const ACCT_KEY = 'cairo.app.account';
+const ARGS_KEY = 'cairo.app.args.' + NAME;
+const MODE_KEY = 'cairo.app.mode.' + NAME;
+
+let S = null;            // the app() payload
+let U = {};              // its app.json (the plain-language layer)
+let busy = false;
+let account = localStorage.getItem(ACCT_KEY) || 'alice';
+let mode = localStorage.getItem(MODE_KEY);   // 'simple' | 'developer'; null = app.json / simple
+const saved = JSON.parse(localStorage.getItem(ARGS_KEY) || '{}');
+const simple = () => mode === 'simple';
+
+const $ = (id) => document.getElementById(id);
+const el = (tag, attrs = {}, ...kids) => {
+  const n = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === 'class') n.className = v;
+    else if (k.startsWith('on')) n.addEventListener(k.slice(2), v);
+    else if (v !== undefined && v !== null && v !== false) n.setAttribute(k, v);
+  }
+  for (const k of kids.flat()) if (k != null) n.append(k.nodeType ? k : String(k));
+  return n;
+};
+const short = (a) => a ? a.slice(0, 6) + '…' + a.slice(-4) : '';
+// total_claimed -> Total claimed
+const human = (s) => { s = String(s || '').replace(/_/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase().trim();
+  return s.charAt(0).toUpperCase() + s.slice(1); };
+
+function toast(msg) {
+  const t = $('toast'); t.textContent = msg; t.classList.add('on');
+  clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('on'), 1600);
+}
+
+async function api(fn, body) {
+  const headers = { 'Content-Type': 'application/json' };
+  // the workbench console's owner sign-in, if any: lets owner-only actions
+  // (redeploy) through. Not needed for anything else here.
+  const tok = localStorage.getItem('cairo.token') || localStorage.getItem('starknet.studio.token');
+  if (tok) headers.Authorization = 'Bearer ' + tok;
+  const r = body === undefined
+    ? await fetch(API + fn + '?name=' + encodeURIComponent(NAME), { headers })
+    : await fetch(API + fn, { method: 'POST', headers, body: JSON.stringify({ name: NAME, ...body }) });
+  let j = {};
+  try { j = await r.json(); } catch (e) { j = { error: 'bad response (' + r.status + ')' }; }
+  if (r.status === 403) j = { ok: false, error: j.error || 'owner only' };
+  return j;
+}
+
+// ---- app.json lookups -------------------------------------------------------
+// fns.<fn>               {label, help, button, hide, show, unit, decimals, max, yes, no, inputs}
+// fns.<fn>.inputs.<arg>  {label, help, placeholder, default, value, hide}
+// constructor.inputs     same as fn inputs
+// events.<Event>         {say: "{who} claimed {amount}", decimals, hide}
+const fnUi = (name) => (U.fns || {})[name] || {};
+const argUi = (key, arg) => ((key === 'constructor' ? U.constructor : fnUi(key)) || {}).inputs?.[arg] || {};
+const fnHidden = (f) => { const u = fnUi(f.name); return u.hide === true || u.show === 'hide'; };
+// an input the simple view never asks for: a fixed value, an explicit hide,
+// or an address nobody set (it means "me")
+const argHidden = (key, inp) => { const u = argUi(key, inp.name); return 'value' in u || u.hide === true; };
+
+// ---- numbers: BigInt-safe display + decimals --------------------------------
+const isInt = (ty) => /^u(8|16|32|64|128|256)$|^usize$|^i\d+$/.test(ty);
+const groupDigits = (s) => s.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+function fromUnits(str, dec) {
+  str = String(str); if (!dec || !/^-?\d+$/.test(str)) return str;
+  const neg = str.startsWith('-'); if (neg) str = str.slice(1);
+  str = str.padStart(dec + 1, '0');
+  const whole = str.slice(0, -dec), frac = str.slice(-dec).replace(/0+$/, '');
+  return (neg ? '-' : '') + whole + (frac ? '.' + frac : '');
+}
+function toUnits(str, dec) {
+  str = String(str).trim().replace(/,/g, ''); if (!dec || !/^-?\d*\.?\d*$/.test(str) || !str) return str;
+  const [w, f = ''] = str.split('.');
+  return (BigInt((w || '0') + f.padEnd(dec, '0').slice(0, dec))).toString();
+}
+const prettyNum = (s, dec) => { const v = fromUnits(s, dec); const [w, f] = v.split('.'); return groupDigits(w) + (f ? '.' + f : ''); };
+
+// ---- people: addresses <-> alice/bob/... ------------------------------------
+const HUES = [12, 160, 210, 280, 40, 330, 100, 190];
+function personOf(v) {
+  const m = String(v).match(/^(0x[0-9a-fA-F]+)(?: \((\w+)\))?$/);
+  if (!m) return null;
+  const known = S.accounts.find((a) => BigInt(a.address) === BigInt(m[1]));
+  return { address: m[1], name: m[2] || known?.name || null };
+}
+function avatar(p) {
+  const key = p.name || p.address; let h = 0;
+  for (const c of key) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return el('span', { class: 'ava', style: `background:hsl(${HUES[h % HUES.length]} 55% 45%)` },
+    (p.name || '#').slice(0, 1).toUpperCase());
+}
+const personChip = (p) => el('span', { class: 'who-chip', title: p.address }, avatar(p),
+  p.name ? (p.name === account ? p.name + ' (you)' : p.name) : short(p.address));
+const plainText = (v) => { const m = String(v).match(/^\S+ '(.*)'$/); return m ? m[1] : String(v); };
+
+// ---- outputs: pick a visual -------------------------------------------------
+// show: big | number | meter | chart | yesno | address | text | list | raw
+function autoShow(ty, zeroArgView) {
+  if (ty === 'bool') return 'yesno';
+  if (ty === 'ContractAddress') return 'address';
+  if (isInt(ty)) return zeroArgView ? 'big' : 'number';
+  if (ty === 'felt252' || ty === 'ByteArray' || ty === 'bytes31') return zeroArgView ? 'big' : 'text';
+  if (/^(Span|Array)</.test(ty)) return 'list';
+  return 'raw';
+}
+
+function visual(f, value) {
+  const u = fnUi(f.name);
+  const ty = f.outputs[0] || '';
+  const show = u.show || autoShow(ty, !f.inputs.length);
+  if (Array.isArray(value) && value.length === 1 && f.outputs.length === 1) value = value[0];
+  const unit = u.unit ? el('small', {}, u.unit) : null;
+  const numText = () => isInt(ty) ? prettyNum(value, u.decimals) : plainText(value);
+  switch (show) {
+    case 'yesno': {
+      const yes = value === true || value === 'true' || value === '1';
+      return el('span', { class: 'badge ' + (yes ? 'yes' : 'no') }, yes ? (u.yes || 'Yes') : (u.no || 'No'));
+    }
+    case 'address': { const p = personOf(value); return p ? personChip(p) : el('span', {}, String(value)); }
+    case 'big': return el('div', { class: 'big' }, numText(), unit);
+    case 'number': return el('div', { class: 'num' }, numText(), unit);
+    case 'text': return el('div', { class: 'num' }, plainText(value));
+    case 'meter': {
+      // max is in display units (after decimals), like what the user reads
+      const max = Number(u.max ?? 100), v = Number(fromUnits(value, u.decimals));
+      const pct = Math.max(0, Math.min(100, max ? (v / max) * 100 : 0));
+      return el('div', {}, el('div', { class: 'big' }, numText(), unit),
+        el('div', { class: 'meter', role: 'meter', 'aria-valuenow': v, 'aria-valuemax': max },
+          el('i', { style: `width:${pct}%` })),
+        el('div', { class: 'meter-cap' }, el('span', {}, '0'), el('span', {}, groupDigits(String(u.max ?? 100)))));
+    }
+    case 'chart': return el('div', {}, el('div', { class: 'big' }, numText(), unit), spark(f.name, value, u.decimals));
+    case 'list': {
+      const xs = Array.isArray(value) ? value : [value];
+      return xs.length ? el('div', { class: 'chips' }, xs.map((x) => {
+        const p = personOf(x); return p ? personChip(p) : el('span', {}, isInt(ty) ? prettyNum(x) : plainText(x));
+      })) : el('span', { class: 'muted' }, 'empty');
+    }
+    default: return el('div', { class: 'value' }, fmt(value));
+  }
+}
+
+// a sparkline of the values this browser has seen, one history per deployment
+function spark(fn, value, dec) {
+  const key = 'cairo.app.hist.' + NAME + '.' + (S.deployment?.address || '') + '.' + fn;
+  const h = JSON.parse(localStorage.getItem(key) || '[]');
+  const n = Number(fromUnits(String(value).split(' ')[0], dec));
+  if (!Number.isFinite(n)) return null;
+  if (!h.length || h[h.length - 1][1] !== n) { h.push([Date.now(), n]); localStorage.setItem(key, JSON.stringify(h.slice(-60))); }
+  const pts = h.slice(-60);
+  if (pts.length < 2) return el('div', { class: 'spark-cap' }, 'a chart appears here once it changes');
+  const W = 300, H = 40, lo = Math.min(...pts.map((p) => p[1])), hi = Math.max(...pts.map((p) => p[1]));
+  const x = (i) => (i / (pts.length - 1)) * W, y = (v) => hi === lo ? H / 2 : H - 4 - ((v - lo) / (hi - lo)) * (H - 8);
+  const NS = 'http://www.w3.org/2000/svg', svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`); svg.setAttribute('preserveAspectRatio', 'none'); svg.setAttribute('class', 'spark');
+  const line = document.createElementNS(NS, 'polyline');
+  line.setAttribute('points', pts.map((p, i) => x(i) + ',' + y(p[1])).join(' '));
+  line.setAttribute('fill', 'none'); line.setAttribute('stroke', 'var(--accent)'); line.setAttribute('stroke-width', '2');
+  line.setAttribute('vector-effect', 'non-scaling-stroke'); line.setAttribute('stroke-linejoin', 'round');
+  svg.append(line);
+  pts.forEach((p, i) => {   // hover targets bigger than the mark
+    const hit = document.createElementNS(NS, 'rect');
+    hit.setAttribute('x', x(i) - W / pts.length / 2); hit.setAttribute('y', 0);
+    hit.setAttribute('width', W / pts.length); hit.setAttribute('height', H); hit.setAttribute('fill', 'transparent');
+    const t = document.createElementNS(NS, 'title');
+    t.textContent = groupDigits(String(p[1])) + ' · ' + new Date(p[0]).toLocaleTimeString(); hit.append(t); svg.append(hit);
+  });
+  return el('div', {}, svg, el('div', { class: 'meter-cap' }, el('span', {}, 'low ' + groupDigits(String(lo))), el('span', {}, 'high ' + groupDigits(String(hi)))));
+}
+
+// ---- type-aware inputs ------------------------------------------------------
+function hint(ty) {
+  if (ty === 'bool') return null;
+  if (ty === 'ContractAddress') return simple() ? 'an address (0x…)' : '0x… or alice / bob / carol / dave';
+  if (ty === 'felt252') return simple() ? 'a number, or a short word in quotes' : "number, 0x…, or 'short text'";
+  if (isInt(ty)) return /^i/.test(ty) ? 'a number (can be negative)' : 'a number';
+  if (ty === 'ByteArray') return 'text';
+  if (/^(Span|Array)</.test(ty)) return simple() ? 'a list, separated by commas' : 'comma separated, or a JSON array';
+  if (ty.startsWith('(')) return 'JSON array, e.g. [1, 2]';
+  return 'JSON';
+}
+
+function inputFor(key, inp) {
+  const id = key + '.' + inp.name;
+  const u = argUi(key, inp.name);
+  const keep = (v) => { saved[id] = v; localStorage.setItem(ARGS_KEY, JSON.stringify(saved)); };
+  const fixed = 'value' in u ? String(u.value) : null;
+  const start = saved[id] ?? u.default ?? fixed ?? (inp.type === 'ContractAddress' ? 'me' : '');
+  let ctl;
+  if (simple() && argHidden(key, inp)) {
+    // not shown: always send the fixed value (or the default, or "me")
+    ctl = el('input', { type: 'hidden' });
+    ctl._get = () => { const v = fixed ?? u.default ?? (inp.type === 'ContractAddress' ? 'me' : ''); return v === 'me' ? account : v; };
+    ctl.dataset.arg = inp.name;
+    return ctl;
+  }
+  if (inp.type === 'bool') {
+    ctl = el('select', { onchange: (e) => keep(e.target.value) },
+      el('option', { value: 'false' }, simple() ? 'No' : 'false'), el('option', { value: 'true' }, simple() ? 'Yes' : 'true'));
+    ctl.value = start === 'true' ? 'true' : 'false';
+  } else if (inp.type === 'ContractAddress' && simple()) {
+    // pick a person; "someone else" opens a raw address box
+    const other = el('input', { placeholder: hint(inp.type), spellcheck: 'false', autocomplete: 'off', hidden: true,
+      oninput: (e) => keep(e.target.value) });
+    const pick = el('select', { onchange: () => { other.hidden = pick.value !== '*'; keep(pick.value === '*' ? other.value : pick.value); } },
+      el('option', { value: 'me' }, 'me (' + account + ')'),
+      S.accounts.map((a) => el('option', { value: a.name }, a.name)),
+      el('option', { value: '*' }, 'someone else…'));
+    const named = start === 'me' || S.accounts.some((a) => a.name === start);
+    pick.value = named ? start : '*'; other.hidden = named; if (!named) other.value = start;
+    ctl = el('div', {}, pick, other);
+    ctl._get = () => pick.value === '*' ? other.value : (pick.value === 'me' ? account : pick.value);
+  } else {
+    ctl = el('input', { placeholder: u.placeholder || hint(inp.type), spellcheck: 'false', autocomplete: 'off',
+      list: inp.type === 'ContractAddress' ? 'acct-list' : null,
+      oninput: (e) => keep(e.target.value) });
+    ctl.value = start === 'me' ? account : start;
+    if (simple() && isInt(inp.type) && fnDec(key, inp)) ctl._get = () => toUnits(ctl.value, fnDec(key, inp));
+  }
+  ctl.dataset.arg = inp.name;
+  const label = simple() ? (u.label || human(inp.name)) : inp.name + ': ' + inp.type;
+  return el('label', { class: 'field' }, el('span', {}, label), ctl,
+    simple() && u.help ? el('div', { class: 'help', style: 'margin:2px 0 0' }, u.help) : null);
+}
+// amounts typed as "1.5" when the input (or its fn) declares decimals
+const fnDec = (key, inp) => argUi(key, inp.name).decimals ?? (key === 'constructor' ? undefined : fnUi(key).decimals);
+
+function readArgs(card) {
+  const out = {};
+  card.querySelectorAll('[data-arg]').forEach((c) => { out[c.dataset.arg] = c._get ? c._get() : (c.value === 'me' ? account : c.value); });
+  return out;
+}
+
+function show(box, res, okText) {
+  box.hidden = false;
+  if (!res.ok) { box.className = 'out err'; box.textContent = (simple() ? 'That did not go through: ' : '') + (res.error || 'failed'); return; }
+  box.className = 'out ' + (okText ? 'ok' : '');
+  box.textContent = okText || fmt(res.result);
+}
+
+function fmt(v) {
+  if (Array.isArray(v) && v.length === 1) v = v[0];
+  if (Array.isArray(v) && v.length === 0) return '()';
+  return typeof v === 'string' ? v : JSON.stringify(v, null, 2);
+}
+
+// ---- events as sentences ----------------------------------------------------
+function fieldText(v, dec) {
+  const p = personOf(v); if (p) return p.name || (BigInt(p.address) === 0n ? 'nobody' : short(p.address));
+  if (typeof v === 'string' && /^-?\d+$/.test(v)) return prettyNum(v, dec);
+  return plainText(typeof v === 'string' ? v : JSON.stringify(v));
+}
+function sentence(e) {
+  const u = (U.events || {})[e.event] || {};
+  const f = e.fields || {};
+  if (u.say) return u.say.replace(/\{(\w+)\}/g, (_, k) => k in f ? fieldText(f[k], u.decimals) : '{' + k + '}');
+  const parts = Object.entries(f).map(([k, v]) => human(k).toLowerCase() + ' ' + fieldText(v, u.decimals));
+  return human(e.event || 'something happened') + (parts.length ? ': ' + parts.join(', ') : '');
+}
+const eventHidden = (e) => simple() && ((U.events || {})[e.event] || {}).hide === true;
+
+// ---- render -----------------------------------------------------------------
+function contract() { return (S.abi || [])[0]; }
+
+function renderBar() {
+  const bar = $('bar'); bar.replaceChildren();
+  const d = S.deployment;
+  const live = d && d.live;
+  if (simple()) {
+    bar.append(el('span', { class: 'pill ' + (live ? 'ok' : 'bad') },
+      S.state === 'unbuilt' ? 'not ready yet' : live ? 'running' : 'not started'));
+    bar.append(el('span', { class: 'pill', title: 'a private test chain on this server: free, nothing is real money' }, 'practice chain'));
+  } else {
+    if (S.state === 'unbuilt') bar.append(el('span', { class: 'pill bad' }, 'not built'));
+    else if (!live) bar.append(el('span', { class: 'pill bad' }, d ? 'sandbox was reset' : 'not deployed'));
+    else bar.append(el('span', { class: 'pill ok click', title: 'copy address',
+      onclick: () => { navigator.clipboard?.writeText(d.address); toast('address copied'); } },
+      'live at ' + short(d.address)));
+    if (S.state === 'stale') bar.append(el('span', { class: 'pill', title: 'source changed since the last build' }, 'source changed'));
+    bar.append(el('span', { class: 'pill' }, 'local devnet'));
+  }
+  bar.append(el('span', { class: 'grow' }));
+  if (S.accounts.length) {
+    bar.append(el('span', { class: 'label' }, simple() ? 'you are' : 'act as'));
+    const who = el('div', { class: 'seg' });
+    for (const a of S.accounts) {
+      who.append(el('button', { class: a.name === account ? 'on' : '', title: a.address,
+        onclick: () => { account = a.name; localStorage.setItem(ACCT_KEY, account); render(); } },
+        simple() ? avatar(a) : null, a.name));
+    }
+    bar.append(who);
+  }
+  const view = el('div', { class: 'seg', title: 'Simple hides types, hashes and raw values' });
+  for (const m of ['simple', 'developer']) {
+    view.append(el('button', { class: mode === m ? 'on' : '',
+      onclick: () => { mode = m; localStorage.setItem(MODE_KEY, m); render(); } }, m));
+  }
+  bar.append(view);
+  const dl = el('datalist', { id: 'acct-list' }, S.accounts.map((a) => el('option', { value: a.name }, a.address)));
+  bar.append(dl);
+}
+
+function deployCard(redeploy) {
+  const c = contract();
+  const ctor = c.constructor || [];
+  const card = el('div', { class: 'card hero' });
+  const verb = simple() ? (redeploy ? 'Start over' : 'Start') : (redeploy ? 'redeploy' : 'deploy');
+  if (simple()) {
+    card.append(el('div', { class: 'fn' }, el('b', {}, redeploy ? 'Start a fresh copy' : 'Start this app')));
+    card.append(el('div', { class: 'help', style: 'margin:0 0 10px' }, redeploy
+      ? 'Puts a brand new copy on the practice chain. The old one, and everything in it, is left behind.'
+      : (U.constructor?.help || 'It is not running yet. Press Start to put it on the practice chain.')));
+  } else {
+    card.append(el('div', { class: 'fn' }, el('b', {}, verb),
+      el('span', { class: 'sig' }, c.contract + (ctor.length ? '(' + ctor.map((i) => i.name + ': ' + i.type).join(', ') + ')' : '()'))));
+    if (!redeploy) card.append(el('div', { class: 'sub', style: 'margin:0 0 10px' },
+      'Put ' + c.contract + ' on the local sandbox chain to start using it.'));
+  }
+  ctor.forEach((i) => card.append(inputFor('constructor', i)));
+  const box = el('div', { class: 'out', hidden: true });
+  const btn = el('button', { class: 'go', onclick: async () => {
+    btn.disabled = true; btn.textContent = simple() ? 'starting…' : 'deploying…';
+    const res = await api('deploy', { args: readArgs(card), account });
+    btn.disabled = false; btn.textContent = verb;
+    if (res.ok) { toast(simple() ? 'started' : 'deployed'); await load(); } else show(box, res);
+  } }, verb);
+  card.append(el('div', { class: 'row' }, btn), box);
+  return card;
+}
+
+function fnCard(f) {
+  const view = f.mutability === 'view';
+  const u = fnUi(f.name);
+  const card = el('div', { class: 'card' });
+  if (simple()) {
+    card.append(el('div', { class: 'fn' }, el('b', {}, u.label || human(f.name))));
+    if (u.help) card.append(el('div', { class: 'help' }, u.help));
+  } else {
+    const sig = '(' + f.inputs.map((i) => i.name + ': ' + i.type).join(', ') + ')' +
+      (f.outputs.length ? ' -> ' + f.outputs.join(', ') : '');
+    card.append(el('div', { class: 'fn' }, el('b', {}, f.name), el('span', { class: 'sig' }, sig)));
+  }
+  f.inputs.forEach((i) => card.append(inputFor(f.name, i)));
+  const box = el('div', { class: 'out', hidden: true });
+  const big = el('div', { class: simple() ? '' : 'value' });
+  // a view whose every input is hidden still reads by itself
+  const auto = view && f.inputs.every((i) => simple() && argHidden(f.name, i));
+  const run = async () => {
+    if (busy && !view) return;
+    btn.disabled = true; busy = !view || busy;
+    const res = await api('call', { fn: f.name, args: readArgs(card), account });
+    btn.disabled = false; if (!view) busy = false;
+    if (view) {
+      if (res.ok && simple()) { box.hidden = true; big.replaceChildren(visual(f, res.result) || ''); }
+      else if (auto && res.ok) { box.hidden = true; big.textContent = fmt(res.result); }
+      else show(box, res);
+      return res;
+    }
+    if (res.ok) {
+      if (simple()) {
+        const evs = (res.events || []).filter((e) => !eventHidden(e)).map(sentence);
+        show(box, res, 'Done' + (res.by ? ' — as ' + res.by : '') + '.' + (evs.length ? '\n' + evs.join('\n') : ''));
+      } else {
+        const evs = (res.events || []).map((e) => e.event ? e.event + ' ' + JSON.stringify(e.fields) : 'event').join('\n');
+        show(box, res, 'sent as ' + res.by + ' · tx ' + short(res.tx) + (evs ? '\n' + evs : ''));
+      }
+      refreshReads(); loadEvents();
+    } else show(box, res);
+    return res;
+  };
+  const label = !simple() ? (view ? (auto ? 'refresh' : 'read') : 'send')
+    : (u.button || (view ? 'Check' : human(f.name)));
+  const btn = el('button', { class: 'go' + (view ? ' ghost' : ''), onclick: () => run() }, label);
+  if (view) card.append(big);
+  if (auto) card.refresh = run;
+  // auto-refreshing simple reads need no button
+  if (!(simple() && auto)) card.append(el('div', { class: 'row' }, btn));
+  card.append(box);
+  return card;
+}
+
+let readCards = [];
+function refreshReads() { readCards.forEach((c) => c.refresh && c.refresh()); }
+
+// app.json key order is the display order; anything it does not list follows
+function ordered(fns) {
+  const keys = Object.keys(U.fns || {});
+  const rank = (f) => { const i = keys.indexOf(f.name); return i < 0 ? keys.length : i; };
+  return [...fns].sort((a, b) => rank(a) - rank(b));
+}
+
+function render() {
+  mode = mode || (U.mode === 'developer' ? 'developer' : 'simple');
+  document.body.classList.toggle('simple', simple());
+  const title = (simple() && U.title) || S.title;
+  document.title = title + ' · cairo app';
+  $('title').textContent = title;
+  $('logo').textContent = (title || 'C')[0];
+  $('desc').textContent = (simple() && U.intro) || S.description || '';
+  $('bench').href = (BASE === '/' ? '' : BASE) + '/';
+  renderBar();
+  const main = $('main'); main.replaceChildren(); readCards = [];
+  if (S.ui_error && !simple()) main.append(el('div', { class: 'warn' }, S.ui_error + ' (ignored)'));
+  if (S.state === 'unbuilt' || !contract()) {
+    main.append(el('div', { class: 'card notice' }, 'This contract has not been built yet. ',
+      'Build it in the ', el('a', { href: $('bench').href }, 'workbench'), ' first.'));
+    return;
+  }
+  const live = S.deployment && S.deployment.live;
+  if (!live) { main.append(deployCard(false)); return; }
+
+  if (simple()) {
+    const steps = U.steps || ['Pick who you are at the top right. Each person is a separate test wallet.',
+      'The left side shows what the contract knows right now. It updates by itself.',
+      'The right side changes things. Fill in a box and press the button.'];
+    // open on the first visit, folded after
+    const seen = localStorage.getItem('cairo.app.seen.' + NAME);
+    localStorage.setItem('cairo.app.seen.' + NAME, '1');
+    main.append(el('details', { class: 'card intro', open: !seen },
+      el('summary', { style: 'cursor:pointer' }, el('b', {}, 'How to use this')),
+      el('ol', {}, steps.map((s) => el('li', {}, s)))));
+  }
+
+  const fns = ordered(contract().functions).filter((f) => !simple() || !fnHidden(f));
+  const reads = fns.filter((f) => f.mutability === 'view');
+  const writes = fns.filter((f) => f.mutability !== 'view');
+  const colR = el('section', {}, el('div', { class: 'label' }, simple() ? 'what it shows' : 'read'));
+  const colW = el('section', {}, el('div', { class: 'label' }, simple() ? 'what you can do' : 'write'));
+  reads.forEach((f) => { const c = fnCard(f); readCards.push(c); colR.append(c); });
+  writes.forEach((f) => colW.append(fnCard(f)));
+  if (!reads.length) colR.append(el('div', { class: 'empty' }, simple() ? 'nothing to show' : 'no view functions'));
+  if (!writes.length) colW.append(el('div', { class: 'empty' }, simple() ? 'nothing to do here' : 'no external functions'));
+  main.append(el('div', { class: 'grid' }, colR, colW));
+
+  const evCard = el('div', { class: 'card' }, el('div', { class: 'label', style: 'margin-bottom:8px' }, simple() ? 'what happened' : 'activity'),
+    el('div', { id: 'events' }, el('div', { class: 'empty' }, 'nothing yet')));
+  main.append(evCard);
+
+  const more = el('details', { style: 'margin-top:10px' },
+    el('summary', { class: 'muted', style: 'cursor:pointer' }, simple() ? 'start over' : 'deployment'),
+    simple() ? null : el('div', { class: 'out', style: 'margin-bottom:10px' }, 'address  ' + S.deployment.address + '\nclass    ' + S.deployment.class_hash +
+      '\nrpc      ' + S.devnet.rpc + ' (box-local)'),
+    deployCard(true));
+  main.append(more);
+  refreshReads(); loadEvents();
+}
+
+async function loadEvents() {
+  const box = $('events'); if (!box) return;
+  const r = await api('events');
+  const rows = (r.events || []).filter((e) => !eventHidden(e));
+  if (!rows.length) { box.replaceChildren(el('div', { class: 'empty' }, 'nothing yet')); return; }
+  if (simple()) {
+    box.replaceChildren(el('ul', { class: 'feed' }, rows.map((e) => el('li', {}, el('span', { class: 'dot' }), el('span', {}, sentence(e))))));
+    return;
+  }
+  box.replaceChildren(el('table', {},
+    el('tr', {}, el('th', {}, 'event'), el('th', {}, 'fields'), el('th', {}, 'block')),
+    rows.map((e) => el('tr', {},
+      el('td', { class: 'ev' }, e.event || '?'),
+      el('td', { class: 'f' }, e.fields ? Object.entries(e.fields).map(([k, v]) => k + ' = ' + fmt(v)).join('   ') : JSON.stringify(e.data)),
+      el('td', {}, e.block ?? '')))));
+}
+
+async function load() {
+  const r = await api('app');
+  if (r.error) {
+    $('title').textContent = NAME || 'contract';
+    $('main').replaceChildren(el('div', { class: 'card notice' }, r.error));
+    return;
+  }
+  S = r; U = r.ui || {};
+  if (!S.accounts.find((a) => a.name === account) && S.accounts[0]) account = S.accounts[0].name;
+  render();
+}
+
+load();
+// keep reads and the log current when someone else uses the same contract
+setInterval(() => { if (!document.hidden && S && S.deployment && S.deployment.live && !busy) { refreshReads(); loadEvents(); } }, 5000);
+</script>
+</body>
+</html>

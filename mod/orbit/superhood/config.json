@@ -25,6 +25,7 @@
         "path",
         "levels",
         "files",
+        "cid",
         "play",
         "stop",
         "serve",
@@ -39,7 +40,8 @@
         "play": "Serve the game in this process and open a browser",
         "serve": "Run the game server under pm2 and register the gateway route",
         "levels": "The course list",
-        "test": "Files + JS syntax + every level builds"
+        "test": "Files + JS syntax + every level builds",
+        "cid": "Module source hash (node-root-hash walk) + committed status"
     },
     "api_fns": [
         "info",
@@ -48,8 +50,9 @@
         "url",
         "path",
         "levels",
-        "files"
+        "files",
+        "cid"
     ],
     "key": "superhood",
-    "schema": "QmVn2UEsj2HD7FKkEs7guUDtmcrddtXvnnKxB5ZYaPXzr7"
+    "schema": "QmUR7RfCX6KQBE86Nb4xV97eX89icbdGRGeNiTbQMXyQ2H"
 }

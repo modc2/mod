@@ -11,13 +11,21 @@
 //   wasi_snapshot_preview1  a real preview1 subset — enough for a compiled
 //                           command to start, print and exit
 //   arena                   hostcalls a game or player may ask for: log,
-//                           random, now
+//                           random, now — and `mcp`, which is the one that
+//                           leaves this machine, is off unless the caller
+//                           passed a door in
 //   anything else           synthesised from the module's own import list and
 //                           logged, so an unsupported module still loads and
 //                           tells you exactly what it wanted
 //
-// Nothing here reaches the filesystem or the network. A module gets memory,
-// a clock, a seeded PRNG and a place to write text.
+// Nothing here reaches the filesystem or the network *by itself*. A module
+// gets memory, a clock, a seeded PRNG and a place to write text. The one
+// exception is `arena.mcp`, and it is not an exception to the rule so much as
+// a restatement of it: the module still cannot open anything: it hands the
+// host a `{server, tool, arguments}` string and the host makes the call, if
+// whoever started this instance passed an `opts.mcp` to make it with. Without
+// one the import is present and always answers "there is no door", so a class
+// written to use MCP still runs in a match that did not allow it.
 
 const PAGE = 65536;
 
@@ -62,10 +70,14 @@ function zeroFor(signature) {
  * @param {string[]}     opts.args    argv for a WASI command
  * @param {string}       opts.stdin   what `fd_read` on fd 0 returns
  * @param {number}       opts.seed    seeds the PRNG behind `random_get`
+ * @param {function}     opts.mcp     a synchronous `(request) => replyText`;
+ *                                    see runtime/mcpsync.mjs. Absent means the
+ *                                    module has no way out, which is the
+ *                                    default and the safe reading.
  */
 export async function instantiate(bytes, opts = {}) {
-  const { info = null, args = [], env = {}, stdin = "", seed = 1 } = opts;
-  const out = { stdout: "", stderr: "", log: [], stubbed: [], exit: null };
+  const { info = null, args = [], env = {}, stdin = "", seed = 1, mcp = null } = opts;
+  const out = { stdout: "", stderr: "", log: [], stubbed: [], mcp: [], exit: null };
   const random = rng(seed);
   const t0 = nowMs();
 
@@ -195,11 +207,51 @@ export async function instantiate(bytes, opts = {}) {
     },
   };
 
+  const NO_DOOR = JSON.stringify({
+    error: "this match was not given MCP access — nothing was called",
+  });
+
   const arena = {
     log(ptr, len) { out.log.push(readStr(ptr, len)); },
     random,
     now: () => nowMs() - t0,
     abort(ptr, len) { throw new Error(readStr(ptr, len) || "module called arena.abort"); },
+    /**
+     * `arena::mcp(server, tool, args)`, from the module's side of the wall.
+     *
+     * The module wrote a request into its own memory; we read it, hand it to
+     * whoever is holding the door, and write the answer back through the
+     * module's own `alloc`. It returns the arena ABI's packed (ptr << 32) | len
+     * like any other string, so a class reads it exactly as it reads a view.
+     *
+     * Every call is kept in `out.mcp` — a player that phoned a friend should
+     * not be able to do it invisibly.
+     */
+    mcp(ptr, len) {
+      const request = readStr(ptr, len);
+      let reply;
+      try {
+        reply = mcp ? String(mcp(request)) : NO_DOOR;
+      } catch (e) {
+        reply = JSON.stringify({ error: e.message || String(e) });
+      }
+      // Recorded either way — a player that phoned a friend should not be
+      // able to do it invisibly — but a call with no door to go through is
+      // marked, because it did not leave this process and must not be counted
+      // as a call out.
+      out.mcp.push({ request, reply: reply.slice(0, 4000), ...(mcp ? {} : { refused: true }) });
+      const raw = enc.encode(reply);
+      const alloc = instance?.exports?.alloc;
+      if (typeof alloc !== "function") {
+        // Nowhere to put the answer. The module gets an empty string, which is
+        // not JSON, which is what a class handling a failed call already sees.
+        return 0n;
+      }
+      const at = alloc(raw.length || 1);
+      if (!at) return 0n;
+      bytesOf().set(raw, at);
+      return (BigInt(at) << 32n) | BigInt(raw.length);
+    },
   };
 
   // AssemblyScript emits `abort(msg, file, line, col)` into `env` and nothing

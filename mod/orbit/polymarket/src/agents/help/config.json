@@ -1,0 +1,13 @@
+{
+  "name": "help",
+  "mod": "polymarket.agents.help",
+  "title": "HELP",
+  "glyph": "?",
+  "kind": "chat",
+  "route": "/_api/help-agent",
+  "tools": "none — reads a copy-book snapshot",
+  "description": "The guide: explains the console and answers \"why isn't it trading\" from a read-only snapshot of the live copy book.",
+  "default_enabled": true,
+  "order": 1,
+  "version": "0.1.0"
+}

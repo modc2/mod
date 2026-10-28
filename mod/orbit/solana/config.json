@@ -1,7 +1,7 @@
 {
     "name": "solana",
     "version": "0.1.0",
-    "description": "Solana as one mod. A Solana address is 32 opaque bytes that will not tell you what it is, so this module starts there: ask once and it says whether you hold a wallet, a token mint, a token account, a stake account or a program \u2014 then answers the question you actually had. Price a wallet across SOL and every SPL token; decode a transaction into the net SOL and token movement per owner rather than raw account indexes; read a mint's supply, authorities and liquidity risk; quote a swap through Jupiter with real price impact; read the validator set and the Nakamoto coefficient that says how few could halt the chain. It writes too: transfers of SOL and SPL tokens are signed in-process with a key from an off-tree keystore, creating the recipient's token account when it does not exist. And it handles programs end to end \u2014 load one to see its loader, its upgrade authority, its syscalls and its anchor IDL; call an instruction by name with borsh-encoded arguments and simulate it before signing; deploy an ELF from a file, from base64, or cloned off another cluster, as a background job that writes it in chunks and verifies every byte; then upgrade it, hand the authority over, revoke it forever, or close it for the rent. Twenty-two MCP tools, a REST API and a browser console run the same code on one port, so an agent, a shell and a human never see different answers.",
+    "description": "Solana as one mod. A Solana address is 32 opaque bytes that will not tell you what it is, so this module starts there: ask once and it says whether you hold a wallet, a token mint, a token account, a stake account or a program \u2014 then answers the question you actually had. Price a wallet across SOL and every SPL token; decode a transaction into the net SOL and token movement per owner rather than raw account indexes; rank every routable token on Solana by the liquidity behind it and open one up to find out what could ACTUALLY be sold \u2014 quotable, pool reserves and an executable size this module measures by pricing real sells until getting out costs more than a percent; read a mint's supply, authorities and liquidity risk; quote a swap through Jupiter with real price impact; read the validator set and the Nakamoto coefficient that says how few could halt the chain. It writes too: transfers of SOL and SPL tokens are signed in-process with a key from an off-tree keystore, creating the recipient's token account when it does not exist. And it handles programs end to end \u2014 load one to see its loader, its upgrade authority, its syscalls and its anchor IDL; call an instruction by name with borsh-encoded arguments and simulate it before signing; deploy an ELF from a file, from base64, or cloned off another cluster, as a background job that writes it in chunks and verifies every byte; then upgrade it, hand the authority over, revoke it forever, or close it for the rent. Twenty-six MCP tools, a REST API and a browser console run the same code on one port, so an agent, a shell and a human never see different answers.",
     "icon": "\u25ce",
     "anchor": "mod.py",
     "protocol": "mcp/2025-06-18",
@@ -28,6 +28,10 @@
         "portfolio": "GET /portfolio?address=&min_usd=&include_dust=&limit=",
         "token": "GET /token?mint=",
         "price": "GET /price?ids=",
+        "tokens": "GET /tokens?list=&sort=&limit=&offset=&query=&tag=&min_liquidity=&safe_only= \u2014 every routable token on Solana ranked by the liquidity behind it",
+        "liquidity": "GET /liquidity?mint=&depth=&sizes=&cost_limit_pct= \u2014 one token's liquidity three ways, including the sell size this module priced for real",
+        "pools": "GET /pools?mint=&limit= \u2014 every pool holding a token, deduped across indexes and screened for fake depth",
+        "venues": "GET /venues?tokens=&pages= \u2014 where the chain's liquidity actually sits, by DEX",
         "history": "GET /history?address=&limit=&before=&detail=",
         "tx": "GET /tx?signature=&logs=",
         "quote": "GET /quote?input=&output=&amount=&slippage_bps=",
@@ -54,6 +58,10 @@
         "sol_portfolio",
         "sol_token",
         "sol_price",
+        "sol_tokens",
+        "sol_liquidity",
+        "sol_pools",
+        "sol_venues",
         "sol_history",
         "sol_tx",
         "sol_quote",
@@ -133,5 +141,5 @@
         "SOLANA_KEY_DIR": "keystore directory (default ~/.mod/solana)",
         "SOLANA_CACHE_TTL": "seconds prices are cached (default 30)"
     },
-    "schema": "QmYRzALRnyMxcZvsNDbprAKM52ALMuL1cgGtrofbGuu8Gv"
+    "schema": "QmYmCqbLRFqnc764MEHSTi4SsXJN1cQM2ckJBcTXPPxqtQ"
 }

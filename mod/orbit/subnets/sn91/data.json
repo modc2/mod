@@ -1,0 +1,189 @@
+{
+  "netuid": 91,
+  "name": "cascade",
+  "symbol": "ᚁ",
+  "owner": "5HEe7NjS4exuP9SptWZdwWqWrMrGTTEHf5ieQH8yZXA3zXtW",
+  "description": "SOTA Time Series Foundation Models",
+  "github": "https://github.com/TensorLink-AI/cascade",
+  "url": "https://www.cascade.industries/",
+  "discord": "https://discord.gg/bittensor",
+  "logo": "https://raw.githubusercontent.com/TensorLink-AI/cascade/main/docs/assets/cascade-logo.png",
+  "registered_at": 7633645,
+  "tempo": 360,
+  "active": true,
+  "block": 9322663,
+  "related": [],
+  "market": {
+    "price": 0.003856153,
+    "moving_price": 0.0038980920799076557,
+    "market_cap": 7642.820207807072,
+    "tao_in": 2968.526350913,
+    "alpha_in": 769815.539504597,
+    "alpha_out": 1212165.001155245,
+    "volume": 200632.49797904,
+    "vol_24h": 741.5187834769895,
+    "emission": 0.0,
+    "change_1h": -0.0026709844989536435,
+    "change_24h": -0.23037176424564043,
+    "change_7d": -16.80056942745053
+  },
+  "spark_24h": [
+    0.003865057,
+    0.003865015,
+    0.003882436,
+    0.003887364,
+    0.003887363,
+    0.003887361,
+    0.003887361,
+    0.003887361,
+    0.003887361,
+    0.003887346,
+    0.003887282,
+    0.003887282,
+    0.003891553,
+    0.003939002,
+    0.003939002,
+    0.003938971,
+    0.003938971,
+    0.003938971,
+    0.003938971,
+    0.003912187,
+    0.003912187,
+    0.003887293,
+    0.003887292,
+    0.003887292,
+    0.003887292,
+    0.003877414,
+    0.003877414,
+    0.003877414,
+    0.003877414,
+    0.003877414,
+    0.003877414,
+    0.003877414,
+    0.003877414,
+    0.003877414,
+    0.003877414,
+    0.003877411,
+    0.003903495,
+    0.003903495,
+    0.003877406,
+    0.003877406,
+    0.003877406,
+    0.003877406,
+    0.003877406,
+    0.003877402,
+    0.003877382,
+    0.003856256,
+    0.003856256,
+    0.003856153
+  ],
+  "trades_24h": {
+    "trades": 70,
+    "buys": 35,
+    "sells": 35,
+    "buy_tao": 368.726436685,
+    "sell_tao": 369.014390722,
+    "net_tao": -0.28795403699996314,
+    "traders": 28
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5DqKWm43cjo2GTKptXhYzA1dXJzM8MZUN68nhdYxwyVyLk6W",
+      "net_tao": -0.4733929769999996,
+      "gross_tao": 139.72548555699998,
+      "trades": 4
+    },
+    {
+      "coldkey": "5Cw2qFy2tZy9ZLt4LsJc9b68nffQndZDHF1KZynmVbA4Z3pC",
+      "net_tao": 0.5701663640000003,
+      "gross_tao": 89.429833636,
+      "trades": 7
+    },
+    {
+      "coldkey": "5Gb23Q7n115ypiHr6jAMRhkhADhEkRFYa5ovgipVApqMt3FV",
+      "net_tao": -0.6953644869999991,
+      "gross_tao": 60.695364487,
+      "trades": 4
+    },
+    {
+      "coldkey": "5D31yczGiq9tVJwGgX87sWBks1g6RST5Tju5aajGycvvrijb",
+      "net_tao": 0.0522743160000001,
+      "gross_tao": 59.947725684,
+      "trades": 5
+    },
+    {
+      "coldkey": "5D2MW8D89hZa1CmTt2ZomiSemjC7VVzMRHPM497mbXBB9hZy",
+      "net_tao": 0.21876665199999934,
+      "gross_tao": 49.781233348,
+      "trades": 4
+    }
+  ],
+  "news": [
+    {
+      "ts": 1792287110,
+      "kind": "commit",
+      "source": "github",
+      "title": "king sync (finney): vault/direct@sha256:b20b875be09bda54ab6d69b0219cb…",
+      "url": "https://github.com/TensorLink-AI/cascade/commit/aa654eb0602c19a994111e2c008d8b214eb5e53f",
+      "publisher": "TensorLink-AI/cascade"
+    },
+    {
+      "ts": 1792268004,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #373 from TensorLink-AI/feat/payer-bench-unverified",
+      "url": "https://github.com/TensorLink-AI/cascade/commit/3edd4b3e484325a72296fa166742e6b40eb20650",
+      "publisher": "TensorLink-AI/cascade"
+    },
+    {
+      "ts": 1792268001,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #372 from TensorLink-AI/fix/near-dup-lineage-and-l…",
+      "url": "https://github.com/TensorLink-AI/cascade/commit/55cd083d80f33f125f7165e59a1160bd68a9399e",
+      "publisher": "TensorLink-AI/cascade"
+    },
+    {
+      "ts": 1792243345,
+      "kind": "commit",
+      "source": "github",
+      "title": "feat(telemetry): funded_bench_unverified — publish payer-pod benches …",
+      "url": "https://github.com/TensorLink-AI/cascade/commit/5b7cc6ae3bd00cd367771c840e36a5f8daa55c92",
+      "publisher": "TensorLink-AI/cascade"
+    },
+    {
+      "ts": 1792203972,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(near-dup): same-coldkey full-tree rule, era-unit lookback, visibl…",
+      "url": "https://github.com/TensorLink-AI/cascade/commit/d7d4a06975d7784482d044fc63526aceb5291183",
+      "publisher": "TensorLink-AI/cascade"
+    },
+    {
+      "ts": 1792203166,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #371 from TensorLink-AI/fix/promotion-carry-clock-…",
+      "url": "https://github.com/TensorLink-AI/cascade/commit/82bb2145c96b12d046d29d199eb83ffff65e3fe9",
+      "publisher": "TensorLink-AI/cascade"
+    },
+    {
+      "ts": 1792200018,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(promotion): anchor the trainer's reign clock where validators res…",
+      "url": "https://github.com/TensorLink-AI/cascade/commit/447ffe3e90d82b76b08a0f74a60c5c45ea2d0dc8",
+      "publisher": "TensorLink-AI/cascade"
+    },
+    {
+      "ts": 1792184269,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #370 from TensorLink-AI/docs/miner-admission-guard",
+      "url": "https://github.com/TensorLink-AI/cascade/commit/6fc7db03edf2d08f38e0efc258230cbbccac942d",
+      "publisher": "TensorLink-AI/cascade"
+    }
+  ],
+  "updated": 1792474861,
+  "updated_day": "2026-10-20"
+}

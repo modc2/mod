@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>leanland</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #161920; --line: #262b36; --ink: #d9dee9;
+    --dim: #7c869c; --acc: #7bd88f; --warn: #e8c07d; --bad: #e88a8a;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--mono);
+         font-size: 13px; line-height: 1.5; }
+  header { display: flex; align-items: baseline; gap: 16px; padding: 10px 16px;
+           border-bottom: 1px solid var(--line); position: sticky; top: 0;
+           background: var(--bg); z-index: 5; flex-wrap: wrap; }
+  h1 { font-size: 14px; margin: 0; letter-spacing: 2px; }
+  h1 span { color: var(--acc); }
+  nav { display: flex; gap: 4px; margin-left: auto; flex-wrap: wrap; }
+  button { font: inherit; background: var(--panel); color: var(--ink);
+           border: 1px solid var(--line); padding: 4px 10px; cursor: pointer; }
+  button:hover { border-color: var(--acc); }
+  button.on { color: var(--acc); border-color: var(--acc); }
+  main { display: grid; grid-template-columns: 300px 1fr; min-height: calc(100vh - 43px); }
+  aside { border-right: 1px solid var(--line); overflow: auto; }
+  section { padding: 16px; overflow: auto; }
+  .item { padding: 7px 12px; border-bottom: 1px solid var(--line); cursor: pointer; }
+  .item:hover { background: var(--panel); }
+  .item.on { background: var(--panel); border-left: 2px solid var(--acc); }
+  .item b { font-weight: 600; }
+  .item small { color: var(--dim); display: block; overflow: hidden;
+                text-overflow: ellipsis; white-space: nowrap; }
+  pre { background: var(--panel); border: 1px solid var(--line); padding: 10px;
+        overflow: auto; margin: 8px 0; white-space: pre-wrap; }
+  .lean { color: var(--acc); }
+  .sub { color: var(--dim); }
+  .bad { color: var(--bad); } .warn { color: var(--warn); } .ok { color: var(--acc); }
+  textarea, input, select { font: inherit; width: 100%; background: var(--panel);
+    color: var(--ink); border: 1px solid var(--line); padding: 8px; }
+  textarea { min-height: 90px; resize: vertical; }
+  table { border-collapse: collapse; width: 100%; margin: 8px 0; }
+  td, th { border-bottom: 1px solid var(--line); padding: 4px 8px; text-align: left;
+           vertical-align: top; }
+  .row { display: flex; gap: 8px; align-items: center; margin: 8px 0; flex-wrap: wrap; }
+  .tabs { display: flex; gap: 4px; margin: 12px 0 4px; }
+  .msg { border-left: 2px solid var(--line); padding: 2px 12px; margin: 12px 0;
+         white-space: pre-wrap; }
+  .msg.you { border-color: var(--acc); color: var(--dim); }
+  h2 { font-size: 13px; margin: 18px 0 4px; letter-spacing: 1px; }
+  a { color: var(--acc); }
+</style>
+</head>
+<body>
+<header>
+  <h1>LEAN<span>LAND</span></h1>
+  <span class="sub" id="status">loading…</span>
+  <nav>
+    <button data-v="lib" class="on">LIBRARY</button>
+    <button data-v="lit">LITERATURE</button>
+    <button data-v="chat">DISCUSS</button>
+    <button data-v="build">LOWER</button>
+  </nav>
+</header>
+<main>
+  <aside id="list"></aside>
+  <section id="body"></section>
+</main>
+<script>
+const $ = (s) => document.querySelector(s);
+const el = (h) => { const d = document.createElement('div'); d.innerHTML = h; return d; };
+const esc = (s) => String(s ?? '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+const api = async (p, opts) => {
+  const r = await fetch('/api' + p, opts);
+  const j = await r.json().catch(() => ({ detail: 'bad response' }));
+  if (!r.ok) throw new Error(j.detail || r.statusText);
+  return j;
+};
+const post = (p, body) => api(p, { method: 'POST', headers: {'content-type':'application/json'},
+                                   body: JSON.stringify(body) });
+
+let S = { view: 'lib', defs: [], papers: [], sel: null, tab: 'python', history: [] };
+
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
+  S.view = b.dataset.v; S.sel = null;
+  document.querySelectorAll('nav button').forEach(x => x.classList.toggle('on', x === b));
+  render();
+});
+
+async function boot() {
+  try {
+    const info = await api('/info');
+    const bad = info.errors.length;
+    $('#status').innerHTML = `${info.defs} defs · ${info.papers} papers · ` +
+      (bad ? `<span class="bad">${bad} file error(s)</span>` : '<span class="ok">clean</span>');
+    S.errors = info.errors;
+  } catch (e) { $('#status').innerHTML = `<span class="bad">${esc(e.message)}</span>`; }
+  S.defs = (await api('/defs')).defs;
+  S.papers = (await api('/lit')).papers;
+  render();
+}
+
+function render() {
+  ({ lib: viewLib, lit: viewLit, chat: viewChat, build: viewBuild })[S.view]();
+}
+
+// ---------------------------------------------------------------- library
+function viewLib() {
+  $('#list').innerHTML = '';
+  S.defs.forEach(d => {
+    const src = d.source.key || (d.source.convention ? 'convention' : '—');
+    const n = el(`<div class="item${S.sel === d.name ? ' on' : ''}">
+      <b>${esc(d.name)}</b> <span class="sub">${esc(d.ret)}</span>
+      <small>${esc(src)} · ${d.examples} example(s)</small></div>`).firstChild;
+    n.onclick = () => { S.sel = d.name; render(); };
+    $('#list').append(n);
+  });
+  if (!S.sel) {
+    $('#body').innerHTML = `<h2>THE LIBRARY IS THE SOURCE OF TRUTH</h2>
+      <p class="sub">Definitions live in <code>lib/*.lean</code>. Everything under
+      <code>out/</code> — notebooks, the Rust crate, the Next.js surface — is lowered
+      from them and regenerated, never edited.</p>
+      ${(S.errors||[]).map(e => `<pre class="bad">${esc(e.file||'')} ${esc(e.def||'')}\n${esc(e.error)}</pre>`).join('')}
+      <h2>ADD A DEFINITION</h2>
+      <textarea id="src" placeholder="/-- doc -/&#10;@[source key, eq 1]&#10;def name (x : Real) : Real :=&#10;  x&#10;#example name 1 = 1"></textarea>
+      <div class="row"><input id="file" placeholder="file (user.lean)" style="width:200px">
+      <button id="addbtn">TYPECHECK + FILE</button></div><div id="addout"></div>`;
+    $('#addbtn').onclick = async () => {
+      try {
+        const r = await post('/defs', { source: $('#src').value, file: $('#file').value || 'user.lean' });
+        $('#addout').innerHTML = `<pre class="${r.ok?'ok':'bad'}">${esc(JSON.stringify(r, null, 1))}</pre>`;
+        if (r.ok) boot();
+      } catch (e) { $('#addout').innerHTML = `<pre class="bad">${esc(e.message)}</pre>`; }
+    };
+    return;
+  }
+  api('/defs/' + S.sel).then(d => {
+    const cites = d.paper ? `<p class="sub">${esc(d.paper.title||'')} — ${esc(d.paper.authors||'')}
+      ${d.paper.year||''} ${d.paper.url?`<a href="${esc(d.paper.url)}" target="_blank">link</a>`:''}</p>` : '';
+    $('#body').innerHTML = `<h2>${esc(d.name)}</h2>
+      <p>${esc(d.doc)}</p>${cites}
+      <pre class="lean">${esc(d.lean)}</pre>
+      <p class="sub">depends on: ${d.deps.length ? d.deps.map(esc).join(', ') : 'nothing'}</p>
+      <h2>EXAMPLES FROM THE SOURCE</h2>
+      <table><tr><th>call</th><th>expects</th><th>tol</th></tr>
+      ${d.cases.map(c => `<tr><td>${esc(d.name)}(${c.args.map(a=>JSON.stringify(a)).join(', ')})</td>
+        <td>${esc(c.expect)}</td><td>${esc(c.tol)}</td></tr>`).join('') ||
+        '<tr><td colspan=3 class="warn">none — nothing checks this definition</td></tr>'}</table>
+      <div class="tabs">${['python','rust','typescript','lean4'].map(t =>
+        `<button data-t="${t}" class="${S.tab===t?'on':''}">${t.toUpperCase()}</button>`).join('')}</div>
+      <pre id="code">${esc(d.lowered[S.tab])}</pre>
+      <div class="row"><button id="del">REMOVE FROM LIBRARY</button></div>`;
+    document.querySelectorAll('[data-t]').forEach(b => b.onclick = () => { S.tab = b.dataset.t; render(); });
+    $('#del').onclick = async () => {
+      if (!confirm(`remove ${d.name} from lib/?`)) return;
+      try { await api('/defs/' + d.name, { method: 'DELETE' }); S.sel = null; boot(); }
+      catch (e) { alert(e.message); }
+    };
+  });
+}
+
+// ------------------------------------------------------------- literature
+function viewLit() {
+  $('#list').innerHTML = '';
+  S.papers.forEach(p => {
+    const n = el(`<div class="item${S.sel === p.key ? ' on' : ''}"><b>${esc(p.key)}</b>
+      <small>${esc(p.title || '')}</small></div>`).firstChild;
+    n.onclick = () => { S.sel = p.key; render(); };
+    $('#list').append(n);
+  });
+  if (!S.sel) {
+    $('#body').innerHTML = `<h2>LITERATURE</h2>
+      <p class="sub">One markdown file per paper. The citation key is what a
+      definition's <code>@[source ...]</code> points at.</p>
+      <h2>ADD A PAPER</h2>
+      <div class="row"><input id="ax" placeholder="arXiv id (e.g. 1706.03762)" style="width:260px">
+        <button id="axb">FETCH FROM ARXIV</button></div>
+      <div class="row"><input id="k" placeholder="key" style="width:160px">
+        <input id="t" placeholder="title"></div>
+      <div class="row"><input id="a" placeholder="authors"><input id="y" placeholder="year" style="width:100px"></div>
+      <div class="row"><input id="u" placeholder="url"><button id="addp">ADD</button></div>
+      <div id="pout"></div>`;
+    $('#axb').onclick = async () => {
+      try { await post('/lit', { arxiv: $('#ax').value }); boot(); }
+      catch (e) { $('#pout').innerHTML = `<pre class="bad">${esc(e.message)}</pre>`; }
+    };
+    $('#addp').onclick = async () => {
+      try {
+        await post('/lit', { key: $('#k').value, title: $('#t').value, authors: $('#a').value,
+                             year: Number($('#y').value) || null, url: $('#u').value });
+        boot();
+      } catch (e) { $('#pout').innerHTML = `<pre class="bad">${esc(e.message)}</pre>`; }
+    };
+    return;
+  }
+  api('/lit/' + S.sel).then(p => {
+    $('#body').innerHTML = `<h2>${esc(p.key)}</h2>
+      <p>${esc(p.title || '')}<br><span class="sub">${esc(p.authors || '')} ${p.year || ''}</span></p>
+      ${p.url ? `<p><a href="${esc(p.url)}" target="_blank">${esc(p.url)}</a></p>` : ''}
+      <p class="sub">defines: ${p.defs.length ? p.defs.map(esc).join(', ') : 'nothing yet'}</p>
+      <pre>${esc(p.notes)}</pre>
+      <h2>DRAFT A READING NOTE</h2>
+      <textarea id="about" placeholder="what to focus on (optional)"></textarea>
+      <div class="row"><button id="readb">READ IT</button>
+      <span class="sub">appends to lit/${esc(p.key)}.md</span></div>
+      <h2>ELABORATE A DEFINITION FROM IT</h2>
+      <textarea id="want" placeholder="the result you want as a def, in words"></textarea>
+      <div class="row"><button id="elab">PROPOSE + TYPECHECK</button></div>
+      <div id="lout"></div>`;
+    $('#readb').onclick = async () => {
+      $('#lout').innerHTML = '<p class="sub">reading…</p>';
+      try { const r = await post('/read', { key: p.key, about: $('#about').value });
+            $('#lout').innerHTML = `<pre>${esc(r.note)}</pre>`; }
+      catch (e) { $('#lout').innerHTML = `<pre class="bad">${esc(e.message)}</pre>`; }
+    };
+    $('#elab').onclick = async () => {
+      $('#lout').innerHTML = '<p class="sub">proposing, typechecking, running its examples…</p>';
+      try {
+        const r = await post('/elaborate', { want: $('#want').value, paper: p.key });
+        $('#lout').innerHTML = r.attempts.map(a =>
+          `<pre class="${a.ok?'ok':'bad'}">try ${a.try} — ${esc(a.stage)}${a.error?': '+esc(a.error):''}
+${esc(a.source)}</pre>`).join('');
+        if (r.ok) boot();
+      } catch (e) { $('#lout').innerHTML = `<pre class="bad">${esc(e.message)}</pre>`; }
+    };
+  });
+}
+
+// ------------------------------------------------------------------ chat
+function viewChat() {
+  $('#list').innerHTML = `<div class="item"><b>context</b><small>every def + every paper</small></div>` +
+    S.papers.map(p => `<div class="item" data-p="${esc(p.key)}"><b>${esc(p.key)}</b>
+      <small>focus the conversation on this</small></div>`).join('');
+  document.querySelectorAll('[data-p]').forEach(n => n.onclick = () => {
+    S.paper = S.paper === n.dataset.p ? null : n.dataset.p; render();
+  });
+  $('#body').innerHTML = `<h2>DISCUSS${S.paper ? ' — ' + esc(S.paper) : ''}</h2>
+    <div id="log">${S.history.map(h =>
+      `<div class="msg ${h.role}">${esc(h.content)}</div>`).join('')}</div>
+    <textarea id="q" placeholder="what does this paper actually let me compute?"></textarea>
+    <div class="row"><button id="send">SEND</button>
+      <button id="clear">CLEAR</button>
+      <span class="sub">${S.paper ? 'grounded in lit/' + esc(S.paper) + '.md' : 'grounded in the whole library'}</span></div>`;
+  $('#send').onclick = async () => {
+    const msg = $('#q').value.trim(); if (!msg) return;
+    S.history.push({ role: 'you', content: msg }); $('#q').value = ''; render();
+    try {
+      const r = await post('/chat', { message: msg, paper: S.paper,
+        history: S.history.filter(h => h.role !== 'you').slice(-6) });
+      S.history.push({ role: 'them', content: r.answer });
+    } catch (e) { S.history.push({ role: 'them', content: 'error: ' + e.message }); }
+    render();
+  };
+  $('#clear').onclick = () => { S.history = []; render(); };
+}
+
+// ----------------------------------------------------------------- build
+function viewBuild() {
+  $('#list').innerHTML = '';
+  $('#body').innerHTML = `<h2>LOWER</h2>
+    <p class="sub">Five artifacts from one library. Parity runs every
+    <code>#example</code> through the reference interpreter and every target that
+    has a toolchain here, and reports the worst disagreement.</p>
+    <div class="row">
+      <button id="v">VERIFY</button><button id="p">PARITY</button>
+      <button id="b">BUILD</button><button id="d">DRIFT</button></div>
+    <div id="out"><p class="sub">nothing run yet</p></div>`;
+  const show = (o) => $('#out').innerHTML = `<pre>${esc(JSON.stringify(o, null, 1))}</pre>`;
+  const run = async (f) => { $('#out').innerHTML = '<p class="sub">running…</p>';
+    try { show(await f()); } catch (e) { $('#out').innerHTML = `<pre class="bad">${esc(e.message)}</pre>`; } };
+  $('#v').onclick = () => run(() => api('/verify'));
+  $('#p').onclick = () => run(async () => {
+    const r = await api('/parity');
+    return { ok: r.ok, cases: r.cases, targets: r.targets, skipped: r.skipped,
+             worst_delta: r.worst_delta, mismatches: r.mismatches };
+  });
+  $('#b').onclick = () => run(() => post('/build', {}));
+  $('#d').onclick = () => run(() => api('/drift'));
+}
+
+boot();
+</script>
+</body>
+</html>

@@ -1,0 +1,39 @@
+{
+    "name": "sn46",
+    "version": "1.0.0",
+    "description": "SN46 Instant \u2014 Lighning Fast Uncensored Inference. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+    "icon": "\u05e5",
+    "chain": "bittensor",
+    "netuid": 46,
+    "subnet": "Instant",
+    "symbol": "\u05e5",
+    "owner": "5Ft9E2ovN52AVMczVA3713uXmmBPczvUboB4YQpupu3aEYg7",
+    "github": "https://github.com/Subnet46/sn46-validator",
+    "url": "https://instantnetwork.ai",
+    "discord": "https://discord.com/BJ7DkeUmFm",
+    "logo": "https://instant-network-logo.sebyverse.chatgpt.site/logo.png",
+    "related": [],
+    "active": true,
+    "route": false,
+    "generated_by": "subnets",
+    "updated": "2026-10-20",
+    "urls": {
+        "bt": "/bt/markets?sn=46",
+        "news": "/bt/news?netuid=46"
+    },
+    "fns": [
+        "info",
+        "price",
+        "news",
+        "trades",
+        "daily",
+        "history",
+        "validators",
+        "neurons",
+        "links",
+        "snapshot",
+        "readme",
+        "refresh"
+    ],
+    "schema": "QmPS88qR7Eykf76Yc2zpChEazzjUhNT8nTPNRM9mCDUfYJ"
+}

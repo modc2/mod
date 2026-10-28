@@ -1,0 +1,189 @@
+{
+  "netuid": 67,
+  "name": "Harnyx",
+  "symbol": "ط",
+  "owner": "5HEAv3TU1yNei4GwiTsxfmDCDW9pMCKLeDVky9iaVJfYiVeY",
+  "description": "Deep research as a commodity. Faster, cheaper, traceable research — produced by a competitive swarm of miners on Bittensor SN67.",
+  "github": "https://github.com/harnyx/harnyx",
+  "url": "https://harnyx.ai/",
+  "discord": "https://discord.com/channels/799672011265015819/1457737666316472351",
+  "logo": "https://harnyx.ai/favicon.png",
+  "registered_at": 7236936,
+  "tempo": 360,
+  "active": true,
+  "block": 9322663,
+  "related": [],
+  "market": {
+    "price": 0.003155231,
+    "moving_price": 0.0031634513288736343,
+    "market_cap": 5866.275647676015,
+    "tao_in": 2552.438723209,
+    "alpha_in": 808954.706562828,
+    "alpha_out": 1050267.533481091,
+    "volume": 70328.145648658,
+    "vol_24h": 40.21083639799326,
+    "emission": 0.0,
+    "change_1h": -0.026108543735769985,
+    "change_24h": -0.5490049482309578,
+    "change_7d": -5.184652517426114
+  },
+  "spark_24h": [
+    0.003172649,
+    0.003172394,
+    0.003169025,
+    0.003165504,
+    0.003165153,
+    0.003165152,
+    0.003165227,
+    0.003165179,
+    0.003165141,
+    0.003164296,
+    0.003164247,
+    0.003164247,
+    0.003162521,
+    0.003157159,
+    0.003157212,
+    0.003157192,
+    0.003157201,
+    0.003156921,
+    0.003156974,
+    0.003156687,
+    0.003156687,
+    0.003156855,
+    0.003156854,
+    0.003156911,
+    0.00315689,
+    0.003156929,
+    0.003156929,
+    0.003156885,
+    0.003156955,
+    0.003157027,
+    0.003155677,
+    0.003155677,
+    0.003155677,
+    0.003155739,
+    0.003155723,
+    0.00315578,
+    0.00315578,
+    0.003155843,
+    0.003155842,
+    0.0031559,
+    0.0031559,
+    0.003155953,
+    0.003155953,
+    0.00315595,
+    0.003156055,
+    0.003156055,
+    0.003156055,
+    0.003155231
+  ],
+  "trades_24h": {
+    "trades": 101,
+    "buys": 2,
+    "sells": 99,
+    "buy_tao": 15.0,
+    "sell_tao": 21.087819464,
+    "net_tao": -6.087819463999999,
+    "traders": 21
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5D5eZr3ZYtdUgzHzuDDNuJc79EzWoB8i8aGQby9MVghD8K3V",
+      "net_tao": 0.00876418000000001,
+      "gross_tao": 19.99123582,
+      "trades": 2
+    },
+    {
+      "coldkey": "5FsPh7nmd41T5kSdQgjEwuDeM2Hn68ZjkSTXK5U7RMVXZXQn",
+      "net_tao": 0.005413324000000053,
+      "gross_tao": 9.994586676,
+      "trades": 2
+    },
+    {
+      "coldkey": "5Ge5LoLNZRZQjy8x7sSexsyLAATWLbDdNgT59Vj7RrCzs1tf",
+      "net_tao": -1.380226192,
+      "gross_tao": 1.380226192,
+      "trades": 17
+    },
+    {
+      "coldkey": "5H8gk8uSHpGGfXF4s6cyyUqJRkJfaj6X7i2JnpwTVvzesdWB",
+      "net_tao": -0.945514143,
+      "gross_tao": 0.945514143,
+      "trades": 1
+    },
+    {
+      "coldkey": "5E9iLyGAFvGeYPGaG2cdAYgaEvNuo7oR6df9bZ87zWijXvC5",
+      "net_tao": -0.596670599,
+      "gross_tao": 0.596670599,
+      "trades": 14
+    }
+  ],
+  "news": [
+    {
+      "ts": 1792409782,
+      "kind": "commit",
+      "source": "github",
+      "title": "chore(validator): bump repo-owned validator version to 20261019.post4",
+      "url": "https://github.com/harnyx/harnyx/commit/a8b47f5dceb463600db9c72bc81d4f7a02f313df",
+      "publisher": "harnyx/harnyx"
+    },
+    {
+      "ts": 1792409535,
+      "kind": "commit",
+      "source": "github",
+      "title": "Add Drex, Span-02 and Step 5 Preview miner models (#1754)",
+      "url": "https://github.com/harnyx/harnyx/commit/090ff971cbb37ef12b607852fd127b2ead28e4c1",
+      "publisher": "harnyx/harnyx"
+    },
+    {
+      "ts": 1792404143,
+      "kind": "commit",
+      "source": "github",
+      "title": "chore(validator): bump repo-owned validator version to 20261019.post3",
+      "url": "https://github.com/harnyx/harnyx/commit/e262ada21d233341770bad5121acf4e1dead86cb",
+      "publisher": "harnyx/harnyx"
+    },
+    {
+      "ts": 1792403706,
+      "kind": "commit",
+      "source": "github",
+      "title": "chore(validator): bump repo-owned validator version to 20261019.post2",
+      "url": "https://github.com/harnyx/harnyx/commit/5ff066dfcaf8ffa8090f55a9e801437742b5f2b1",
+      "publisher": "harnyx/harnyx"
+    },
+    {
+      "ts": 1792403654,
+      "kind": "commit",
+      "source": "github",
+      "title": "Add Muse Spark Open to miner models (#1746)",
+      "url": "https://github.com/harnyx/harnyx/commit/7eb973c15d4ba930e410c53d9d0a5c9c00bbc216",
+      "publisher": "harnyx/harnyx"
+    },
+    {
+      "ts": 1792325064,
+      "kind": "commit",
+      "source": "github",
+      "title": "chore(validator): bump repo-owned validator version to 20261018.post0",
+      "url": "https://github.com/harnyx/harnyx/commit/b3666706b3fce8afdc3e4013e584ae09c6cfcc24",
+      "publisher": "harnyx/harnyx"
+    },
+    {
+      "ts": 1792325011,
+      "kind": "commit",
+      "source": "github",
+      "title": "Add DeepSeek Search and Fetch and Flash 1017 routes (#1736)",
+      "url": "https://github.com/harnyx/harnyx/commit/920c10af9e5324a6f0934669b33253adbb90e340",
+      "publisher": "harnyx/harnyx"
+    },
+    {
+      "ts": 1792150352,
+      "kind": "commit",
+      "source": "github",
+      "title": "chore(validator): bump repo-owned validator version to 20261016.post1",
+      "url": "https://github.com/harnyx/harnyx/commit/1f8c6f385692a25ece53246dfcfc2ed87b0d6938",
+      "publisher": "harnyx/harnyx"
+    }
+  ],
+  "updated": 1792474861,
+  "updated_day": "2026-10-20"
+}

@@ -2,3 +2,6 @@
 .acl.json
 .agent_memory.json
 __pycache__/
+src/app/.next*/
+src/app/node_modules/
+venv/

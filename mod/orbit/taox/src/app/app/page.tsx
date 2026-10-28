@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from 'react'
+import BridgeBoard from './BridgeBoard'
 
 function getApiBase(): string {
   if (process.env.NEXT_PUBLIC_API_URL) return process.env.NEXT_PUBLIC_API_URL
@@ -140,6 +141,9 @@ function toBaseUnits(amount: string, decimals: number): bigint {
 }
 
 export default function TaoxPage() {
+  // The board comes first: for most people the answer to "get me into TAO" is
+  // one of the outside routes, not this deployment's own custodial desk.
+  const [tab, setTab] = useState<'bridge' | 'desk'>('bridge')
   const [sources, setSources] = useState<Record<string, SourceCfg>>({})
   const [from, setFrom] = useState<string>('eth')
   const [amount, setAmount] = useState<string>('0.1')
@@ -368,10 +372,25 @@ export default function TaoxPage() {
   const sourceKeys = Object.keys(sources).length ? Object.keys(sources) : ['eth', 'sol']
 
   return (
-    <div className="wrap">
+    <div className="wrap-wide">
       <div className="card">
         <div className="h1">Taox</div>
-        <div className="muted">Convert ETH, SOL, USDC, or USDT into native TAO. MetaMask + SubWallet.</div>
+        <div className="muted">Get into TAO from Solana, Base or Ethereum.</div>
+
+        <div className="tabs">
+          <button className={tab === 'bridge' ? 'on' : ''} onClick={() => setTab('bridge')}>Bridge in</button>
+          <button className={tab === 'desk' ? 'on' : ''} onClick={() => setTab('desk')}>This desk</button>
+        </div>
+        <hr />
+
+        {tab === 'bridge' && <BridgeBoard apiBase={getApiBase()} />}
+
+        {tab === 'desk' && (<>
+        <div className="muted">
+          This module&apos;s own custodial desk: deposit ETH, SOL, USDC or USDT and the
+          operator delivers native TAO to your ss58. Compare it against the outside
+          routes on the Bridge in tab before using it.
+        </div>
 
         <div className="h2">1. Connect wallets</div>
         <div className="row">
@@ -453,9 +472,10 @@ export default function TaoxPage() {
 
         {err && <div className="err" style={{ marginTop: 8 }}>{err}</div>}
         {notice && !err && <div className="ok" style={{ marginTop: 8 }}>{notice}</div>}
+        </>)}
       </div>
 
-      {order && (
+      {tab === 'desk' && order && (
         <div className="card" style={{ marginTop: 16 }}>
           <div className="h2" style={{ marginTop: 0 }}>Order <span className="pill">{order.state}</span></div>
           <div className="kv"><span className="k">ID</span><span className="v">{order.id}</span></div>

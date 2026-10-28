@@ -1,18 +1,32 @@
 {
     "name": "model",
-    "version": "0.1.0",
-    "description": "Unified BYOK model gateway \u2014 chat any model from openrouter / chutes / targon / venice in one app.",
+    "version": "0.4.0",
+    "description": "Every model, one market: BYOK gateway over 17 providers (incl. SayGM) + your own OpenAI-compatible endpoints. Same model from every provider grouped into a market (offers cheapest first, spread), and ONE OpenAI-standard API at /v1 for all of them \u2014 non-OpenAI shapes (Anthropic messages, Gemini generateContent, responses) are translated both ways.",
     "port": 50110,
     "app_port": 50110,
+    "route": true,
     "urls": {
         "api": "http://localhost:50110",
         "app": "http://localhost:50110"
     },
     "providers": [
         "openrouter",
+        "huggingface",
+        "together",
+        "fireworks",
+        "deepinfra",
+        "groq",
+        "cerebras",
+        "anthropic",
+        "openai",
+        "gemini",
+        "xai",
+        "mistral",
+        "deepseek",
         "chutes",
         "targon",
-        "venice"
+        "venice",
+        "saygm"
     ],
     "fns": [
         "serve",
@@ -20,7 +34,9 @@
         "status",
         "providers",
         "models",
-        "forward"
+        "forward",
+        "client",
+        "market"
     ],
     "endpoints": {
         "/": {
@@ -33,17 +49,73 @@
         },
         "/models": {
             "method": "GET",
-            "docs": "List models for ?provider=ID (BYOK via X-API-Key)"
+            "docs": "List models for ?provider=ID (BYOK via X-API-Key; openrouter public)"
+        },
+        "/catalog": {
+            "method": "GET",
+            "docs": "Combined catalog of every type: each model has ref <provider>:<model>, kind, price_in/out (USD per 1M), context. Keys via X-API-Keys JSON; ?search= ?kind=; custom endpoints via X-Custom-Providers"
         },
         "/chat": {
             "method": "POST",
-            "docs": "Streaming chat (SSE). Body: {provider, model, messages, temperature}; BYOK via X-API-Key"
+            "docs": "Streaming chat (SSE). Body: {model:\"<provider>:<model>\", messages} or {provider, model, messages}; BYOK via X-API-Key or X-API-Keys"
         },
         "/health": {
             "method": "GET",
             "docs": "Health check"
+        },
+        "/check": {
+            "method": "GET",
+            "docs": "Validate a key: ?provider=ID with X-API-Key -> {ok, count}"
+        },
+        "/images": {
+            "method": "POST",
+            "docs": "Text to image {model:ref, prompt, size, n} -> {images:[url|data:]}"
+        },
+        "/embeddings": {
+            "method": "POST",
+            "docs": "{model:ref, input:[str]} -> {dims, vectors, similarity}"
+        },
+        "/speech": {
+            "method": "POST",
+            "docs": "TTS {model:ref, input, voice, format} -> audio bytes"
+        },
+        "/transcribe": {
+            "method": "POST",
+            "docs": "multipart model=ref, file=audio -> {text}"
+        },
+        "/rerank": {
+            "method": "POST",
+            "docs": "{model:ref, query, documents:[str]} -> {results:[{index,score,document}]}"
+        },
+        "/market": {
+            "method": "GET",
+            "docs": "Market board: one row per canonical model, offers from every provider sorted by blended $/1M ((3*in+out)/4), n venues, best, spread. ?kind= ?search= ?min_offers="
+        },
+        "/v1/models": {
+            "method": "GET",
+            "docs": "OpenAI list shape; ids are <provider>:<model> refs with pricing/kind/market extras"
+        },
+        "/v1/chat/completions": {
+            "method": "POST",
+            "docs": "OpenAI chat completions for EVERY provider (stream, tools, images). model=<provider>:<model>, or a bare name -> cheapest provider you sent a key for in X-API-Keys. Response header X-Model-Ref says where it went"
+        },
+        "/v1/embeddings": {
+            "method": "POST",
+            "docs": "OpenAI embeddings passthrough, model=<provider>:<model>"
+        },
+        "/v1/images/generations": {
+            "method": "POST",
+            "docs": "OpenAI images passthrough"
+        },
+        "/v1/audio/speech": {
+            "method": "POST",
+            "docs": "OpenAI TTS passthrough"
+        },
+        "/v1/audio/transcriptions": {
+            "method": "POST",
+            "docs": "OpenAI STT (multipart model, file)"
         }
     },
-    "schema": "QmQXKt7frxqRD95JE7cCksXT7YybAYADdvPESG4nwmR8Gm",
+    "schema": "QmSGKm5Xx9F5L4ZNPaSLm9Trp7yFTGeJSqLVtmSsDNmp4d",
     "gateway_port": 50110
 }

@@ -1,0 +1,39 @@
+{
+    "name": "sn29",
+    "version": "1.0.0",
+    "description": "SN29 ho\u03c4floa\u03c4 \u2014 Inference optimization. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+    "icon": "\u05d4",
+    "chain": "bittensor",
+    "netuid": 29,
+    "subnet": "ho\u03c4floa\u03c4",
+    "symbol": "\u05d4",
+    "owner": "5HHHHHzgLnYRvnKkHd45cRUDMHXTSwx7MjUzxBrKbY4JfZWn",
+    "github": "https://github.com/coldint/hotfloat",
+    "url": "http://hotfloat.io",
+    "discord": null,
+    "logo": null,
+    "related": [],
+    "active": true,
+    "route": false,
+    "generated_by": "subnets",
+    "updated": "2026-10-20",
+    "urls": {
+        "bt": "/bt/markets?sn=29",
+        "news": "/bt/news?netuid=29"
+    },
+    "fns": [
+        "info",
+        "price",
+        "news",
+        "trades",
+        "daily",
+        "history",
+        "validators",
+        "neurons",
+        "links",
+        "snapshot",
+        "readme",
+        "refresh"
+    ],
+    "schema": "QmPS88qR7Eykf76Yc2zpChEazzjUhNT8nTPNRM9mCDUfYJ"
+}

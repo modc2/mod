@@ -1,0 +1,99 @@
+{
+  "block": "vesting",
+  "contract": "ModVesting",
+  "file": "vesting.sol",
+  "audited_at": "2026-08-30",
+  "auditor": "claude-fable-5 agent audit",
+  "risk": "medium",
+  "summary": "ModVesting is an 80-line linear-with-cliff vesting lock over one immutable ERC20: vested() = (balance + released) * elapsed / duration after the cliff, release() is permissionless and pays the beneficiary, revoke() (owner, only if revocable) returns the unvested remainder to the owner while leaving vested-but-unclaimed tokens for the beneficiary, and only the beneficiary can reassign itself. The core is correct: multiply-before-divide, right boundaries at cliff and end, released/revoked written before every transfer so there is no reentrancy, and revoke cannot be used to front-run a release. The worst finding is a composition one: the catalog advertises the block as a `sink`, but it can only ever move its one `token` and has no sweep, so any fee stream wired into it in another asset (CDP stablecoin, LST shares, StableSwap coins, bond reserves, slashed stake) is trapped forever; same-token deposits after start vest retroactively at the current elapsed fraction, so top-ups and fee streams leak almost immediately late in the schedule and the on-chain 'lock' overstates what is committed. A no-bool-return token (USDT) bricks both release() and revoke() with no exit. Safe to deploy as-is for a one-shot lock: a standard bool-returning token (ModToken), fully funded right after deployment, never topped up, and not used as a revenue sink; with the catalog defaults (owner == beneficiary, revocable) it commits nothing.",
+  "counts": {
+    "critical": 0,
+    "high": 1,
+    "medium": 2,
+    "low": 3,
+    "info": 2
+  },
+  "findings": [
+    {
+      "id": "VESTING-1",
+      "severity": "high",
+      "title": "Wired as a `sink`, every asset other than `token` is trapped forever (no sweep, immutable token)",
+      "where": "total() L44-L46, constructor L36 (immutable token), no rescue function anywhere L9-L80",
+      "detail": "The catalog lists this block as a provider of the `sink` port (\"Revenue sink\", iface `address`), so the canvas lets a deployer drag it onto the CDP surplus sink, the PSM / StableSwap / LST / flash-lender fee sinks, the bond depository treasury or the safety module recovery fund. Each of those pushes or mints ITS OWN asset to the sink address: the CDP mints its stablecoin (cdp.sol L172-L176), the LST mints its share token (lst.sol L141), StableSwap pays admin fees in pool coins (stableswap.sol L189), the flash lender pays in its reserve asset (flashlender.sol L112), the safety module forwards the staked token (safetymodule.sol L161). ModVesting only ever moves `token`, which is immutable, and it has no sweep / rescue / recoverERC20 and no `receive()`. Any asset that is not exactly `token` accumulates in the contract with no code path that can ever move it. Even if the deployer notices, the owner cannot recover it and `revoke()` does not touch it. This is an irreversible loss of a whole revenue stream reachable through a wire the catalog explicitly permits.",
+      "exploit": "1. Compose Token A -> Vesting(token=A, beneficiary=team). 2. On the same canvas wire StableSwap.feeSink -> Vesting (or CDP.surplusSink -> Vesting, or LST.feeSink -> Vesting). 3. Users trade; StableSwap.collectFees / CDP.drawSurplus / LST rebases push coin B / stablecoin / LST shares to the vesting address. 4. release() and revoke() only ever transfer A; balanceOf(B) at the vesting contract grows forever and nobody -- owner, beneficiary or governor -- has a function that can move it.",
+      "recommendation": "Either drop `sink` from `provides` (a single-token, single-beneficiary schedule is not a revenue sink) or add an owner-only `sweep(IERC20 other, address to)` that refuses `other == token`. If same-token fee streams are a wanted feature, document that they vest retroactively (VESTING-2) and add a `sweep` for the rest."
+    },
+    {
+      "id": "VESTING-2",
+      "severity": "medium",
+      "title": "Every later deposit vests retroactively at the current elapsed fraction; late funding and top-ups leak instantly",
+      "where": "total() L44-L46, vested() L48-L52, release() L59-L65",
+      "detail": "The schedule is not sized at deployment. `total()` is `balanceOf(this) + released`, and `vested()` applies `(elapsed / duration)` to that live figure. Any token that lands in the contract after `start` is therefore treated as if it had been there since `start`: a top-up at 75% elapsed is 75% releasable in the same block, and after `start + duration` (or after revoke, L50) a deposit is 100% releasable on arrival. This defeats the point of a vesting contract as a public commitment -- the on-chain schedule says 'linear over 2 years' while a second tranche, a same-token fee stream wired via the sink port, or a mint from a `mintable` ModToken pays out almost at once. The mirror case is funding late with `cliffSeconds = 0`: deploy with `start_ = 0`, fund a week later, and a week's worth is releasable before the beneficiary has vested anything. revoke() only claws back the unvested fraction of the top-up, so the owner cannot undo a mis-timed deposit either. Note also that `revoke()` does not stop the pipe: tokens arriving after `revoked = true` go 100% to the beneficiary (L50).",
+      "exploit": "1. Deploy Vesting(start=0, cliff=6 months, duration=2 years, revocable=true), transfer 1,000 TOKEN in. 2. At month 18 the deployer sends a second 1,000 TOKEN tranche intended to vest over the remaining 6 months. 3. Same block: total()=2,000, vested()=2,000*18/24=1,500, released so far=750, releasable()=750 -- 75% of the new tranche is claimable immediately by anyone calling release(). 4. Variant: wire a same-token fee sink at month 23; every fee push is ~96% releasable on arrival. 5. Variant: owner calls revoke() at month 18 and keeps sending fees; each later deposit is 100% releasable.",
+      "recommendation": "Snapshot the schedule: record `totalAllocation` at first funding (or take `amount` in the constructor and pull it via transferFrom), vest against that constant, and treat any surplus over the allocation as owner-sweepable. If the live-balance design is kept on purpose, say so loudly in the catalog docs and remove `sink` from `provides`."
+    },
+    {
+      "id": "VESTING-3",
+      "severity": "medium",
+      "title": "Non-standard ERC20s (no bool return, e.g. USDT) make release() and revoke() revert forever -- balance permanently locked",
+      "where": "release() L63, revoke() L71 via SafeTransfer.push common.sol L125-L127; IERC20.transfer common.sol L13",
+      "detail": "`SafeTransfer.push` calls `token.transfer` through an interface that declares `returns (bool)` and then `require`s the result. Tokens whose `transfer` returns nothing (USDT, BNB, OMG and other pre-2018 ERC20s) make the ABI decode revert on every call. In this block that is fatal rather than annoying: `release()` and `revoke()` are the only two functions that move tokens, both go through `push`, and there is no rescue path, so a schedule funded with such a token can never pay the beneficiary nor be unwound by the owner. The `erc20` port is an `address`, so nothing on the canvas stops a deployer from pointing it at mainnet USDT.",
+      "exploit": "1. Deploy Vesting(token=0xdAC17F958D2ee523a2206206994597C13D831ec7 /* USDT */, ...). 2. Transfer 100,000 USDT to the vesting address. 3. After the cliff, release() reverts inside SafeTransfer.push (return data too short for `bool`). 4. Owner calls revoke(): same revert. 5. The 100,000 USDT is unrecoverable by anyone.",
+      "recommendation": "Use a SafeERC20-style low-level call in common.sol that accepts empty return data (`(bool ok, bytes memory ret) = address(token).call(...); require(ok && (ret.length == 0 || abi.decode(ret,(bool))))`). Until then, only wire tokens that return `true` from transfer -- ModToken and other ERC20Base blocks are fine."
+    },
+    {
+      "id": "VESTING-4",
+      "severity": "low",
+      "title": "Catalog defaults (beneficiary=$owner, revocable=true, owner=$owner) produce a lock the deployer can unwind at will",
+      "where": "revoke() L67-L73, setOwner() common.sol L47-L50; catalog params beneficiary_ default \"$owner\", revocable_ default true",
+      "detail": "With the defaults the same wallet is owner and beneficiary of a revocable schedule. It can call revoke() at any moment to pull the unvested part back to itself and release() for the rest, so no token is ever actually committed. A 'team vesting' block on a public diagram then signals a lock that does not exist. Two related owner-side footguns: revoke() sends the unvested tokens to whatever `owner` is at that moment, and `Owned.setOwner` accepts address(0) -- with an ERC20Base token (ModToken) `_move` has no zero-address check (common.sol L93-L100), so revoking after a renounce silently burns the unvested balance instead of returning it; with an OpenZeppelin-style token the transfer reverts and the schedule becomes de facto non-revocable.",
+      "exploit": "1. Deploy with defaults: owner=beneficiary=deployer, revocable=true, fund 1,000,000 TEAM. 2. Publish the diagram as '2-year team lock'. 3. Any time later deployer calls revoke(): unvested tokens return to the deployer; deployer calls release() for the vested remainder. Nothing was ever locked. 4. Variant: owner calls setOwner(0) then revoke() on a ModToken -> unvested tokens are transferred to address(0) and lost.",
+      "recommendation": "For a real commitment wire the Owner port to a Timelock or Governor (or set revocable=false) and put a different wallet in Beneficiary. Have the catalog default `revocable_` to false, or at least warn when beneficiary == owner. Reject address(0) in setOwner or in revoke()."
+    },
+    {
+      "id": "VESTING-5",
+      "severity": "low",
+      "title": "start_ and duration_ are unbounded; a units typo (ms, block number, past epoch) either dumps everything at once or locks it past the heat death",
+      "where": "constructor L38-L40, vested() L49-L51",
+      "detail": "`start_` accepts any uint64 except 0 and `duration_` anything > 0. A start in the past by more than `duration` (e.g. a block number pasted into the field) makes the whole balance releasable in the funding block. A start or duration typed in milliseconds (1756512000000 for today) sits ~55,000 years in the future; with `revocable_ = false` nothing can ever move the tokens, and even with `revocable_ = true` the only exit is a full revoke to the owner. The UI labels say 'unix' and 'seconds' but the contract enforces nothing.",
+      "exploit": "1. Deploy Vesting(start_=1756512000000 /* ms, not s */, cliff=15552000, duration=63072000, revocable=false). 2. Transfer 1,000,000 TOKEN in. 3. vested() returns 0 until year ~57,600; release() reverts NOTHING_VESTED forever and revoke() reverts NOT_REVOCABLE. Balance is unrecoverable.",
+      "recommendation": "Bound the inputs: require `start_ >= block.timestamp - duration_` (or simply `start_ <= block.timestamp + 5 years`) and `duration_ <= 20 years`. Have the inspector reject values that are not plausible unix seconds."
+    },
+    {
+      "id": "VESTING-6",
+      "severity": "low",
+      "title": "setBeneficiary is single-step and silent: a typo permanently redirects every future release, and nothing is emitted",
+      "where": "setBeneficiary() L75-L79",
+      "detail": "The beneficiary can hand the position to any non-zero address in one call with no acceptance step and no event. A mistyped address or a compromised beneficiary key permanently redirects all remaining vesting; the owner cannot correct it (there is no owner-side setter, which is otherwise the right call). Because there is no event, the console, indexers and the `Released` log consumer see the change only by re-reading storage. Note that anyone may call release() at any time (L59), so the new address starts receiving as soon as the change lands.",
+      "exploit": "1. Beneficiary calls setBeneficiary(0x...wrong) with a pasted address that is off by one character. 2. Next release() (callable by anyone) pushes the vested tokens to the wrong address; every later release does the same. 3. No party can undo it.",
+      "recommendation": "Make it two-step (`proposeBeneficiary` / `acceptBeneficiary` from the new address) and emit `BeneficiaryChanged(old, new)`."
+    },
+    {
+      "id": "VESTING-7",
+      "severity": "info",
+      "title": "Revoke before the cliff returns 100% to the owner, including the time already served",
+      "where": "vested() L49, revoke() L69-L71",
+      "detail": "Because vested() returns 0 before `cliff`, an owner revoke one block before the cliff hands the entire balance back to the owner even though (cliffSeconds / duration) of the schedule has elapsed; one block after the cliff the same revoke leaves the beneficiary with that pro-rata amount. This matches OpenZeppelin's classic TokenVesting semantics and is not a bug, but with the default 6-month cliff it is a large step function that both sides should understand. After the cliff, revoke correctly leaves vested-but-unclaimed tokens in the contract for the beneficiary (L50 returns total() when revoked) and cannot be used by the owner to front-run a release.",
+      "exploit": "1. Deploy cliff=6 months, duration=24 months, fund 1,000,000. 2. At day 179 owner calls revoke(): unvested = total() - 0 = 1,000,000 back to owner, beneficiary gets nothing. 3. At day 181 the same call would have left 250,000 vested for the beneficiary.",
+      "recommendation": "No code change required if this is the intended policy; state it in the catalog docs. If a softer policy is wanted, compute the revoke split from the linear formula ignoring the cliff."
+    },
+    {
+      "id": "VESTING-8",
+      "severity": "info",
+      "title": "Fee-on-transfer tokens are handled; negative-rebasing / deflationary tokens can temporarily block revoke()",
+      "where": "total() L45, releasable() L56, revoke() L69-L71",
+      "detail": "Because the schedule is balance-based, fee-on-transfer tokens simply vest what actually arrived -- no accounting drift. Positive rebases vest pro-rata (subject to VESTING-2). A negative rebase after some releases can push `released` above `vested()`; releasable() guards this with `v > released ? v - released : 0`, but revoke() computes `unvested = total() - vested()` where total() still counts the already-released amount, so `unvested` can exceed the live balance and `push` reverts until enough time passes for vested() to catch up. No funds are lost and no reentrancy exists (state is written before every external call at L62 and L70).",
+      "exploit": "1. Fund 1,000 RBT; at 50% release 500. 2. RBT rebases -60%: balance 200, released 500, total 700, vested 350 (< released), releasable 0. 3. Owner calls revoke(): unvested = 700 - 350 = 350 > balance 200 -> PUSH_FAILED. Revoke works again once vested() >= 500 + 150 (~93% elapsed).",
+      "recommendation": "Clamp in revoke(): `uint256 bal = token.balanceOf(address(this)); if (unvested > bal) unvested = bal;`. Prefer non-rebasing tokens for vesting."
+    }
+  ],
+  "safe_use": [
+    "Do NOT wire any block's fee/treasury/recovery sink into this contract unless that block pays in exactly the vesting `token` -- everything else is lost forever (VESTING-1).",
+    "Fund it once, in the transaction right after deployment, with the whole allocation; never top it up later -- later deposits vest at the current elapsed fraction, not on a fresh schedule (VESTING-2). Use a second Vesting block for a second tranche.",
+    "Use a token whose transfer() returns true (ModToken / any ERC20Base block, OpenZeppelin tokens). Never USDT-style tokens (VESTING-3).",
+    "For a real commitment set a different wallet as Beneficiary and wire the Owner port to a Timelock or Governor, or set Revocable off; with the defaults the deployer can revoke and release everything at any time (VESTING-4).",
+    "Type start_ in unix SECONDS (0 = now) and durations in seconds; check vested()/cliff on the explorer after deploy before funding (VESTING-5). Never call setOwner(address(0)) on a revocable schedule.",
+    "Beneficiary: treat setBeneficiary as irreversible; send a tiny test release to the new address before moving a large position (VESTING-6).",
+    "Both sides should know a revoke one block before the cliff returns 100% to the owner (VESTING-7)."
+  ]
+}

@@ -1,0 +1,58 @@
+{
+    "name": "cheapy",
+    "version": "0.1.0",
+    "description": "Find the cheapest LLM that can actually do the job. Say tokens in, tokens out, how many calls, and what the model must support (tools, images, reasoning, context); get every fitting model ranked by what that job costs. Prices from OpenRouter's public model list, no key: cached an hour, stale cache when offline, bundled snapshot as the floor. Compare models side by side, count tokens from a sample. Stdlib only.",
+    "icon": "$",
+    "color": "#3ddc84",
+    "anchor": "src/mod.py",
+    "network": "local",
+    "port": 51370,
+    "app_port": 51370,
+    "gateway_port": 51370,
+    "base_path": "/cheapy",
+    "route": true,
+    "deps": [],
+    "urls": {
+        "app": "http://localhost:51370/cheapy/",
+        "api": "http://localhost:51370"
+    },
+    "state": "~/.mod/cheapy/models.json price cache (override with CHEAPY_DIR)",
+    "fns": [
+        "forward",
+        "info",
+        "health",
+        "readme",
+        "cheapest",
+        "compare",
+        "model",
+        "providers",
+        "estimate",
+        "refresh",
+        "serve",
+        "test",
+        "kill"
+    ],
+    "api_fns": [
+        "info",
+        "health",
+        "readme",
+        "cheapest",
+        "compare",
+        "model",
+        "providers",
+        "estimate",
+        "refresh"
+    ],
+    "endpoints": {
+        "GET /info": "Null call: what this module is, with price-list stats",
+        "GET /health": "Liveness plus price-list freshness (source = live|cache|stale|snapshot)",
+        "GET /cheapest": "Models that fit a job, cheapest first (input_tokens, output_tokens, calls, min_context, tools, vision, reasoning, free=0|1, q, provider, limit, offset)",
+        "GET /compare": "Same job priced on chosen models (ids=a,b,c, input_tokens, output_tokens, calls)",
+        "GET /model": "One model's prices and capabilities (id)",
+        "GET /providers": "Every provider with model count and cheapest paid model",
+        "GET /estimate": "Rough token count (text or chars)",
+        "GET /refresh": "Re-pull prices from OpenRouter now"
+    },
+    "key": "cheapy",
+    "schema": "QmYEvcEE4fwakSm4htBGXpLi2Ji4rnactdhb4QRnjSqbH5"
+}

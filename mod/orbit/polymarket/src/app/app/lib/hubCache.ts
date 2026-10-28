@@ -2,7 +2,7 @@
 
 // Client side of the background backtest cache.
 //
-// The console talks to the worker through one route (`/polymarket/api/hub`):
+// The console talks to the worker through one route (`/polymarket/_api/hub`):
 // it POSTs the roster the worker should replay (strats live in this browser's
 // localStorage — the server has no other way to learn about them) and GETs
 // whatever the worker's last 2-hourly pass produced.
@@ -16,7 +16,7 @@ import { HUB_BACKTEST_DAYS } from "./hubReplay";
 import type { HubBacktest } from "./hubReplay";
 import type { SavedIndex } from "./types";
 
-const HUB_API = `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/api/hub`;
+const HUB_API = `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/_api/hub`;
 
 /** The fetch loop: how much of the roster the server's feed cache holds, and
     when it last topped it up. Replays run over THIS — a card is only as
@@ -78,6 +78,18 @@ export async function fetchWorkerBacktests(days: number): Promise<WorkerCache | 
     return (await res.json()) as WorkerCache;
   } catch {
     return null;
+  }
+}
+
+/** Ask the worker for a pass now instead of at its next tick — used when a
+    card is missing a window entirely. A no-op server-side while one is
+    already running, so calling it twice costs nothing. */
+export async function requestWorkerPass(): Promise<boolean> {
+  try {
+    const res = await fetch(`${HUB_API}?run=1`, { method: "POST", headers: authHeaders() });
+    return res.ok;
+  } catch {
+    return false;
   }
 }
 

@@ -22,12 +22,35 @@ Usage:
     ident.require_signed_in(key, "create prompt")
     ident.require(owner, key, "remove prompt 'x'")
 """
+import importlib.util
+import os
 from typing import Any, Callable, Dict, Optional
 
 try:
     import mod as m
 except ImportError:
     m = None
+
+_PASSPORT = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__)))), 'passport', 'src', 'client.py')
+_passport_client = None
+
+
+def passport():
+    """The fleet's auth protocol client (orbit/passport), or None when that
+    module isn't on this box. It is the authority on who a token belongs to —
+    wallet tokens, local-key tokens and build console sessions alike — and
+    the protocol it applies changes without this process restarting."""
+    global _passport_client
+    if _passport_client is None:
+        try:
+            spec = importlib.util.spec_from_file_location('passport_client', _PASSPORT)
+            mod_ = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod_)
+            _passport_client = mod_
+        except Exception:
+            _passport_client = False
+    return _passport_client or None
 
 
 class Identity:
@@ -63,6 +86,9 @@ class Identity:
         key_str = str(key)
         if key_str.startswith("0x") and len(key_str) in (42, 66):
             return key_str
+        pp = passport()
+        if pp:
+            return pp.address(key_str)
         if m:
             try:
                 return m.mod("auth")().verify(key_str)["key"]

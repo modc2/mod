@@ -1,7 +1,7 @@
 """grep - search file contents by regex"""
 import re
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 
 class Tool:
     description = "Search for regex patterns in files"

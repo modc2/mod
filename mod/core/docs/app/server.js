@@ -21,6 +21,10 @@ const MCP_PORT = parseInt(process.env.MCP_PORT || "50192", 10);
 const DOCS = path.join(__dirname, "..", "docs");
 const SIMPLE = path.join(DOCS, "simple");
 const INDEX = path.join(__dirname, "index.html");
+// The fleet dependency graph (scripts/modgraph.py writes it under docs/modgraph):
+// its markdown report is listed as a page, the interactive view is served whole.
+const MODGRAPH_MD = path.join(DOCS, "modgraph", "MODGRAPH.md");
+const MODGRAPH_HTML = path.join(DOCS, "modgraph", "modgraph.html");
 
 // Pipe an MCP JSON-RPC request through to api/mcp.py; a dead server becomes a
 // JSON-RPC error so the calling agent reads a reason instead of a socket hangup.
@@ -51,7 +55,8 @@ const proxyMcp = (req, res) => {
 
 const pages = () =>
   fs.existsSync(DOCS)
-    ? fs.readdirSync(DOCS).filter((f) => f.endsWith(".md")).map((f) => f.slice(0, -3)).sort()
+    ? fs.readdirSync(DOCS).filter((f) => f.endsWith(".md")).map((f) => f.slice(0, -3))
+        .concat(fs.existsSync(MODGRAPH_MD) ? ["modgraph"] : []).sort()
         .map((name) => ({ name, simple: fs.existsSync(path.join(SIMPLE, name + ".md")) }))
     : [];
 
@@ -78,7 +83,7 @@ http
       const fn = name.endsWith(".md") ? name : name + ".md";
       const wantSimple = /(^|&)v=simple(&|$)/.test(query || "");
       const simplePath = path.join(SIMPLE, fn);
-      const techPath = path.join(DOCS, fn);
+      const techPath = fn === "modgraph.md" ? MODGRAPH_MD : path.join(DOCS, fn);
       const served = wantSimple && fs.existsSync(simplePath) ? simplePath : techPath;
       if (!techPath.startsWith(DOCS) || !fs.existsSync(techPath)) {
         res.writeHead(404, { "content-type": "text/plain" });
@@ -89,6 +94,10 @@ http
         "x-docs-variant": served === simplePath ? "simple" : "tech",
       });
       return res.end(fs.readFileSync(served));
+    }
+    if (url === "/_graph" && fs.existsSync(MODGRAPH_HTML)) {
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      return res.end(fs.readFileSync(MODGRAPH_HTML));
     }
     if (url === "/health") {
       res.writeHead(200);

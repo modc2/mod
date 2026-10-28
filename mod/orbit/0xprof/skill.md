@@ -28,6 +28,7 @@ reached.
 
 ```bash
 m 0xprof/prove system=schnorr secret=42 context=demo      # also dleq, merkle
+m 0xprof/prove system=pedersen value=1000 context=demo    # blinding= to pin r
 m 0xprof/prove system=groth16 zkey=circuit.zkey wasm=circuit.wasm inputs=input.json
 ```
 
@@ -44,11 +45,21 @@ m 0xprof/buy id=<proof id>
 m 0xprof/bounty system=groth16 reward=25 vkey=vkey.json \
                 require='[{"index":1,"min":1000}]' title="prove you clear 1000"
 m 0xprof/submit id=<bounty id> proof=proof.json public_signals=public.json
+m 0xprof/join   id=<bounty id>       # staked rounds: 1 credit locks token #N
+m 0xprof/settle id=<bounty id>       # run the reset, once it is due
 ```
 
 Bounty specs are mechanical: the verification key pins the circuit, and
 `equals` / `min` / `max` rules pin the public signals. A submission that
 verifies but fails a rule is recorded, and not paid.
+
+A bounty posted with `stake=1` runs in staked rounds: provers lock the stake
+for a numbered token before they may submit, and everything settles at the
+reset — the next UTC midnight (`settle=daily`, the default) or the seventh out
+(`weekly`). Lowest token number among accepted submissions wins the reward
+plus the stakes of seats that never submitted; anyone who submitted gets
+their stake back; an unwon round liquidates at par and resets with the same
+escrow. Nothing settles early — the lock is the mechanism.
 
 ## Re-verify a listing (signed)
 
@@ -65,6 +76,16 @@ returns a message naming that proof, and `POST /proofs/{id}/verify` takes
 says its verifiers think, under a name, so it is signed. The signature is bound
 to that one proof, expires in ten minutes, and buys exactly one run — the check
 log is the replay list.
+
+## Signing in without a wallet
+
+The console's SIGN IN offers two doors: a wallet extension, or a secp256k1 key
+it generates in the tab (`src/app/keys.js`, `src/app/account.js` — keccak-256
+and the curve in BigInt, zero dependencies). Both sign the same
+`/auth/challenge` message with the same `personal_sign`, so `identity.py` has
+one code path and no notion of an "anonymous" session — an address is an
+address. The key is kept in `localStorage` under `zkprof_key`, shown and
+exportable on the WALLET tab, and clearing site data destroys that account.
 
 ## Which method can check what
 

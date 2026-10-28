@@ -2,9 +2,9 @@
 // route runs on the host as root, so it MUST prove the caller is the configured
 // owner before executing anything. Flow:
 //   1. Owner signs `buildAuthMessage(addr, ts)` with the owner wallet.
-//   2. /api/terminal/auth verifies the signature recovers the config owner and
+//   2. /_api/terminal/auth verifies the signature recovers the config owner and
 //      issues an HMAC session token (server secret at ~/.mod/claude/terminal.secret).
-//   3. /api/terminal requires a valid session token on every command.
+//   3. /_api/terminal requires a valid session token on every command.
 import fs from "fs";
 import os from "os";
 import path from "path";

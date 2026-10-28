@@ -1,0 +1,13 @@
+{
+  "name": "stratchat",
+  "mod": "polymarket.agents.stratchat",
+  "title": "STRAT CHAT",
+  "glyph": "✎",
+  "kind": "chat",
+  "route": "/_api/strat-chat",
+  "tools": "none — proposes a validated PATCH",
+  "description": "The CHAT tab on every strat: answers in the strat's vocabulary and proposes a settings patch you APPLY by hand.",
+  "default_enabled": true,
+  "order": 4,
+  "version": "0.1.0"
+}

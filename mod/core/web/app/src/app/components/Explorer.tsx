@@ -2,21 +2,14 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { api, type TreeNode, type FileContent } from "@/lib/api";
+import { Icon } from "./Icon";
 
-// A glyph per file kind — purely cosmetic, keeps the tree scannable.
+// A short kind label per file — plain text, so it renders everywhere.
 function glyphFor(node: TreeNode): string {
-  if (node.type === "dir") return "▸";
+  if (node.type === "dir") return "";
   const ext = node.name.split(".").pop()?.toLowerCase() ?? "";
-  if (ext === "rs") return "🦀";
-  if (ext === "py") return "🐍";
-  if (ext === "ts" || ext === "tsx") return "◆";
-  if (ext === "js" || ext === "jsx" || ext === "mjs") return "◇";
-  if (ext === "json") return "{}";
-  if (ext === "css") return "▤";
-  if (ext === "md") return "¶";
-  if (ext === "toml" || ext === "lock") return "⚙";
-  if (ext === "sh") return "$";
-  return "·";
+  const known = ["rs", "py", "ts", "tsx", "js", "jsx", "mjs", "json", "css", "md", "toml", "sh", "yml", "yaml", "html", "lock"];
+  return known.includes(ext) ? ext : "";
 }
 
 function langFor(path: string): string {
@@ -91,7 +84,11 @@ function TreeRow({
         onClick={() => (isDir ? setOpen((o) => !o) : onSelect(node))}
       >
         <span className="tree-glyph" data-dir={isDir} data-open={open}>
-          {isDir ? (open ? "▾" : "▸") : glyphFor(node)}
+          {isDir ? (
+            <Icon name={open ? "chevron-down" : "chevron-right"} />
+          ) : (
+            glyphFor(node)
+          )}
         </span>
         <span className="tree-name">{node.name}</span>
       </button>
@@ -107,22 +104,25 @@ function TreeRow({
   );
 }
 
-// Pick a sensible file to show first: prefer a README, then a main source file.
+// Pick a sensible file to show first: the module's own README (shallowest
+// wins, so a vendored dependency's README deep in the tree never beats it),
+// then config.json, then the shallowest main source file.
 function pickDefault(nodes: TreeNode[]): TreeNode | null {
-  const flat: TreeNode[] = [];
-  const walk = (ns: TreeNode[]) =>
+  const flat: { n: TreeNode; depth: number }[] = [];
+  const walk = (ns: TreeNode[], depth: number) =>
     ns.forEach((n) => {
-      if (n.type === "file") flat.push(n);
-      if (n.children) walk(n.children);
+      if (n.type === "file") flat.push({ n, depth });
+      if (n.children) walk(n.children, depth + 1);
     });
-  walk(nodes);
+  walk(nodes, 0);
+  flat.sort((a, b) => a.depth - b.depth);
   const byName = (re: RegExp) =>
-    flat.find((f) => re.test(f.name.toLowerCase()));
+    flat.find((f) => re.test(f.n.name.toLowerCase()))?.n;
   return (
     byName(/^readme\.md$/) ||
     byName(/^config\.json$/) ||
-    flat.find((f) => /\.(rs|py|tsx?|js)$/.test(f.name)) ||
-    flat[0] ||
+    flat.find((f) => /\.(rs|py|tsx?|js)$/.test(f.n.name))?.n ||
+    flat[0]?.n ||
     null
   );
 }
@@ -178,7 +178,7 @@ export default function Explorer({ name }: { name: string }) {
   return (
     <div className="explorer">
       <aside className="explorer-tree">
-        {treeErr && <div className="explorer-msg">could not load tree</div>}
+        {treeErr && <div className="explorer-msg">Could not load this module’s files.</div>}
         {!tree && !treeErr && <div className="skel" style={{ height: 320 }} />}
         {tree && (
           <Branch
@@ -192,7 +192,7 @@ export default function Explorer({ name }: { name: string }) {
 
       <div className="explorer-view">
         <div className="explorer-bar">
-          <span className="explorer-path">{selected || "select a file"}</span>
+          <span className="explorer-path">{selected || "Pick a file on the left"}</span>
           {file && (
             <span className="explorer-meta">
               {langFor(file.path)} · {file.lines} lines ·{" "}

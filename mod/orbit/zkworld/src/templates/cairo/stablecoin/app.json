@@ -1,0 +1,44 @@
+{
+  "title": "{{NAME}}: a digital dollar",
+  "intro": "One coin = one real dollar in the bank. The issuer can only make new coins when there's cash to back them, and you can always swap coins back for dollars.",
+  "steps": [
+    "Start it: give it a name, and pick who the issuer (the 'bank') is. Alice is a good choice.",
+    "As the issuer, use \"Cash in the bank\" to say how many dollars you hold, e.g. 1000.",
+    "Still as the issuer, \"Make new coins\" for someone, e.g. 100 for bob. Try making more than the bank holds: it refuses.",
+    "Switch to bob at the top right. Send some coins to carol, or cash some out.",
+    "Watch \"Is every coin backed?\" stay Yes the whole time."
+  ],
+  "fns": {
+    "balance_of": { "label": "My coins", "show": "big", "unit": "$", "decimals": 18,
+                    "inputs": { "account": { "hide": true } } },
+    "total_supply": { "label": "Coins in existence", "show": "chart", "unit": "$", "decimals": 18 },
+    "reserves": { "label": "Dollars in the bank", "show": "chart", "unit": "$", "decimals": 18 },
+    "is_fully_backed": { "label": "Is every coin backed?", "yes": "Yes, fully backed", "no": "NO: under-backed" },
+    "issuer": { "label": "Who the bank is", "show": "address" },
+    "transfer": { "label": "Send coins", "button": "Send", "decimals": 18,
+                  "inputs": { "to": { "label": "Send to" }, "amount": { "label": "How many dollars", "placeholder": "e.g. 25" } } },
+    "redeem": { "label": "Cash out", "button": "Cash out", "decimals": 18,
+                "help": "Your coins are burned and the bank pays you the same in dollars.",
+                "inputs": { "amount": { "label": "How many dollars" } } },
+    "set_reserves": { "label": "Cash in the bank (issuer only)", "button": "Report", "decimals": 18,
+                      "help": "The issuer says how many dollars it really holds.",
+                      "inputs": { "amount": { "label": "Dollars held", "placeholder": "e.g. 1000" } } },
+    "mint": { "label": "Make new coins (issuer only)", "button": "Make coins", "decimals": 18,
+              "help": "Only works if the bank holds enough dollars to cover them.",
+              "inputs": { "to": { "label": "For whom" }, "amount": { "label": "How many dollars" } } },
+    "name": { "hide": true }, "symbol": { "hide": true }, "decimals": { "hide": true }
+  },
+  "constructor": {
+    "help": "Name your dollar and choose who runs the bank.",
+    "inputs": {
+      "name": { "label": "Coin name", "default": "'Dollar'" },
+      "symbol": { "label": "Short symbol", "default": "'USDX'" },
+      "issuer": { "label": "Who is the bank (issuer)", "default": "me" }
+    }
+  },
+  "events": {
+    "Transfer": { "say": "{from} sent {amount} to {to}", "decimals": 18 },
+    "ReservesSet": { "say": "the bank now reports {amount} dollars", "decimals": 18 },
+    "Redeemed": { "say": "{who} cashed out {amount} dollars", "decimals": 18 }
+  }
+}

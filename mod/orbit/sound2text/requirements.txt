@@ -1,0 +1,16 @@
+# Everything below the recogniser needs only numpy.
+numpy>=1.24
+
+# The API and the console. The console itself is stdlib.
+fastapi>=0.100
+uvicorn>=0.23
+
+# A recogniser — pick one, none is required to run the detector or the tests.
+#   faster-whisper>=1.0        the fastest local option (CTranslate2)
+#   transformers>=4.40         plus torch; needs nothing but pip
+#   torch>=2.0
+# or a whisper.cpp binary, or an API key for openai / groq / deepinfra.
+
+# Only needed for containers the built-in RIFF reader cannot open (mp3, m4a,
+# ogg, webm). ffmpeg on PATH does the same job and is preferred.
+#   soundfile>=0.12

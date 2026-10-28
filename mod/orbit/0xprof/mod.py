@@ -14,6 +14,8 @@ The module surface, for the CLI and for other mods:
     m 0xprof/checks id=…              every run on one proof, and who asked
     m 0xprof/verifiers                the addresses that have checked things here
     m 0xprof/bounties                 open requests for proofs
+    m 0xprof/join id=…                a token for a staked round (locks the stake)
+    m 0xprof/settle id=…              run a round's reset, once it is due
     m 0xprof/serve                    API :50610 + console :50611
 
 Every function here is the same code path the HTTP API uses — the API is a
@@ -214,12 +216,24 @@ class Mod:
 
     def bounty(self, system: str = 'groth16', reward: float = 10.0, title: str = '',
                vkey: Any = None, require: Any = None, poster: str = None,
-               description: str = '') -> Dict[str, Any]:
+               description: str = '', stake: float = 0.0,
+               settle: str = 'daily') -> Dict[str, Any]:
         from src import bounties as board
         return board.create(poster or _key_address(), system, float(reward),
                             vkey=_load(vkey, default={}),
                             require=_load(require, default=[]) or [],
-                            title=title, description=description)
+                            title=title, description=description,
+                            stake=float(stake), settle=settle)
+
+    def join(self, id: str, prover: str = None) -> Dict[str, Any]:
+        """A token for a staked round: the stake locks until the reset."""
+        from src import bounties as board
+        return board.join(id, prover or _key_address())
+
+    def settle(self, id: str) -> Dict[str, Any]:
+        """Run a staked bounty's reset, if the clock says it is due."""
+        from src import bounties as board
+        return board.settle(id)
 
     def submit(self, id: str, proof: Any, public_signals: Any = None,
                prover: str = None) -> Dict[str, Any]:

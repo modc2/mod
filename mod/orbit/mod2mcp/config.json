@@ -1,0 +1,95 @@
+{
+    "name": "mod2mcp",
+    "title": "mod2mcp \u00b7 any mod, compiled to an MCP contract",
+    "description": "Compile any mod's Mod class into an MCP server the way you would program a smart contract: a deterministic ABI (typed functions, view/write mutability, per-function selectors, a content-hash address), a deploy registry, and a gateway serving every deployed mod at /mcp/<mod>. Readonly deployments revert write calls before the mod is touched. Stdlib only. Also a stdio bridge: python3 -m mod2mcp.bridge <mod>.",
+    "version": "0.1.0",
+    "anchor": "mod.py",
+    "network": "local",
+    "port": 51550,
+    "app_port": 51550,
+    "route": true,
+    "private": true,
+    "deps": [],
+    "urls": {
+        "api": "http://localhost:51550",
+        "mcp": "http://localhost:51550/mcp"
+    },
+    "mcp": {
+        "http": "http://localhost:51550/mcp",
+        "http_per_mod": "http://localhost:51550/mcp/<mod>",
+        "stdio": {
+            "command": "python3",
+            "args": [
+                "-m",
+                "mod2mcp.bridge",
+                "<mod>"
+            ],
+            "cwd": "."
+        }
+    },
+    "state": "~/.mod/mod2mcp/deployments.json (the deploy registry; restart redeploys)",
+    "endpoints": {
+        "health": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Liveness + deployed contracts"
+        },
+        "mods": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Mods that can be compiled"
+        },
+        "abi/<mod>": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Compile a mod -> {contract, address, functions[selector,mutability,inputs], tools}"
+        },
+        "deployments": {
+            "method": "GET",
+            "auth": false,
+            "docs": "The deploy registry"
+        },
+        "deploy": {
+            "method": "POST",
+            "auth": false,
+            "docs": "{mod, fns?, exclude?, readonly?} -> register at /mcp/<mod>"
+        },
+        "undeploy": {
+            "method": "POST",
+            "auth": false,
+            "docs": "{mod}"
+        },
+        "call/<mod>/<fn>": {
+            "method": "POST",
+            "auth": false,
+            "docs": "body = kwargs; readonly deployments revert writes (403)"
+        },
+        "mcp": {
+            "method": "POST",
+            "auth": false,
+            "docs": "Control-plane MCP: mod2mcp_mods, mod2mcp_abi, mod2mcp_deploy, mod2mcp_undeploy, mod2mcp_deployments, mod2mcp_call"
+        },
+        "mcp/<mod>": {
+            "method": "POST",
+            "auth": false,
+            "docs": "The deployed mod's own MCP endpoint (tools/list, tools/call)"
+        }
+    },
+    "fns": [
+        "forward",
+        "mods",
+        "abi",
+        "compile",
+        "deploy",
+        "undeploy",
+        "deployments",
+        "call",
+        "tools",
+        "mcp",
+        "serve",
+        "kill",
+        "status",
+        "test"
+    ],
+    "schema": "QmbqC4aA86M6AsrcqmhAUpLQ7e9L8yD43KwnVGJvBnEjPV"
+}

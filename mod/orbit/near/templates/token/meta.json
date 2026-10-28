@@ -1,0 +1,24 @@
+{
+  "id": "token",
+  "title": "Token (NEP-141 by hand)",
+  "blurb": "A fungible token written out in full, no library: balances in a LookupMap, owner-only mint, burn, and ft_transfer with the one-yoctoNEAR safety deposit every NEAR wallet expects. The same interface USDt and wNEAR speak.",
+  "level": "next",
+  "init": {"method": "new", "args": {"name": "Workshop Token", "symbol": "WRK", "decimals": 6}},
+  "cairo_twin": "token",
+  "steps": [
+    "Build, Test, Ship (the init call names the token).",
+    "CALL tab: VIEW ft_metadata to see the name and decimals.",
+    "CHANGE mint {\"account_id\":\"<you>\",\"amount\":\"1000000\"} as the owner (1.000000 with 6 decimals).",
+    "CHANGE ft_transfer to another account with deposit 0.000000000000000000000001 N (one yocto).",
+    "EXPLORE your account: the module's ft reader now shows the balance."
+  ],
+  "walkthrough": [
+    {"find": "LookupMap<AccountId, u128>", "say": "A map kept in NEAR storage, not in memory. Each key lives under its own storage slot, so reading one balance never loads all of them. The b\"b\" prefix keeps its keys apart from any other collection you add later."},
+    {"find": "U128", "say": "JSON cannot hold a 128-bit number safely, so amounts cross the wire as strings. U128 is the SDK's wrapper that does the string <-> u128 dance for you. Always use it in public method signatures."},
+    {"find": "#[payable]", "say": "Lets callers attach NEAR to this call. Without it, attaching any deposit makes the call fail. ft_transfer needs it for the one-yocto trick below."},
+    {"find": "assert_one_yocto", "say": "The NEP-141 safety rule: a transfer must attach exactly 1 yoctoNEAR. A FunctionCall access key (the kind apps get when you sign in) cannot attach deposits, so only your full-access key can move your tokens. Session auth, on chain."},
+    {"find": "fn ft_metadata", "say": "The NEP-148 metadata view. Wallets, explorers and the EXPLORE tab call it to learn the symbol and decimals. decimals=6 means amount 1000000 displays as 1.000000."},
+    {"find": "fn mint", "say": "Not part of the standard: who may create coins is YOUR rule. Here only the owner can. A stablecoin would check reserves here; a reward token would check a game result."},
+    {"find": "storage_usage", "say": "Each new holder costs the contract ~100 bytes of storage, and storage on NEAR is staked NEAR (1 N per 100 KB). Real tokens make the holder pay that via NEP-145 storage_deposit; this starter lets the contract absorb it to stay readable."}
+  ]
+}

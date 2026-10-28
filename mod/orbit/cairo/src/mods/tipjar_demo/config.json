@@ -1,0 +1,37 @@
+{
+    "name": "tipjar_demo",
+    "title": "TipjarDemo",
+    "description": "make a tip jar called tipjar_demo: anyone can tip (records an amount per tipper and a total), the owner set in the const",
+    "version": "0.1.0",
+    "submod_of": "cairo",
+    "kind": "cairo-contract",
+    "template": "token",
+    "edition": "2024_07",
+    "anchor": "mod.py",
+    "fns": [
+        "forward",
+        "info",
+        "build",
+        "test",
+        "vibe",
+        "abi",
+        "tree",
+        "read",
+        "write",
+        "clean",
+        "app",
+        "deploy",
+        "call",
+        "events"
+    ],
+    "privacy": {
+        "everyone_sees": [
+            "who tipped and how much, for every tipper",
+            "the running total",
+            "who the owner is"
+        ],
+        "kept_secret": []
+    },
+    "private": false,
+    "schema": "QmWqKXzB6saGScHfAm6EYjJQ38sYm2GPonM4Rm7TwZhEXE"
+}

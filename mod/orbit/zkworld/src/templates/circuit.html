@@ -1,0 +1,210 @@
+<!doctype html>
+<!--
+  The default app every circuit project (circom, noir) gets, served at
+  /zkworld/<name>/.
+
+  One plain file, no build step: it reads the circuit's shape from
+  <base>/_api/app?name=<name> (inputs with a public/private flag, outputs,
+  constraint count, test cases) and runs it through <base>/_api/witness —
+  the real compiled witness generator, so a failing constraint shows up as
+  a rejection, exactly like a prover would refuse.
+
+  Private inputs are what the prover keeps secret; public ones and the
+  outputs are what a verifier would see. This page computes the witness
+  only; it does not produce a proof.
+
+  A project that wants its own UI ships src/mods/<name>/app/index.html.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>circuit app</title>
+<style>
+  :root {
+    --bg: #0b0d10; --panel: #13171c; --panel-2: #1a2027; --line: #2a333d;
+    --text: #e9eef3; --muted: #93a1b0; --accent: #7c9cff; --priv: #f5a524;
+    --ok: #34d399; --bad: #f87171; --r: 10px;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.45 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+  .wrap { max-width: 880px; margin: 0 auto; padding: 22px 18px 60px; }
+  header { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+  .logo { width: 42px; height: 42px; border-radius: 10px; display: grid; place-items: center;
+    font-weight: 800; font-size: 20px; color: #fff; background: var(--accent); }
+  html.embedded .logo, html.embedded #bench { display: none; }
+  h1 { font-size: 20px; margin: 0; }
+  .sub { color: var(--muted); font-size: 13px; }
+  .chip { display: inline-block; padding: 2px 8px; border-radius: 99px; font-size: 11px;
+    border: 1px solid var(--line); color: var(--muted); margin-right: 6px; }
+  .chip.pub { border-color: var(--accent); color: var(--accent); }
+  .chip.priv { border-color: var(--priv); color: var(--priv); }
+  .grow { flex: 1; }
+  a { color: var(--accent); }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r);
+    padding: 16px; margin-top: 16px; }
+  .card h2 { margin: 0 0 12px; font-size: 12px; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--muted); }
+  .row { display: grid; grid-template-columns: 160px 1fr; gap: 10px; align-items: center; margin: 8px 0; }
+  label b { font-family: var(--mono); font-weight: 600; }
+  input { width: 100%; background: var(--panel-2); border: 1px solid var(--line); color: var(--text);
+    border-radius: 8px; padding: 9px 10px; font: 14px var(--mono); }
+  input:focus { outline: none; border-color: var(--accent); }
+  button { background: var(--accent); color: #0b0d10; border: 0; border-radius: 8px; padding: 10px 16px;
+    font-weight: 700; cursor: pointer; }
+  button.ghost { background: transparent; color: var(--text); border: 1px solid var(--line); font-weight: 500; }
+  button:disabled { opacity: .5; cursor: default; }
+  .verdict { margin-top: 14px; padding: 14px; border-radius: 8px; background: var(--panel-2); }
+  .verdict.ok { border-left: 3px solid var(--ok); }
+  .verdict.bad { border-left: 3px solid var(--bad); }
+  .out { font: 22px var(--mono); word-break: break-all; }
+  .muted { color: var(--muted); }
+  .small { font-size: 12px; }
+  .cases button { margin: 0 6px 6px 0; }
+  .stats { display: flex; gap: 22px; flex-wrap: wrap; }
+  .stats div b { display: block; font-size: 20px; }
+  .note { padding: 12px; border: 1px dashed var(--line); border-radius: 8px; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="logo" id="logo">Z</div>
+    <div class="grow">
+      <h1 id="title">circuit</h1>
+      <div class="sub" id="desc"></div>
+    </div>
+    <a id="bench" class="small" href="#">workbench</a>
+  </header>
+  <div id="body"><div class="card muted">Loading…</div></div>
+</div>
+<script>
+if (window.self !== window.top) document.documentElement.classList.add('embedded');
+
+// ---- where am I: /<base>/<project>/ -> API at /<base>/_api/<fn> -----------
+const segs = location.pathname.replace(/\/index\.html$/, '').split('/').filter(Boolean);
+const NAME = segs[segs.length - 1];
+const BASE = '/' + segs.slice(0, -1).join('/');
+const API = (BASE === '/' ? '' : BASE) + '/_api/';
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+async function api(fn, body, query) {
+  const qs = new URLSearchParams({ name: NAME, ...(query || {}) });
+  const r = await fetch(API + fn + '?' + qs, body
+    ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: NAME, ...body }) }
+    : {});
+  return r.json();
+}
+
+let APP = null;
+let CASES = [];
+
+function field(sig) {
+  const kind = sig.public ? '<span class="chip pub">public</span>' : '<span class="chip priv">private</span>';
+  const dims = sig.dims && sig.dims.length ? `[${sig.dims.join('][')}]` : '';
+  const ph = dims ? 'comma-separated values' : 'a number';
+  return `<div class="row"><label><b>${esc(sig.name)}${esc(dims)}</b><br>${kind}</label>
+    <input data-sig="${esc(sig.name)}" data-arr="${dims ? 1 : 0}" placeholder="${ph}"></div>`;
+}
+
+function collect() {
+  const input = {};
+  document.querySelectorAll('input[data-sig]').forEach((el) => {
+    const v = el.value.trim();
+    input[el.dataset.sig] = el.dataset.arr === '1' ? v.split(/[\s,]+/).filter(Boolean) : v;
+  });
+  return input;
+}
+
+function fill(input) {
+  document.querySelectorAll('input[data-sig]').forEach((el) => {
+    const v = input[el.dataset.sig];
+    el.value = Array.isArray(v) ? v.join(', ') : (v ?? '');
+  });
+}
+
+async function runIt() {
+  const btn = $('run');
+  btn.disabled = true;
+  $('verdict').innerHTML = '<div class="verdict muted">Computing the witness…</div>';
+  try {
+    const r = await api('witness', { input: collect() });
+    if (r.ok) {
+      const outs = Object.entries(r.outputs || {}).map(([k, v]) =>
+        `<div><span class="muted small">${esc(k)}</span><div class="out">${esc(Array.isArray(v) ? v.join(', ') : v)}</div></div>`).join('');
+      $('verdict').innerHTML = `<div class="verdict ok"><b>Accepted.</b> Every constraint holds, so a proof for these inputs would verify.
+        <div class="stats" style="margin-top:10px">${outs || '<span class="muted">no outputs</span>'}</div>
+        <div class="muted small" style="margin-top:8px">${r.witness_size} wires · ${r.ms} ms</div></div>`;
+    } else {
+      $('verdict').innerHTML = `<div class="verdict bad"><b>Rejected.</b> ${esc(r.error || 'the circuit refused these inputs')}
+        <div class="muted small" style="margin-top:6px">No valid proof exists for these inputs, which is the point.</div></div>`;
+    }
+  } catch (e) {
+    $('verdict').innerHTML = `<div class="verdict bad">${esc(e)}</div>`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function loadCases() {
+  CASES = [];
+  for (const t of APP.tests || []) {
+    try {
+      const r = await api('read', null, { path: t });
+      const spec = JSON.parse(r.content || '[]');
+      (Array.isArray(spec) ? spec : [spec]).forEach((c, i) =>
+        CASES.push({ name: c.name || `${t}[${i}]`, input: c.input || {}, fail: !!c.fail }));
+    } catch { /* a broken case file is the TEST tab's problem */ }
+  }
+  $('cases').innerHTML = CASES.length
+    ? CASES.map((c, i) => `<button class="ghost" data-case="${i}">${esc(c.name)}${c.fail ? ' · should fail' : ''}</button>`).join('')
+    : '<span class="muted small">No test cases yet (tests/*.json).</span>';
+  document.querySelectorAll('[data-case]').forEach((b) => b.onclick = () => {
+    fill(CASES[+b.dataset.case].input);
+    runIt();
+  });
+}
+
+async function load() {
+  APP = await api('app');
+  if (APP.error) {
+    $('body').innerHTML = `<div class="card">${esc(APP.error)}</div>`;
+    return;
+  }
+  document.title = APP.title + ' · zkworld circuit';
+  $('title').textContent = APP.title;
+  $('logo').textContent = (APP.title || 'Z')[0];
+  $('desc').innerHTML = `<span class="chip">${esc(APP.framework)}</span>${esc(APP.description || '')}`;
+  $('bench').href = (BASE === '/' ? '' : BASE) + '/#studio/' + NAME;
+  const c = (APP.circuits || [])[0];
+  if (!c || APP.state === 'unbuilt') {
+    $('body').innerHTML = `<div class="card note">This circuit is not built yet. Build it from the workbench, then reload.</div>`;
+    return;
+  }
+  const info = c.info || {};
+  $('body').innerHTML = `
+    <div class="card"><h2>The circuit</h2><div class="stats">
+      <div><b>${c.constraints ?? '?'}</b><span class="muted small">constraints</span></div>
+      <div><b>${c.inputs.filter((i) => !i.public).length}</b><span class="muted small">private inputs</span></div>
+      <div><b>${c.inputs.filter((i) => i.public).length}</b><span class="muted small">public inputs</span></div>
+      <div><b>${c.outputs.length}</b><span class="muted small">public outputs</span></div>
+      ${info.wires ? `<div><b>${info.wires}</b><span class="muted small">wires</span></div>` : ''}
+    </div></div>
+    <div class="card"><h2>Try it</h2>
+      <p class="muted small" style="margin-top:0">Private inputs stay with the prover. Public inputs and outputs are what a verifier sees.</p>
+      ${c.inputs.map(field).join('')}
+      <div style="margin-top:12px"><button id="run">Run the circuit</button></div>
+      <div id="verdict"></div>
+    </div>
+    <div class="card"><h2>Test cases</h2><div class="cases" id="cases"></div></div>`;
+  $('run').onclick = runIt;
+  document.querySelectorAll('input[data-sig]').forEach((el) => el.addEventListener('keydown', (e) => e.key === 'Enter' && runIt()));
+  loadCases();
+}
+load();
+</script>
+</body>
+</html>

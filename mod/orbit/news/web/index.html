@@ -1,0 +1,471 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>news · any topic, every outlet</title>
+<meta name="description" content="Ask for a topic, get the news about it from many outlets, de-duplicated and ranked on this box. Keyless.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23150f31'/%3E%3Ctext x='16' y='22' text-anchor='middle' font-family='monospace' font-weight='700' font-size='18' fill='%23c8f55a'%3EN%3C/text%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg: #0b0818; --bg2: #120d2a; --card: rgba(34, 26, 70, .55); --card2: rgba(44, 36, 84, .7);
+    --line: #3a2e6c; --line2: #4d3f8a; --text: #e9e5f7; --muted: #9b94ba; --label: #8a84a8;
+    --lime: #c8f55a; --cyan: #7fe7e0; --violet: #c9a0ff; --rose: #ff8aa8;
+    --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --sans: "Space Grotesk", "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --r: 18px;
+  }
+  * { box-sizing: border-box; }
+  html { background: var(--bg); }
+  html, body { margin: 0; min-height: 100%; }
+  body {
+    background: radial-gradient(1200px 600px at 50% -10%, #2a1f5e 0%, var(--bg2) 45%, var(--bg) 100%) no-repeat;
+    color: var(--text); font-family: var(--sans); font-size: 15px; line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--cyan); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 28px 18px 80px; }
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: var(--r);
+    backdrop-filter: blur(8px); margin-bottom: 16px; overflow: hidden;
+  }
+  .label { font-family: var(--mono); font-size: 11px; letter-spacing: .18em; text-transform: uppercase; color: var(--label); }
+  .mono { font-family: var(--mono); }
+
+  /* header */
+  .hdr { display: flex; gap: 18px; align-items: flex-start; padding: 22px 24px; background: var(--card2); border-left: 3px solid var(--lime); }
+  .hdr .mark {
+    flex: none; width: 64px; height: 64px; border-radius: 16px; display: grid; place-items: center;
+    background: rgba(200, 245, 90, .08); border: 1.5px solid rgba(200, 245, 90, .5); color: var(--lime); font-family: var(--mono); font-size: 30px; font-weight: 700;
+  }
+  .hdr h1 { margin: 0; font-size: 24px; letter-spacing: .01em; display: inline; }
+  .hdr p { margin: 6px 0 0; color: var(--muted); max-width: 620px; }
+  .hdr .right { margin-left: auto; flex: none; display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+  .pill {
+    font-family: var(--mono); font-size: 12px; letter-spacing: .1em; text-transform: uppercase; padding: 7px 12px;
+    border-radius: 9px; border: 1px solid var(--line2); color: var(--muted); background: rgba(0,0,0,.2); white-space: nowrap;
+    display: inline-flex; align-items: center; gap: 8px;
+  }
+  .pill.orbit { color: var(--lime); border-color: rgba(200,245,90,.45); background: rgba(200,245,90,.07); margin-left: 10px; vertical-align: middle; font-size: 11px; padding: 4px 9px; }
+  .pill.live { color: var(--cyan); border-color: rgba(127,231,224,.5); }
+  .pill.live .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 8px var(--cyan); }
+  .pill.off { color: var(--rose); border-color: rgba(255,138,168,.4); }
+  .pill.off .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--rose); }
+  .pill.ver { color: var(--lime); border-color: rgba(200,245,90,.45); }
+  .pill.btn { cursor: pointer; color: var(--text); }
+  .pill.btn:hover, .pill.btn.on { border-color: var(--cyan); color: var(--cyan); }
+
+  /* search */
+  .search { padding: 22px 24px; }
+  .bar { display: flex; gap: 10px; }
+  .bar input {
+    flex: 1; min-width: 0; font: 500 18px var(--sans); color: var(--text); padding: 14px 18px; border-radius: 14px;
+    border: 1px solid var(--line2); background: rgba(0,0,0,.28); outline: none;
+  }
+  .bar input::placeholder { color: #6f6894; }
+  .bar input:focus { border-color: var(--cyan); box-shadow: 0 0 0 3px rgba(127,231,224,.12); }
+  .go {
+    flex: none; font: 700 14px var(--mono); letter-spacing: .14em; padding: 0 26px; border-radius: 14px; cursor: pointer;
+    background: var(--lime); color: #15200a; border: 0; transition: transform .08s;
+  }
+  .go:hover { transform: translateY(-1px); } .go:disabled { opacity: .6; cursor: progress; transform: none; }
+  .rows { display: flex; flex-wrap: wrap; gap: 8px 22px; margin-top: 14px; align-items: center; }
+  .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .chip {
+    font-family: var(--mono); font-size: 12px; padding: 6px 11px; border-radius: 999px; cursor: pointer; user-select: none;
+    border: 1px solid var(--line2); color: var(--muted); background: rgba(0,0,0,.18); transition: all .1s;
+  }
+  .chip:hover { color: var(--text); border-color: #6f5fb8; }
+  .chip.on { color: var(--lime); border-color: rgba(200,245,90,.6); background: rgba(200,245,90,.08); }
+  .chip.topic { color: var(--violet); border-color: rgba(201,160,255,.35); }
+  .chip.topic:hover { background: rgba(201,160,255,.1); }
+  .chip[title] { cursor: pointer; }
+
+  /* status strip */
+  .strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); border-top: 1px solid var(--line); }
+  .strip > div { padding: 14px 20px; border-right: 1px solid var(--line); }
+  .strip > div:last-child { border-right: 0; }
+  .strip .v { font: 700 22px var(--mono); color: var(--lime); }
+  .strip .v.dim { color: var(--muted); font-weight: 500; }
+  .strip .v.bad { color: var(--rose); }
+  .strip .v small { font: 500 12px var(--mono); color: var(--muted); margin-left: 6px; }
+
+  /* results */
+  .empty { padding: 44px 24px; text-align: center; color: var(--muted); }
+  .empty b { color: var(--text); display: block; font-size: 18px; margin-bottom: 8px; }
+  .story { padding: 18px 24px; border-bottom: 1px solid var(--line); display: grid; grid-template-columns: 1fr auto; gap: 8px 18px; }
+  .story:last-child { border-bottom: 0; }
+  .story .meta { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; grid-column: 1 / -1; }
+  .story .outlet { font: 600 12px var(--mono); color: var(--cyan); letter-spacing: .04em; }
+  .story .age { font: 500 12px var(--mono); color: var(--muted); }
+  .story .cov { font: 500 11px var(--mono); color: var(--lime); border: 1px solid rgba(200,245,90,.35); border-radius: 999px; padding: 2px 8px; }
+  .story h3 { margin: 0; font-size: 17px; line-height: 1.35; font-weight: 600; }
+  .story h3 a { color: var(--text); }
+  .story h3 a:hover { color: var(--cyan); text-decoration: none; }
+  .story .sum { color: var(--muted); font-size: 14px; grid-column: 1; margin-top: -2px; }
+  .story .acts { display: flex; gap: 8px; align-items: flex-start; grid-row: 2; grid-column: 2; }
+  .story .also { grid-column: 1 / -1; display: none; flex-wrap: wrap; gap: 6px 14px; font: 500 12px var(--mono); }
+  .story.open .also { display: flex; }
+  .story .why { grid-column: 1 / -1; font: 500 11px var(--mono); color: #6f6894; letter-spacing: .04em; }
+  .ib {
+    display: inline-flex; align-items: center; gap: 6px; font: 600 12px var(--mono); letter-spacing: .08em; text-transform: uppercase;
+    padding: 7px 11px; border-radius: 9px; border: 1px solid var(--line2); background: rgba(0,0,0,.2); color: var(--text); cursor: pointer; white-space: nowrap;
+  }
+  .ib:hover { border-color: var(--cyan); color: var(--cyan); text-decoration: none; }
+  .ib.danger:hover { border-color: var(--rose); color: var(--rose); }
+  .ib svg { width: 13px; height: 13px; }
+  .srcs { padding: 10px 24px; border-bottom: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 6px 16px; font: 500 12px var(--mono); color: var(--muted); }
+  .srcs .ok { color: var(--lime); } .srcs .ko { color: var(--rose); }
+
+  /* reader drawer */
+  .reader { position: fixed; inset: 0; display: none; z-index: 20; }
+  .reader.on { display: block; }
+  .reader .veil { position: absolute; inset: 0; background: rgba(5,3,14,.6); backdrop-filter: blur(3px); }
+  .reader .pane {
+    position: absolute; top: 0; right: 0; bottom: 0; width: min(720px, 100%); background: #150f31; border-left: 1px solid var(--line2);
+    display: flex; flex-direction: column; box-shadow: -20px 0 60px rgba(0,0,0,.5);
+  }
+  .reader .top { padding: 18px 24px; border-bottom: 1px solid var(--line); display: flex; gap: 12px; align-items: flex-start; }
+  .reader .top h2 { margin: 4px 0 0; font-size: 20px; line-height: 1.3; }
+  .reader .body { padding: 22px 28px; overflow: auto; flex: 1; font-size: 16px; line-height: 1.65; color: #d8d3ee; }
+  .reader .body p { margin: 0 0 1em; }
+  .reader .foot { padding: 12px 24px; border-top: 1px solid var(--line); display: flex; gap: 8px; justify-content: flex-end; font: 500 12px var(--mono); color: var(--muted); align-items: center; }
+  .reader .foot span { margin-right: auto; }
+
+  /* feeds + endpoints */
+  .sec { padding: 18px 24px; }
+  .sec h2 { margin: 0 0 4px; font-size: 16px; }
+  .sec .hint { color: var(--muted); font-size: 14px; margin: 0 0 14px; }
+  .feed { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); flex-wrap: wrap; }
+  .feed .n { font: 600 13px var(--mono); color: var(--violet); min-width: 110px; }
+  .feed .u { font: 500 12px var(--mono); color: var(--muted); flex: 1; min-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .feed .arm { display: flex; gap: 6px; align-items: center; font: 500 12px var(--mono); color: var(--rose); }
+  .addf { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+  .addf input { flex: 1; min-width: 160px; font: 500 14px var(--mono); color: var(--text); padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line2); background: rgba(0,0,0,.28); outline: none; }
+  .addf input:focus { border-color: var(--cyan); }
+  .ep { display: grid; grid-template-columns: 1fr auto; gap: 8px 12px; align-items: center; padding: 10px 0; border-top: 1px solid var(--line); }
+  .ep code { font: 500 13px var(--mono); color: var(--cyan); word-break: break-all; }
+  .ep .label { grid-column: 1 / -1; margin-bottom: -6px; }
+  .tabs { display: flex; gap: 8px; padding: 12px 24px; border-bottom: 1px solid var(--line); background: rgba(0,0,0,.15); }
+  .tab { flex: 1; text-align: center; font: 600 13px var(--mono); letter-spacing: .14em; text-transform: uppercase; padding: 11px; border-radius: 12px; border: 1px solid var(--line2); color: var(--muted); cursor: pointer; background: rgba(0,0,0,.15); }
+  .tab.on { color: var(--text); border-color: #7b6ad0; background: rgba(123,106,208,.18); }
+  .hide { display: none !important; }
+  .msg { font: 500 12px var(--mono); color: var(--muted); padding: 6px 0; }
+  .msg.err { color: var(--rose); }
+  .msg.ok { color: var(--lime); }
+  .spin { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--line2); border-top-color: var(--cyan); border-radius: 50%; animation: sp .8s linear infinite; vertical-align: -2px; margin-right: 8px; }
+  @keyframes sp { to { transform: rotate(360deg); } }
+  .floor { position: fixed; left: 0; right: 0; bottom: 0; height: 180px; pointer-events: none; z-index: -1;
+    background: linear-gradient(to top, rgba(123,106,208,.10), transparent),
+      repeating-linear-gradient(90deg, rgba(123,106,208,.12) 0 1px, transparent 1px 80px),
+      repeating-linear-gradient(0deg, rgba(123,106,208,.12) 0 1px, transparent 1px 36px);
+    mask-image: linear-gradient(to top, #000, transparent); }
+  @media (max-width: 640px) {
+    .wrap { padding: 14px 10px 60px; }
+    .hdr { padding: 16px; gap: 12px; } .hdr .mark { width: 48px; height: 48px; font-size: 22px; }
+    .hdr .right { width: 100%; margin-left: 0; justify-content: flex-start; }
+    .search { padding: 16px; } .bar input { font-size: 16px; padding: 12px 14px; } .go { padding: 0 18px; }
+    .story { padding: 14px 16px; grid-template-columns: 1fr; } .story .acts { grid-row: auto; grid-column: 1; }
+    .tab { font-size: 11px; letter-spacing: .08em; padding: 9px 6px; }
+  }
+</style>
+</head>
+<body>
+<div class="floor"></div>
+<div class="wrap">
+
+  <!-- identity -->
+  <div class="card">
+    <div class="hdr">
+      <div class="mark">N</div>
+      <div>
+        <h1>news</h1><span class="pill orbit">orbit</span>
+        <p>Ask for a topic, get the news about it from many outlets, merged and ranked on this box. No accounts, no keys, no model calls. Also an MCP server, so any agent can do the same.</p>
+      </div>
+      <div class="right">
+        <span class="pill live" id="live"><span class="dot"></span><span id="liveTxt">checking</span></span>
+        <span class="pill ver" id="ver">v0.2.0</span>
+        <span class="pill btn" id="tabFeeds" title="Your RSS/Atom feeds">feeds</span>
+        <span class="pill btn" id="tabApi" title="REST and MCP endpoints">api</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- search -->
+  <div class="card">
+    <div class="search">
+      <form class="bar" id="form" autocomplete="off">
+        <input id="q" placeholder="What do you want the news about?" spellcheck="false" autofocus>
+        <button class="go" id="go" type="submit">GO</button>
+      </form>
+      <div class="rows">
+        <div class="row" id="topics"><span class="label">try</span></div>
+      </div>
+      <div class="rows">
+        <div class="row" id="srcRow"><span class="label">sources</span></div>
+        <div class="row" id="winRow"><span class="label">window</span>
+          <span class="chip" data-h="24">24h</span><span class="chip on" data-h="72">3d</span><span class="chip" data-h="168">7d</span><span class="chip" data-h="0">any</span>
+        </div>
+        <div class="row" id="kRow"><span class="label">show</span>
+          <span class="chip" data-k="10">10</span><span class="chip on" data-k="20">20</span><span class="chip" data-k="50">50</span>
+        </div>
+      </div>
+    </div>
+    <div class="strip" id="strip">
+      <div><div class="label">stories</div><div class="v dim" id="sUnique">–</div></div>
+      <div><div class="label">fetched</div><div class="v dim" id="sFetched">–</div></div>
+      <div><div class="label">sources</div><div class="v dim" id="sSources">–</div></div>
+      <div><div class="label">took</div><div class="v dim" id="sMs">–</div></div>
+    </div>
+  </div>
+
+  <!-- results -->
+  <div class="card" id="resultsCard">
+    <div class="srcs hide" id="srcReport"></div>
+    <div id="results">
+      <div class="empty"><b>Type a topic and press GO.</b>The query fans out to open sources, duplicates across outlets are merged into one story, and the list is ranked here: relevance, freshness, how many outlets ran it.</div>
+    </div>
+  </div>
+
+  <!-- feeds -->
+  <div class="card hide" id="feedsCard">
+    <div class="sec">
+      <h2>Your feeds</h2>
+      <p class="hint">RSS or Atom. They are pulled whole on every search and filtered by your query, so niche outlets and blogs sit next to the wires.</p>
+      <div id="feedList"></div>
+      <form class="addf" id="addFeed">
+        <input id="fUrl" placeholder="https://example.org/feed.xml" spellcheck="false">
+        <input id="fName" placeholder="name (optional)" style="flex:0 1 180px">
+        <button class="ib" type="submit"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3v10M3 8h10"/></svg>add feed</button>
+      </form>
+      <div class="msg" id="feedMsg"></div>
+    </div>
+  </div>
+
+  <!-- api -->
+  <div class="card hide" id="apiCard">
+    <div class="sec">
+      <h2>Use it from anywhere</h2>
+      <p class="hint">Same engine, three doors. Nothing needs a key.</p>
+      <div id="eps"></div>
+    </div>
+  </div>
+
+</div>
+
+<!-- reader -->
+<div class="reader" id="reader">
+  <div class="veil" id="veil"></div>
+  <div class="pane">
+    <div class="top">
+      <div style="flex:1;min-width:0">
+        <div class="label" id="rOutlet">outlet</div>
+        <h2 id="rTitle">…</h2>
+      </div>
+      <button class="ib" id="rClose"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3l10 10M13 3L3 13"/></svg>close</button>
+    </div>
+    <div class="body" id="rBody"></div>
+    <div class="foot"><span id="rNote"></span><a class="ib" id="rOpen" target="_blank" rel="noopener"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 3H3v10h10V9M9 3h4v4M13 3L7 9"/></svg>open original</a></div>
+  </div>
+</div>
+
+<script>
+(() => {
+  // Through the gateway the page lives at /news (prefix kept) and the API at /news/api.
+  // On the bare port the page is / and the API is /.
+  const here = location.pathname.replace(/\/+$/, '');
+  const API = here === '/news' || here.startsWith('/news/') ? '/news/api' : '';
+  const $ = (s, el = document) => el.querySelector(s);
+  const h = (tag, attrs = {}, ...kids) => {
+    const el = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs)) {
+      if (k === 'class') el.className = v;
+      else if (k.startsWith('on')) el.addEventListener(k.slice(2), v);
+      else if (v !== null && v !== undefined) el.setAttribute(k, v);
+    }
+    for (const k of kids.flat()) if (k !== null && k !== undefined) el.append(k.nodeType ? k : document.createTextNode(k));
+    return el;
+  };
+  const ICON = {
+    read: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h5a2 2 0 0 1 2 2v9a1.5 1.5 0 0 0-1.5-1.5H2zM14 3H9a2 2 0 0 0-2 2v9a1.5 1.5 0 0 1 1.5-1.5H14z"/></svg>',
+    ext: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 3H3v10h10V9M9 3h4v4M13 3L7 9"/></svg>',
+    copy: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="5" width="9" height="9" rx="1.5"/><path d="M11 5V3.5A1.5 1.5 0 0 0 9.5 2h-6A1.5 1.5 0 0 0 2 3.5v6A1.5 1.5 0 0 0 3.5 11H5"/></svg>',
+    more: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6l5 5 5-5"/></svg>',
+    trash: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 4h10M6 4V2.5h4V4M5 4l.6 9.5h4.8L11 4"/></svg>',
+  };
+  const ib = (icon, text, attrs = {}) => { const b = h('button', { class: 'ib', type: 'button', ...attrs }); b.innerHTML = ICON[icon] + ' '; b.append(text); return b; };
+
+  async function api(path, opts) {
+    const r = await fetch(API + path, opts);
+    let d = {}; try { d = await r.json(); } catch { d = { error: 'bad reply (' + r.status + ')' }; }
+    if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+    return d;
+  }
+  const age = (hrs) => hrs == null ? 'undated' : hrs < 1 ? 'just now' : hrs < 48 ? Math.round(hrs) + 'h ago' : Math.round(hrs / 24) + 'd ago';
+
+  // ── state
+  const S = { hours: 72, k: 20, sources: new Set(), defaults: [], busy: false };
+  const TOPICS = ['bittensor', 'AI regulation', 'bitcoin', 'nvidia', 'climate', 'open source'];
+
+  // ── header
+  api('/health').then(d => {
+    $('#liveTxt').textContent = 'live'; $('#live').className = 'pill live';
+    if (d.version) $('#ver').textContent = 'v' + d.version;
+  }).catch(() => { $('#liveTxt').textContent = 'offline'; $('#live').className = 'pill off'; });
+
+  // ── chips
+  const chipRow = (row, attr, onPick) => row.addEventListener('click', e => {
+    const c = e.target.closest('.chip'); if (!c || !c.dataset[attr]) return;
+    row.querySelectorAll('.chip').forEach(x => x.classList.toggle('on', x === c)); onPick(c.dataset[attr]);
+  });
+  chipRow($('#winRow'), 'h', v => S.hours = +v);
+  chipRow($('#kRow'), 'k', v => S.k = +v);
+  for (const t of TOPICS) $('#topics').append(h('span', { class: 'chip topic', onclick: () => { $('#q').value = t; search(); } }, t));
+
+  api('/sources').then(d => {
+    for (const [name, s] of Object.entries(d)) {
+      if (s.default) { S.defaults.push(name); S.sources.add(name); }
+      $('#srcRow').append(h('span', { class: 'chip' + (s.default ? ' on' : ''), title: s.docs, 'data-src': name,
+        onclick: (e) => { const on = e.target.classList.toggle('on'); on ? S.sources.add(name) : S.sources.delete(name); } }, name));
+    }
+    fromHash();
+  }).catch(() => { fromHash(); });
+
+  // ── search
+  $('#form').addEventListener('submit', e => { e.preventDefault(); search(); });
+  async function search() {
+    const q = $('#q').value.trim(); if (!q || S.busy) return;
+    S.busy = true; $('#go').disabled = true;
+    const picked = [...S.sources];
+    const same = picked.length === S.defaults.length && picked.every(x => S.defaults.includes(x));
+    location.hash = 'q=' + encodeURIComponent(q) + (S.hours !== 72 ? '&h=' + S.hours : '') + (S.k !== 20 ? '&k=' + S.k : '') + (same ? '' : '&s=' + picked.join(','));
+    const res = $('#results'); res.innerHTML = '';
+    const t0 = Date.now();
+    const wait = h('div', { class: 'empty' }, h('span', { class: 'spin' }), 'asking ' + (picked.length || S.defaults.length) + ' source' + (picked.length === 1 ? '' : 's') + '… ');
+    const tick = h('span', { class: 'mono' }, '0s'); wait.append(tick); res.append(wait);
+    const timer = setInterval(() => tick.textContent = Math.round((Date.now() - t0) / 1000) + 's', 500);
+    try {
+      const qs = new URLSearchParams({ q, k: S.k, hours: S.hours }); if (!same) qs.set('sources', picked.join(','));
+      const d = await api('/search?' + qs);
+      render(d);
+    } catch (err) {
+      res.innerHTML = ''; res.append(h('div', { class: 'empty' }, h('b', {}, 'That did not work.'), String(err.message)));
+      $('#srcReport').classList.add('hide');
+    } finally { clearInterval(timer); S.busy = false; $('#go').disabled = false; }
+  }
+
+  function render(d) {
+    const ok = Object.values(d.sources).filter(s => s.ok).length, n = Object.keys(d.sources).length;
+    $('#sUnique').textContent = d.unique; $('#sUnique').className = 'v';
+    $('#sFetched').textContent = d.fetched; $('#sFetched').className = 'v';
+    $('#sSources').innerHTML = ''; $('#sSources').append(ok, h('small', {}, '/ ' + n + ' ok')); $('#sSources').className = 'v' + (ok < n ? ' bad' : '');
+    $('#sMs').innerHTML = ''; $('#sMs').append((d.ms / 1000).toFixed(1), h('small', {}, 's')); $('#sMs').className = 'v';
+    const rep = $('#srcReport'); rep.innerHTML = ''; rep.classList.remove('hide');
+    for (const [name, s] of Object.entries(d.sources))
+      rep.append(h('span', { class: s.ok ? 'ok' : 'ko', title: s.error || '' }, name + ' ', s.ok ? s.items + ' items' : 'down'));
+
+    const res = $('#results'); res.innerHTML = '';
+    if (!d.results.length) { res.append(h('div', { class: 'empty' }, h('b', {}, 'Nothing in this window.'), 'Try a wider window, or fewer words.')); return; }
+    for (const r of d.results) {
+      const outlets = 1 + r.also.length;
+      const card = h('div', { class: 'story' });
+      card.append(h('div', { class: 'meta' },
+        h('span', { class: 'outlet' }, r.outlet || 'unknown'), h('span', { class: 'age' }, age(r.age_h)),
+        outlets > 1 ? h('span', { class: 'cov' }, outlets + ' outlets') : null,
+        h('span', { class: 'age', style: 'margin-left:auto' }, r.found_by.join(' · '))));
+      card.append(h('h3', {}, h('a', { href: r.url, target: '_blank', rel: 'noopener' }, r.title)));
+      const acts = h('div', { class: 'acts' }, ib('read', 'read', { onclick: () => openRead(r) }));
+      if (r.also.length) acts.append(ib('more', 'also', { onclick: () => card.classList.toggle('open') }));
+      card.append(acts);
+      if (r.summary) card.append(h('div', { class: 'sum' }, r.summary.length > 240 ? r.summary.slice(0, 237) + '…' : r.summary));
+      if (r.also.length) card.append(h('div', { class: 'also' }, h('span', { class: 'label' }, 'also in'),
+        ...r.also.map(([o, u]) => h('a', { href: u, target: '_blank', rel: 'noopener' }, o))));
+      card.append(h('div', { class: 'why' }, 'why · ' + r.why));
+      res.append(card);
+    }
+  }
+
+  function fromHash() {
+    const p = new URLSearchParams(location.hash.slice(1)); if (!p.get('q')) return;
+    $('#q').value = p.get('q');
+    if (p.get('h') !== null) { S.hours = +p.get('h'); $('#winRow').querySelectorAll('.chip').forEach(c => c.classList.toggle('on', c.dataset.h == S.hours)); }
+    if (p.get('k') !== null) { S.k = +p.get('k'); $('#kRow').querySelectorAll('.chip').forEach(c => c.classList.toggle('on', c.dataset.k == S.k)); }
+    if (p.get('s') !== null) { S.sources = new Set(p.get('s').split(',').filter(Boolean)); $('#srcRow').querySelectorAll('.chip').forEach(c => c.classList.toggle('on', S.sources.has(c.dataset.src))); }
+    search();
+  }
+
+  // ── reader
+  async function openRead(r) {
+    const R = $('#reader'); R.classList.add('on'); document.body.style.overflow = 'hidden';
+    $('#rOutlet').textContent = r.outlet || ''; $('#rTitle').textContent = r.title; $('#rOpen').href = r.url; $('#rNote').textContent = '';
+    const body = $('#rBody'); body.innerHTML = ''; body.append(h('div', { class: 'msg' }, h('span', { class: 'spin' }), 'fetching the article…'));
+    try {
+      const d = await api('/read?' + new URLSearchParams({ url: r.url, max_chars: 20000 }));
+      body.innerHTML = '';
+      if (!d.text) body.append(h('p', { class: 'msg' }, 'No readable text found. The site may render in the browser only.'));
+      for (const para of d.text.split(/\n\n+/)) if (para.trim()) body.append(h('p', {}, para));
+      $('#rNote').textContent = d.chars + ' chars' + (d.truncated ? ' · truncated' : '');
+    } catch (err) { body.innerHTML = ''; body.append(h('p', { class: 'msg err' }, 'Could not read it: ' + err.message)); }
+  }
+  const closeRead = () => { $('#reader').classList.remove('on'); document.body.style.overflow = ''; };
+  $('#rClose').onclick = closeRead; $('#veil').onclick = closeRead;
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeRead(); });
+
+  // ── tabs (feeds / api)
+  const toggle = (btn, card, onOpen) => btn.addEventListener('click', () => {
+    const open = card.classList.toggle('hide'); btn.classList.toggle('on', !open);
+    if (!open) { onOpen && onOpen(); card.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+  });
+  toggle($('#tabFeeds'), $('#feedsCard'), loadFeeds);
+  toggle($('#tabApi'), $('#apiCard'), renderEps);
+
+  async function loadFeeds() {
+    const list = $('#feedList'); list.innerHTML = '';
+    try {
+      const d = await api('/feeds');
+      if (!d.feeds.length) list.append(h('div', { class: 'msg' }, 'No feeds yet.'));
+      for (const f of d.feeds) {
+        const row = h('div', { class: 'feed' }, h('span', { class: 'n' }, f.name || '–'), h('span', { class: 'u', title: f.url }, f.url));
+        const rm = ib('trash', 'remove', { class: 'ib danger' });
+        rm.onclick = () => {   // arm-then-confirm inline: never a native dialog
+          const arm = h('span', { class: 'arm' }, 'remove this feed?',
+            ib('trash', 'yes, remove', { class: 'ib danger', onclick: async () => {
+              try { await api('/feeds?' + new URLSearchParams({ url: f.url }), { method: 'DELETE' }); note('#feedMsg', 'removed ' + (f.name || f.url), 'ok'); loadFeeds(); }
+              catch (err) { note('#feedMsg', err.message, 'err'); } } }),
+            h('button', { class: 'ib', type: 'button', onclick: () => arm.replaceWith(rm) }, 'keep'));
+          rm.replaceWith(arm);
+        };
+        row.append(rm); list.append(row);
+      }
+    } catch (err) { list.append(h('div', { class: 'msg err' }, err.message)); }
+  }
+  $('#addFeed').addEventListener('submit', async e => {
+    e.preventDefault(); const url = $('#fUrl').value.trim(); if (!url) return;
+    note('#feedMsg', 'checking the feed…');
+    try {
+      const d = await api('/feeds', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url, name: $('#fName').value.trim() }) });
+      note('#feedMsg', 'added · ' + d.items + ' items in the feed right now', 'ok'); $('#fUrl').value = ''; $('#fName').value = ''; loadFeeds();
+    } catch (err) { note('#feedMsg', err.message, 'err'); }
+  });
+  function note(sel, text, cls = '') { const m = $(sel); m.textContent = text; m.className = 'msg ' + cls; }
+
+  function renderEps() {
+    const base = location.origin + API;
+    const rows = [
+      ['REST · search', base + '/search?q=bittensor&k=10&hours=24'],
+      ['REST · read an article', base + '/read?url=https://…'],
+      ['MCP · streamable HTTP', base + '/mcp'],
+      ['MCP · add to Claude Code', 'claude mcp add --transport http news ' + base + '/mcp'],
+      ['CLI · in-process, no server', 'm news/search "bittensor" k=5 hours=24'],
+    ];
+    const eps = $('#eps'); eps.innerHTML = '';
+    for (const [label, val] of rows) {
+      const cp = ib('copy', 'copy', { onclick: async () => { try { await navigator.clipboard.writeText(val); cp.lastChild.textContent = 'copied'; setTimeout(() => cp.lastChild.textContent = 'copy', 1200); } catch { cp.lastChild.textContent = 'select it'; } } });
+      eps.append(h('div', { class: 'ep' }, h('div', { class: 'label' }, label), h('code', {}, val), cp));
+    }
+  }
+})();
+</script>
+</body>
+</html>

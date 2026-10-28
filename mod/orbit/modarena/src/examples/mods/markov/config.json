@@ -1,0 +1,13 @@
+{
+  "name": "markov",
+  "kind": "wasm",
+  "lang": "wasm",
+  "anchor": "mod.wasm",
+  "description": "An order-2 character Markov chain over a baked corpus. Seed in, text out.",
+  "author": "modarena",
+  "tags": [
+    "example",
+    "model"
+  ],
+  "protocol": "modarena/1.0"
+}

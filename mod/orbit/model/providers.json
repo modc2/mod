@@ -1,0 +1,189 @@
+{
+  "_doc": "Single provider registry for the model gateway. Read by app/catalog.py (FastAPI server + mod.py CLI) and api/src/main.rs (Rust). Every provider speaks OpenAI-compatible /chat/completions; models_auth/models_headers/models_query only cover the /models listing quirks. models_query widens a listing to every model TYPE (OpenRouter and Venice list only text models by default). group: lab | router | network (decentralized) — sidebar grouping only. Models whose provider declares api_shapes without chat.completions are bridged to OpenAI format by app/adapters.py.",
+  "providers": [
+    {
+      "id": "openrouter",
+      "label": "OpenRouter",
+      "group": "router",
+      "url": "https://openrouter.ai/api/v1",
+      "default_model": "anthropic/claude-sonnet-5",
+      "key_hint": "sk-or-…",
+      "docs": "https://openrouter.ai/keys",
+      "env": "OPENROUTER_API_KEY",
+      "public_models": true,
+      "models_query": "output_modalities=all"
+    },
+    {
+      "id": "huggingface",
+      "label": "Hugging Face",
+      "group": "router",
+      "url": "https://router.huggingface.co/v1",
+      "default_model": "Qwen/Qwen3.8-27B",
+      "key_hint": "hf_…",
+      "docs": "https://huggingface.co/settings/tokens",
+      "env": "HF_TOKEN",
+      "public_models": true
+    },
+    {
+      "id": "together",
+      "label": "Together",
+      "group": "router",
+      "url": "https://api.together.xyz/v1",
+      "default_model": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+      "key_hint": "tgp_…",
+      "docs": "https://api.together.ai/settings/api-keys",
+      "env": "TOGETHER_API_KEY"
+    },
+    {
+      "id": "fireworks",
+      "label": "Fireworks",
+      "group": "router",
+      "url": "https://api.fireworks.ai/inference/v1",
+      "default_model": "accounts/fireworks/models/llama-v3p3-70b-instruct",
+      "key_hint": "fw_…",
+      "docs": "https://fireworks.ai/account/api-keys",
+      "env": "FIREWORKS_API_KEY"
+    },
+    {
+      "id": "deepinfra",
+      "label": "DeepInfra",
+      "group": "router",
+      "url": "https://api.deepinfra.com/v1/openai",
+      "default_model": "meta-llama/Llama-3.3-70B-Instruct",
+      "key_hint": "deepinfra key",
+      "docs": "https://deepinfra.com/dash/api_keys",
+      "env": "DEEPINFRA_API_KEY",
+      "public_models": true
+    },
+    {
+      "id": "groq",
+      "label": "Groq",
+      "group": "router",
+      "url": "https://api.groq.com/openai/v1",
+      "default_model": "llama-3.3-70b-versatile",
+      "key_hint": "gsk_…",
+      "docs": "https://console.groq.com/keys",
+      "env": "GROQ_API_KEY"
+    },
+    {
+      "id": "cerebras",
+      "label": "Cerebras",
+      "group": "router",
+      "url": "https://api.cerebras.ai/v1",
+      "default_model": "llama-3.3-70b",
+      "key_hint": "csk-…",
+      "docs": "https://cloud.cerebras.ai",
+      "env": "CEREBRAS_API_KEY"
+    },
+    {
+      "id": "anthropic",
+      "label": "Anthropic",
+      "group": "lab",
+      "url": "https://api.anthropic.com/v1",
+      "default_model": "claude-sonnet-5",
+      "key_hint": "sk-ant-…",
+      "docs": "https://console.anthropic.com/settings/keys",
+      "env": "ANTHROPIC_API_KEY",
+      "models_auth": "x-api-key",
+      "models_headers": {
+        "anthropic-version": "2023-06-01"
+      }
+    },
+    {
+      "id": "openai",
+      "label": "OpenAI",
+      "group": "lab",
+      "url": "https://api.openai.com/v1",
+      "default_model": "gpt-4o-mini",
+      "key_hint": "sk-…",
+      "docs": "https://platform.openai.com/api-keys",
+      "env": "OPENAI_API_KEY"
+    },
+    {
+      "id": "gemini",
+      "label": "Google Gemini",
+      "group": "lab",
+      "url": "https://generativelanguage.googleapis.com/v1beta/openai",
+      "default_model": "gemini-2.5-flash",
+      "key_hint": "AIza…",
+      "docs": "https://aistudio.google.com/apikey",
+      "env": "GEMINI_API_KEY"
+    },
+    {
+      "id": "xai",
+      "label": "xAI (Grok)",
+      "group": "lab",
+      "url": "https://api.x.ai/v1",
+      "default_model": "grok-3",
+      "key_hint": "xai-…",
+      "docs": "https://console.x.ai",
+      "env": "XAI_API_KEY"
+    },
+    {
+      "id": "mistral",
+      "label": "Mistral",
+      "group": "lab",
+      "url": "https://api.mistral.ai/v1",
+      "default_model": "mistral-large-latest",
+      "key_hint": "mistral key",
+      "docs": "https://console.mistral.ai/api-keys",
+      "env": "MISTRAL_API_KEY"
+    },
+    {
+      "id": "deepseek",
+      "label": "DeepSeek",
+      "group": "lab",
+      "url": "https://api.deepseek.com/v1",
+      "default_model": "deepseek-chat",
+      "key_hint": "sk-…",
+      "docs": "https://platform.deepseek.com/api_keys",
+      "env": "DEEPSEEK_API_KEY"
+    },
+    {
+      "id": "chutes",
+      "label": "Chutes",
+      "group": "network",
+      "url": "https://llm.chutes.ai/v1",
+      "default_model": "deepseek-ai/DeepSeek-V3",
+      "key_hint": "cpk_…",
+      "docs": "https://chutes.ai",
+      "env": "CHUTES_API_KEY",
+      "public_models": true
+    },
+    {
+      "id": "targon",
+      "label": "Targon",
+      "group": "network",
+      "url": "https://api.targon.com/v1",
+      "default_model": "deepseek-ai/DeepSeek-V3",
+      "key_hint": "sn4_…",
+      "docs": "https://targon.com",
+      "env": "TARGON_API_KEY"
+    },
+    {
+      "id": "venice",
+      "label": "Venice",
+      "group": "network",
+      "url": "https://api.venice.ai/api/v1",
+      "default_model": "llama-3.3-70b",
+      "key_hint": "venice key",
+      "docs": "https://venice.ai",
+      "env": "VENICE_API_KEY",
+      "models_query": "type=all",
+      "public_models": true
+    },
+    {
+      "id": "saygm",
+      "label": "SayGM",
+      "group": "network",
+      "url": "https://api.saygm.com/v1",
+      "default_model": "deepseek-v4.1-flash",
+      "key_hint": "gm_…",
+      "docs": "https://saygm.com",
+      "env": "SAYGM_API_KEY",
+      "public_models": true,
+      "_note": "Bittensor gateway, -tee ids run in an Intel TDX enclave. Each model lists api_shapes; non-chat.completions shapes (messages, generateContent) are translated to OpenAI format by app/adapters.py",
+      "model_shapes": true
+    }
+  ]
+}

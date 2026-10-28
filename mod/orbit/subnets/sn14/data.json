@@ -1,0 +1,189 @@
+{
+  "netuid": 14,
+  "name": "Cacheon",
+  "symbol": "ㄷ",
+  "owner": "5CKhH8nKAhXLmqxwaXzFtVFgxqwwnyckXG8qLpmGtzVJH9Ri",
+  "description": "A competition where miners submit optimized kernels to compete on end-to-end inference speed against target models.",
+  "github": "https://github.com/latent-to/cacheon",
+  "url": "https://cacheon.ai",
+  "discord": "https://discord.gg/SFt8s4gJD",
+  "logo": "https://cacheon.ai/icon-192.png",
+  "registered_at": 4848444,
+  "tempo": 360,
+  "active": true,
+  "block": 9322663,
+  "related": [],
+  "market": {
+    "price": 0.008707884,
+    "moving_price": 0.008725585415959358,
+    "market_cap": 53836.93982129336,
+    "tao_in": 24666.646807276,
+    "alpha_in": 2832679.59503282,
+    "alpha_out": 3349871.736759537,
+    "volume": 2670965.509617504,
+    "vol_24h": 283.3033232232556,
+    "emission": 0.0,
+    "change_1h": 0.003916144887261552,
+    "change_24h": -0.4800632328021526,
+    "change_7d": 0.7905006581332419
+  },
+  "spark_24h": [
+    0.008749889,
+    0.008749795,
+    0.008754042,
+    0.008753658,
+    0.008753792,
+    0.008753858,
+    0.008753816,
+    0.008753884,
+    0.008753971,
+    0.008754032,
+    0.008754089,
+    0.008750742,
+    0.008751274,
+    0.008739147,
+    0.008738942,
+    0.008739021,
+    0.008739091,
+    0.008739122,
+    0.008739201,
+    0.008720551,
+    0.008706728,
+    0.008707121,
+    0.008707196,
+    0.008707289,
+    0.00870729,
+    0.008707378,
+    0.00870755,
+    0.008707602,
+    0.008707691,
+    0.008707683,
+    0.008707823,
+    0.008707889,
+    0.008685407,
+    0.008685517,
+    0.008685549,
+    0.008685647,
+    0.008685699,
+    0.008685901,
+    0.008685981,
+    0.008707111,
+    0.008707247,
+    0.008707318,
+    0.008707401,
+    0.00870745,
+    0.00870756,
+    0.008707543,
+    0.008707618,
+    0.008707884
+  ],
+  "trades_24h": {
+    "trades": 60,
+    "buys": 15,
+    "sells": 45,
+    "buy_tao": 97.291074317,
+    "sell_tao": 168.036167506,
+    "net_tao": -70.745093189,
+    "traders": 33
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5D5eZr3ZYtdUgzHzuDDNuJc79EzWoB8i8aGQby9MVghD8K3V",
+      "net_tao": 0.018711245999998738,
+      "gross_tao": 59.981288754000005,
+      "trades": 2
+    },
+    {
+      "coldkey": "5HVR4pfwHBp6rjEZdb92zavv5zr9PNJ6pbsiNXbhZHviB4J2",
+      "net_tao": -31.961429804,
+      "gross_tao": 31.961429804,
+      "trades": 1
+    },
+    {
+      "coldkey": "5D3SW7jVvdngwoWwo43BY1vPE13HunLmB5HuwevNW5sxeF6p",
+      "net_tao": 30.0,
+      "gross_tao": 30.0,
+      "trades": 1
+    },
+    {
+      "coldkey": "5CtrbKzk4H2g1yT8YpGK3ppHwVkPeA5jdPPc8Fv4SF8TZa4S",
+      "net_tao": 0.015085953999999901,
+      "gross_tao": 29.984914046,
+      "trades": 2
+    },
+    {
+      "coldkey": "5GHk9c4oK48gsfKxpWnbUjD6tpWXLMXFyRk4ofo9JohU7Pss",
+      "net_tao": -24.082895235,
+      "gross_tao": 24.082895235,
+      "trades": 1
+    }
+  ],
+  "news": [
+    {
+      "ts": 1792324882,
+      "kind": "commit",
+      "source": "github",
+      "title": "DeepSeek mainnet: fully eager audit role, seam binds all 40 layers, r…",
+      "url": "https://github.com/latent-to/cacheon/commit/8fdede8070ed344030b6ede832ba343992adbe9e",
+      "publisher": "latent-to/cacheon"
+    },
+    {
+      "ts": 1792097806,
+      "kind": "commit",
+      "source": "github",
+      "title": "Allow sealed audit decode budgets for speculative arenas (#155)",
+      "url": "https://github.com/latent-to/cacheon/commit/b0e5090ab7918b166150ea708a9d4f8f884d563a",
+      "publisher": "latent-to/cacheon"
+    },
+    {
+      "ts": 1792078415,
+      "kind": "commit",
+      "source": "github",
+      "title": "Audit native recurrent MTP state and hybrid prefix keys (#153)",
+      "url": "https://github.com/latent-to/cacheon/commit/89e13099f3e1fa7969a772a8e81e45d9817247dc",
+      "publisher": "latent-to/cacheon"
+    },
+    {
+      "ts": 1792061238,
+      "kind": "commit",
+      "source": "github",
+      "title": "Resume checkpointed evaluations across GPU worker replacement (#151)",
+      "url": "https://github.com/latent-to/cacheon/commit/b634933772700515f7023ca52c07724337144690",
+      "publisher": "latent-to/cacheon"
+    },
+    {
+      "ts": 1792005668,
+      "kind": "commit",
+      "source": "github",
+      "title": "Show evaluator activity from the current worker heartbeat (#150)",
+      "url": "https://github.com/latent-to/cacheon/commit/233e2797710c6637bf0b459e55b53ce8716183d4",
+      "publisher": "latent-to/cacheon"
+    },
+    {
+      "ts": 1791991811,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #147 from latent-to/codex/qwen38-recurrent-audit",
+      "url": "https://github.com/latent-to/cacheon/commit/074e472406978ba8b051f7455cf83d72d46ecaa5",
+      "publisher": "latent-to/cacheon"
+    },
+    {
+      "ts": 1791991490,
+      "kind": "commit",
+      "source": "github",
+      "title": "Allow future arena source additions without repricing prior submissions",
+      "url": "https://github.com/latent-to/cacheon/commit/a5128bacc0b6956819c24a1e1acfd86ed23e86b5",
+      "publisher": "latent-to/cacheon"
+    },
+    {
+      "ts": 1791990809,
+      "kind": "commit",
+      "source": "github",
+      "title": "Document Qwen GPU reservation through worker drain and resume",
+      "url": "https://github.com/latent-to/cacheon/commit/623f0d7fa5a682edd80881f884a9fb99e6521439",
+      "publisher": "latent-to/cacheon"
+    }
+  ],
+  "updated": 1792474861,
+  "updated_day": "2026-10-20"
+}

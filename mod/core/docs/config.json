@@ -1,17 +1,28 @@
 {
-    "name": "docs",
-    "description": "Documentation hub \u2014 protocol doc pages + the whitepaper, with a web app at /docs; the module catalog comes from the hub module",
-    "version": "0.3.0",
-    "deps": [
-        "hub"
-    ],
-    "port": 50191,
-    "app_port": 50191,
-    "mcp_port": 50192,
-    "urls": {
-        "app": "http://localhost:50191/docs",
-        "mcp": "http://localhost:50191/docs/mcp"
-    },
-    "base_path": "/docs",
-    "schema": "QmYEHySTH8KBW19ezGL6efNeFydDxMeYnAMzXL7hEM6aLo"
+  "name": "docs",
+  "description": "Documentation hub \u2014 protocol doc pages + the whitepaper, with a web app at /docs; the module catalog comes from the hub module",
+  "version": "0.4.0",
+  "deps": [
+    "hub"
+  ],
+  "optional_deps": [
+    "liquidai"
+  ],
+  "chat": {
+    "model": "LiquidAI/LFM2.5-1.2B-Instruct",
+    "runtime": "server",
+    "max_tokens": 512,
+    "max_context_chars": 9000,
+    "top_pages": 3
+  },
+  "port": 50191,
+  "app_port": 50191,
+  "mcp_port": 50192,
+  "urls": {
+    "app": "http://localhost:50191/docs",
+    "mcp": "http://localhost:50191/docs/mcp",
+    "api": "http://localhost:50191"
+  },
+  "base_path": "/docs",
+  "schema": "QmSBJNwNFiTmy91UHMtY4nqQJEhjurooKRghVmzRdFqVmB"
 }

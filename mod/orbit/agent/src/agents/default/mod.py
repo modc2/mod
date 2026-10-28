@@ -8,3 +8,4 @@ class Agent:
     goal = None  # uses base Agent goal
     tools = None  # every tool
     model = None  # default model
+    memory = "default"  # layered, persistent, retrievable (memory/registry.py)

@@ -108,7 +108,7 @@
   var SOLID = { X: 1, D: 1, A: 1, S: 1, B: 1, '?': 1, U: 1, C: 1, W: 1,
                 '=': 1, L: 1, R: 1, l: 1, r: 1 };
 
-  var THEME = {
+  var BASE_THEME = {
     slope: { sky: ['#5c94fc', '#8fc3ff'], top: '#c9c9c9', topEdge: '#f0f0f0',
              fill: '#8a8a8a', fillDark: '#5e5e5e', brick: '#b3542e',
              brickDark: '#7c3418', mortar: '#e8c9a0' },
@@ -120,7 +120,39 @@
              brickDark: '#3a2247', mortar: '#c9b8d8' }
   };
 
+  /* The city repaints the base themes: THEME is BASE_THEME with the chosen
+   * city's overrides merged over it, rebuilt whenever the city changes. */
+  var THEME = {};
   var tileCache = {};
+  var CITY = null;
+  var cityListeners = [];
+
+  function applyCity(id) {
+    var c = CITIES.get(id);
+    THEME = {};
+    for (var name in BASE_THEME) {
+      var t = {}, base = BASE_THEME[name], over = c.theme[name] || {};
+      for (var k in base) t[k] = base[k];
+      for (var o in over) t[o] = over[o];
+      THEME[name] = t;
+    }
+    tileCache = {};                    // the tiles were baked in the old colours
+    CITY = c;
+    try { localStorage.setItem('superhood.city', c.id); } catch (e) {}
+    cityListeners.forEach(function (fn) { fn(c); });
+    return c;
+  }
+
+  // ?city= wins (a shared link picks the city), then the last one played
+  (function () {
+    var want = null;
+    try { want = new URLSearchParams(location.search).get('city'); } catch (e) {}
+    if (!CITIES.has(want)) {
+      try { want = localStorage.getItem('superhood.city'); } catch (e) {}
+    }
+    applyCity(want);
+  })();
+
   function tile(ch, theme, frame) {
     var key = ch + theme + (frame || 0);
     if (tileCache[key]) return tileCache[key];
@@ -232,15 +264,95 @@
 
   /* ── input ─────────────────────────────────────────────────────────── */
 
-  var KEYMAP = {
-    ArrowLeft: 'left', KeyA: 'left',
-    ArrowRight: 'right', KeyD: 'right',
-    ArrowUp: 'up', KeyW: 'up',
-    ArrowDown: 'down', KeyS: 'down',
-    Space: 'jump', KeyZ: 'jump', KeyK: 'jump',
-    ShiftLeft: 'run', ShiftRight: 'run', KeyX: 'run', KeyJ: 'run',
-    Enter: 'start', KeyP: 'pause', KeyM: 'mute'
+  /* Key bindings: action → the KeyboardEvent.codes that press it. The player
+   * rebinds them in the KEYS panel (ui.js); they persist in localStorage and
+   * KEYMAP, the code → action lookup the handlers read, is rebuilt from them.
+   * A code belongs to one action at a time — binding it elsewhere moves it. */
+  var ACTIONS = ['left', 'right', 'down', 'jump', 'run', 'start', 'pause', 'mute'];
+  var DEFAULT_BINDS = {
+    left: ['ArrowLeft', 'KeyA'],
+    right: ['ArrowRight', 'KeyD'],
+    down: ['ArrowDown', 'KeyS'],
+    jump: ['KeyZ', 'Space', 'KeyK'],
+    run: ['KeyX', 'ShiftLeft', 'ShiftRight', 'KeyJ'],
+    start: ['Enter'],
+    pause: ['KeyP'],
+    mute: ['KeyM']
   };
+  var BINDS = {}, KEYMAP = {};
+  var bindListeners = [];
+
+  function copyBinds(src) {
+    var out = {};
+    ACTIONS.forEach(function (a) {
+      out[a] = (src && Array.isArray(src[a]) ? src[a] : DEFAULT_BINDS[a])
+        .filter(function (c) { return typeof c === 'string' && c && c !== 'Escape'; });
+    });
+    return out;
+  }
+
+  function setBinds(b, persist) {
+    BINDS = copyBinds(b);
+    KEYMAP = {};
+    ACTIONS.forEach(function (a) {
+      BINDS[a].forEach(function (c) { if (!KEYMAP[c]) KEYMAP[c] = a; });
+    });
+    if (persist) {
+      try { localStorage.setItem('superhood.keys', JSON.stringify(BINDS)); } catch (e) {}
+    }
+    bindListeners.forEach(function (fn) { fn(BINDS); });
+  }
+
+  (function () {
+    var saved = null;
+    try { saved = JSON.parse(localStorage.getItem('superhood.keys') || 'null'); } catch (e) {}
+    setBinds(saved, false);
+  })();
+
+  // Bind one more code to an action, taking it off whatever had it.
+  function bindKey(action, code) {
+    if (ACTIONS.indexOf(action) < 0 || !code || code === 'Escape') return false;
+    var b = copyBinds(BINDS);
+    ACTIONS.forEach(function (a) {
+      b[a] = b[a].filter(function (c) { return c !== code; });
+    });
+    b[action].push(code);
+    setBinds(b, true);
+    return true;
+  }
+
+  function unbindKey(action, code) {
+    var b = copyBinds(BINDS);
+    if (!b[action]) return;
+    b[action] = b[action].filter(function (c) { return c !== code; });
+    setBinds(b, true);
+  }
+
+  // How a code reads on a keycap: 'KeyZ' → 'Z', 'ArrowLeft' → '←'.
+  // ascii=true is for the canvas font, which has no arrows.
+  var KEY_NAMES = {
+    ArrowLeft: ['\u2190', 'LEFT'], ArrowRight: ['\u2192', 'RIGHT'],
+    ArrowUp: ['\u2191', 'UP'], ArrowDown: ['\u2193', 'DOWN'],
+    Space: ['Space', 'SPACE'], Enter: ['Enter', 'ENTER'],
+    NumpadEnter: ['Num Enter', 'ENTER'],
+    ShiftLeft: ['L-Shift', 'SHIFT'], ShiftRight: ['R-Shift', 'SHIFT'],
+    ControlLeft: ['L-Ctrl', 'CTRL'], ControlRight: ['R-Ctrl', 'CTRL'],
+    AltLeft: ['L-Alt', 'ALT'], AltRight: ['R-Alt', 'ALT'],
+    MetaLeft: ['L-Meta', 'META'], MetaRight: ['R-Meta', 'META'],
+    Backspace: ['Bksp', 'BKSP'], Tab: ['Tab', 'TAB'],
+    Backquote: ['`', "'"], Minus: ['-', '-'], Equal: ['=', '='],
+    BracketLeft: ['[', '('], BracketRight: [']', ')'], Backslash: ['\\', '/'],
+    Semicolon: [';', ':'], Quote: ["'", "'"], Comma: [',', ','],
+    Period: ['.', '.'], Slash: ['/', '/']
+  };
+  function keyLabel(code, ascii) {
+    if (!code) return ascii ? '-' : '\u2014';
+    if (KEY_NAMES[code]) return KEY_NAMES[code][ascii ? 1 : 0];
+    var m = /^(?:Key|Digit)(.)$/.exec(code) || /^Numpad(\d)$/.exec(code);
+    if (m) return m[1];
+    return ascii ? code.toUpperCase().slice(0, 6) : code;
+  }
+  function firstKey(action, ascii) { return keyLabel(BINDS[action][0], ascii); }
 
   var keys = {}, pressed = {}, sampled = {}, pendingUp = {};
 
@@ -316,6 +428,7 @@
     this.levelId = LEVELS.order[0];
     this.high = 0;
     try { this.high = parseInt(localStorage.getItem('superhood.high') || '0', 10) || 0; } catch (e) {}
+    try { if (localStorage.getItem('superhood.muted') === '1') SND.mute(true); } catch (e) {}
     this.acc = 0;
     this.last = 0;
     this.shake = 0;
@@ -364,6 +477,7 @@
     this.player = pl;
     this.centerCamera();
     this.mode = 'play';
+    lv.name = CITY.levels[id] || lv.name;
     this.msg = { text: 'WORLD ' + lv.world + '  ' + lv.name, t: 150 };
     SND.play(lv.music);
     return lv;
@@ -664,12 +778,14 @@
     this.titleT++;
     if (consume('start') || consume('jump')) {
       SND.sfx('select');
-      this.score = 0; this.tokens = 0; this.lives = 3;
+      this.score = 0; this.tokens = 0; this.lives = 3; this.newHigh = false;
       this.player = null;
       clearEdges();          // don't carry the start press into the first step
       this.loadLevel(LEVELS.order[0]);
     }
     if (consume('mute')) SND.toggle();
+    if (consume('left')) { applyCity(CITIES.next(CITY.id, -1)); SND.sfx('select'); }
+    if (consume('right')) { applyCity(CITIES.next(CITY.id, 1)); SND.sfx('select'); }
   };
 
   Game.prototype.toTitle = function () {
@@ -857,6 +973,7 @@
       this.overT = 210;
       if (this.score > this.high) {
         this.high = this.score;
+        this.newHigh = true;
         try { localStorage.setItem('superhood.high', String(this.high)); } catch (e) {}
       }
       SND.play('gameover');
@@ -1212,6 +1329,7 @@
         this.overT = 400;
         if (this.score > this.high) {
           this.high = this.score;
+          this.newHigh = true;
           try { localStorage.setItem('superhood.high', String(this.high)); } catch (e) {}
         }
         SND.play('clear');
@@ -1246,7 +1364,7 @@
       g.fillStyle = 'rgba(0,0,0,0.55)';
       g.fillRect(0, 0, VW, VH);
       textCentered(g, 'PAUSED', 108, '#ffffff', 2);
-      textCentered(g, 'P TO RESUME', 136, '#f7d51d', 1);
+      textCentered(g, firstKey('pause', true) + ' TO RESUME', 136, '#f7d51d', 1);
     }
     g.restore();
   };
@@ -1276,14 +1394,75 @@
     }
 
     // the skyline, two parallax layers deep
-    this.renderSkyline(g, cam * 0.18, 0.55, '#7f8fbf', 96);
-    this.renderSkyline(g, cam * 0.34, 1.0, '#5a6a9a', 118);
+    this.renderSkyline(g, cam * 0.18, 0.55, CITY.skyline[0], 96);
+    this.renderSkyline(g, cam * 0.34, 1.0, CITY.skyline[1], 118);
     this.renderClouds(g, cam * 0.10);
 
     if (this.theme === 'park') {
       // the Williamsburgh Bank tower, the thing you can see from everywhere
       var bx = 200 - (cam * 0.18) % 420;
-      for (var k = 0; k < 3; k++) this.bankTower(g, bx + k * 420, 34);
+      for (var k = 0; k < 3; k++) this.landmark(g, bx + k * 420, 34);
+    }
+  };
+
+  /* The city's landmark, seen from the park and on the title card. Every kind
+   * fits the same box as the bank tower — about 24 wide, y-34 to y+84 — so
+   * the parallax spacing works for all of them. */
+  Game.prototype.landmark = function (g, x, y) {
+    var lm = CITY.landmark, i, w;
+    switch (lm.kind) {
+      case 'spire':                              // stepped black tower, two masts
+        g.fillStyle = lm.body;
+        g.fillRect(x, y, 24, 84);
+        g.fillRect(x + 3, y - 8, 18, 8);
+        g.fillRect(x + 6, y - 18, 12, 10);
+        g.fillRect(x + 8, y - 34, 1, 16);
+        g.fillRect(x + 15, y - 34, 1, 16);
+        g.fillStyle = lm.trim;
+        for (i = y + 6; i < y + 84; i += 10) g.fillRect(x + 2, i, 20, 1);
+        return;
+      case 'clock':                              // clock tower with a pointed roof
+        g.fillStyle = lm.body;
+        g.fillRect(x + 4, y + 10, 14, 74);
+        g.fillRect(x + 2, y - 8, 18, 18);
+        for (i = 0; i < 9; i++) g.fillRect(x + 3 + i, y - 9 - i * 2, 16 - i * 2, 2);
+        g.fillRect(x + 10, y - 30, 2, 6);
+        g.fillStyle = lm.face;
+        g.fillRect(x + 6, y - 4, 10, 10);
+        g.fillStyle = lm.trim;
+        g.fillRect(x + 10, y - 2, 2, 4);
+        g.fillRect(x + 10, y + 1, 4, 2);
+        for (i = y + 16; i < y + 84; i += 8) g.fillRect(x + 6, i, 10, 1);
+        return;
+      case 'lattice':                            // tapering lattice tower, banded
+        for (i = 0; i < 118; i++) {
+          w = 4 + Math.round(i * i / 118 / 118 * 22);
+          var lx = x + 12 - Math.floor(w / 2), ly = y - 34 + i;
+          g.fillStyle = Math.floor(i / 12) % 2 ? lm.trim : lm.body;
+          if (i % 6 === 0 || w <= 6) g.fillRect(lx, ly, w, 1);
+          else { g.fillRect(lx, ly, 2, 1); g.fillRect(lx + w - 2, ly, 2, 1); }
+        }
+        g.fillStyle = lm.body;
+        g.fillRect(x + 6, y + 20, 12, 5);        // the observation deck
+        g.fillRect(x + 8, y - 6, 8, 3);
+        return;
+      case 'column':                             // a column with a gold figure
+        g.fillStyle = lm.trim;
+        g.fillRect(x + 1, y + 72, 22, 12);
+        g.fillStyle = lm.body;
+        g.fillRect(x + 3, y + 66, 18, 6);
+        g.fillRect(x + 9, y - 4, 6, 70);
+        g.fillRect(x + 7, y - 8, 10, 4);
+        g.fillStyle = lm.trim;
+        for (i = y + 4; i < y + 66; i += 12) g.fillRect(x + 9, i, 6, 1);
+        g.fillStyle = lm.cap;
+        g.fillRect(x + 10, y - 20, 4, 12);
+        g.fillRect(x + 5, y - 17, 6, 2);
+        g.fillRect(x + 13, y - 17, 6, 2);
+        g.fillRect(x + 11, y - 23, 2, 3);
+        return;
+      default:
+        return this.bankTower(g, x, y);
     }
   };
 
@@ -1609,8 +1788,10 @@
     hud(g, 'WORLD', 146, y, '#ffffff');
     hud(g, this.level.world, 152, y + 9, '#ffffff');
 
-    hud(g, 'TIME', 208, y, '#ffffff');
-    hud(g, pad(this.time, 3), 214, y + 9, this.time <= 100 ? '#ff6a4a' : '#ffffff');
+    hud(g, 'TIME', 208, y, this.time <= 100 ? '#ff6a4a' : '#ffffff');
+    if (this.time > 30 || Math.floor(this.frame / 8) % 2) {
+      hud(g, pad(this.time, 3), 214, y + 9, this.time <= 100 ? '#ff6a4a' : '#ffffff');
+    }
 
     // lives, bottom-left, out of the way
     g.drawImage(SPR.salSmall[0].idle, 8, VH - 20, 9, 12);
@@ -1646,20 +1827,22 @@
       textCentered(g, 'SCORE ' + pad(this.score, 6), 130, '#ffffff', 1);
     }
     textCentered(g, 'TOP ' + pad(this.high, 6), 146, '#9ad0ff', 1);
+    if (this.newHigh) textCentered(g, 'NEW RECORD', 160, '#f7d51d', 1);
+    if (Math.floor(this.frame / 26) % 2) textCentered(g, 'PRESS ' + firstKey('start', true), this.newHigh ? 174 : 160, '#ffffff', 1);
   };
 
   Game.prototype.renderTitle = function (g) {
     var t = this.titleT;
     var grd = g.createLinearGradient(0, 0, 0, VH);
-    grd.addColorStop(0, '#101538');
-    grd.addColorStop(0.55, '#3b3f7a');
-    grd.addColorStop(1, '#c86a3a');
+    grd.addColorStop(0, CITY.title[0]);
+    grd.addColorStop(0.55, CITY.title[1]);
+    grd.addColorStop(1, CITY.title[2]);
     g.fillStyle = grd;
     g.fillRect(0, 0, VW, VH);
 
     this.renderSkyline(g, t * 0.12, 0.55, '#232a52', 96);
     this.renderSkyline(g, t * 0.22, 1.0, '#151a38', 118);
-    this.bankTower(g, 206, 44);
+    this.landmark(g, 206, 44);
 
     // a couple of pigeons crossing the title card
     var px = (t * 0.7) % 320 - 40;
@@ -1670,7 +1853,10 @@
 
     textCentered(g, 'SUPER', 62, '#f7d51d', 3);
     textCentered(g, 'HOOD BROS', 88, '#ffffff', 3);
-    textCentered(g, 'WASHINGTON PARK', 116, '#ff8a4a', 1);
+    textCentered(g, CITY.levels['1-3'], 116, '#ff8a4a', 1);
+
+    // the city picker: left/right on this screen cycles it
+    textCentered(g, '<  ' + CITY.name + '  >', 136, '#f7d51d', 1);
 
     g.drawImage(SPR.salSmall[0].idle, 40, 150, 24, 32);
     this.blit(g, SPR.pigeon.w1, 196, 154, -1, false);
@@ -1679,10 +1865,20 @@
     g.fillStyle = '#3a3a48';
     g.fillRect(0, 188, VW, VH - 188);
 
-    if (Math.floor(t / 26) % 2) textCentered(g, 'PRESS ENTER', 198, '#ffffff', 1);
+    if (Math.floor(t / 26) % 2) textCentered(g, 'PRESS ' + firstKey('start', true), 198, '#ffffff', 1);
     textCentered(g, 'TOP ' + pad(this.high, 6), 212, '#9ad0ff', 1);
-    textCentered(g, 'ARROWS MOVE   Z JUMP   X RUN/THROW', 226, '#c8c8d8', 1);
+    textCentered(g, controlsLine(), 226, '#c8c8d8', 1);
   };
+
+  // The title card's one-line cheat sheet, written from the live bindings.
+  function controlsLine() {
+    var l = firstKey('left', true), r = firstKey('right', true);
+    var move = l === 'LEFT' && r === 'RIGHT' ? 'ARROWS' : l + '/' + r;
+    var jump = firstKey('jump', true), run = firstKey('run', true);
+    var s = move + ' MOVE   ' + jump + ' JUMP   ' + run + ' RUN/THROW';
+    if (s.length > 42) s = move + ' MOVE  ' + jump + ' JUMP  ' + run + ' RUN';
+    return s.slice(0, 42);
+  }
 
   function pad(n, w) {
     var s = String(Math.max(0, Math.floor(n)));
@@ -1693,6 +1889,28 @@
   /* ── boot ──────────────────────────────────────────────────────────── */
 
   var game = null;
+
+  /* What the page around the canvas (ui.js) drives: the KEYS panel and the city
+   * picker. Defined now, not at boot, so ui.js — which runs
+   * right after this file — can wire itself up before the game exists. */
+  global.HOOD = {
+    actions: ACTIONS,
+    binds: function () { return copyBinds(BINDS); },
+    bind: bindKey,
+    unbind: unbindKey,
+    resetBinds: function () { setBinds(DEFAULT_BINDS, true); },
+    keyLabel: keyLabel,
+    onBinds: function (fn) { bindListeners.push(fn); fn(BINDS); },
+    cities: CITIES.list,
+    city: function () { return CITY; },
+    setCity: function (id) { return applyCity(id); },
+    onCity: function (fn) { cityListeners.push(fn); fn(CITY); },
+    // the panel takes the keyboard: drop held keys, and pause a running game
+    holdInput: function () {
+      clearKeys();
+      if (game && game.mode === 'play' && !game.paused) { press('pause'); release('pause'); }
+    }
+  };
 
   function fit() {
     var cv = game.cv;
@@ -1725,10 +1943,20 @@
     var cv = document.getElementById('screen');
     cv.width = VW; cv.height = VH;
     game = new Game(cv);
+    // a city picked mid-course renames the course in place
+    cityListeners.push(function (c) {
+      var n = game.level && c.levels[game.levelId];
+      if (!n) return;
+      game.level.name = n;
+      if (game.msg && /^WORLD /.test(game.msg.text))
+        game.msg.text = 'WORLD ' + game.level.world + '  ' + n;
+    });
     fit();
     global.addEventListener('resize', fit);
 
     global.addEventListener('keydown', function (ev) {
+      // leave browser shortcuts (ctrl+R, cmd+L…) to the browser
+      if ((ev.ctrlKey || ev.metaKey) && !/^(Control|Meta)/.test(ev.code)) return;
       var k = KEYMAP[ev.code];
       if (!k) return;
       ev.preventDefault();
@@ -1830,7 +2058,9 @@
         };
       },
       goto: function (id) { game.loadLevel(id); },
-      levels: function () { return LEVELS.ids(); }
+      levels: function () { return LEVELS.ids(); },
+      city: function (id) { return id ? applyCity(id).id : CITY.id; },
+      binds: function () { return copyBinds(BINDS); }
     };
   }
 

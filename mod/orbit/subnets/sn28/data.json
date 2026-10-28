@@ -1,0 +1,191 @@
+{
+  "netuid": 28,
+  "name": "SayGM",
+  "symbol": "ד",
+  "owner": "5CA6rwAytZvvyZhLYEzo79627QEV422Q8kD51DEnTaRQxm45",
+  "description": "Drop-in access to Claude, GPT, and Gemini.",
+  "github": "https://github.com/taostat/gm-miner",
+  "url": "https://saygm.com/",
+  "discord": null,
+  "logo": "https://saygm.com/apple-touch-icon.png",
+  "registered_at": 4878363,
+  "tempo": 360,
+  "active": true,
+  "block": 9322663,
+  "related": [
+    "saygm"
+  ],
+  "market": {
+    "price": 0.035338814,
+    "moving_price": 0.03320068935863674,
+    "market_cap": 225023.85150076635,
+    "tao_in": 29799.086299269,
+    "alpha_in": 843239.611920169,
+    "alpha_out": 5524372.258154654,
+    "volume": 6740721.76653084,
+    "vol_24h": 24633.292251665145,
+    "emission": 0.0,
+    "change_1h": -0.25148534023033964,
+    "change_24h": 4.886251731950075,
+    "change_7d": 19.469960190556602
+  },
+  "spark_24h": [
+    0.033692513,
+    0.033097203,
+    0.031633064,
+    0.031532833,
+    0.031733837,
+    0.03154707,
+    0.031724415,
+    0.031725512,
+    0.031751009,
+    0.031702877,
+    0.031772075,
+    0.031774149,
+    0.032253392,
+    0.032269531,
+    0.032308058,
+    0.032352136,
+    0.032362302,
+    0.032934302,
+    0.032914138,
+    0.03239386,
+    0.032385461,
+    0.032696335,
+    0.032702398,
+    0.032882252,
+    0.033103628,
+    0.033150953,
+    0.03314461,
+    0.033130142,
+    0.033132433,
+    0.033122413,
+    0.032686581,
+    0.032869242,
+    0.032880888,
+    0.032880302,
+    0.032885166,
+    0.032884223,
+    0.032885714,
+    0.033814949,
+    0.033829676,
+    0.033483407,
+    0.035188337,
+    0.034681191,
+    0.034857832,
+    0.034847615,
+    0.035242764,
+    0.03542791,
+    0.035439,
+    0.035338814
+  ],
+  "trades_24h": {
+    "trades": 1151,
+    "buys": 610,
+    "sells": 541,
+    "buy_tao": 12528.757569392,
+    "sell_tao": 12049.309532188,
+    "net_tao": 479.4480372040016,
+    "traders": 360
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5GFASTQftoZcMXRuaML9brsMMZQJMqyTViMnYHQsN5mTi1hN",
+      "net_tao": -9.982105845999854,
+      "gross_tao": 7652.9240777919995,
+      "trades": 12
+    },
+    {
+      "coldkey": "5Cw2qFy2tZy9ZLt4LsJc9b68nffQndZDHF1KZynmVbA4Z3pC",
+      "net_tao": -0.08043014099999546,
+      "gross_tao": 1190.080430141,
+      "trades": 29
+    },
+    {
+      "coldkey": "5CXwAFZG5JGxidYjeAwn2mzgHwktUPNczqtGi6HpNaJvWszN",
+      "net_tao": -4.3182409369999935,
+      "gross_tao": 894.318240937,
+      "trades": 24
+    },
+    {
+      "coldkey": "5Gy3ybnsXLe4HSArvQLdBDK2zn53xH77cQ7Bt78dnihQ268b",
+      "net_tao": -0.08752138099999307,
+      "gross_tao": 892.087521381,
+      "trades": 8
+    },
+    {
+      "coldkey": "5Gp5B45qzEuaS6QCn5qC6WYmxdLwrawzDWLR7HEyHR1dXfE1",
+      "net_tao": 0.5686207120000013,
+      "gross_tao": 702.298152728,
+      "trades": 22
+    }
+  ],
+  "news": [
+    {
+      "ts": 1792451881,
+      "kind": "release",
+      "source": "github",
+      "title": "v0.5.4",
+      "url": "https://github.com/taostat/gm-miner/releases/tag/v0.5.4",
+      "publisher": "taostat/gm-miner"
+    },
+    {
+      "ts": 1792450618,
+      "kind": "commit",
+      "source": "github",
+      "title": "chore(release): promote gm-miner 0.5.4 (#333)",
+      "url": "https://github.com/taostat/gm-miner/commit/b8daef9290bbdd964fcd2a8f103f3aed387cd616",
+      "publisher": "taostat/gm-miner"
+    },
+    {
+      "ts": 1792450228,
+      "kind": "release",
+      "source": "github",
+      "title": "v0.5.4-dev",
+      "url": "https://github.com/taostat/gm-miner/releases/tag/v0.5.4-dev",
+      "publisher": "taostat/gm-miner"
+    },
+    {
+      "ts": 1792448943,
+      "kind": "commit",
+      "source": "github",
+      "title": "Use one request per connection to Engy and prepare 0.5.4-dev (#332)",
+      "url": "https://github.com/taostat/gm-miner/commit/7f5d4ae97ec5f870e6770d7ecb87b3cc2e5bec5e",
+      "publisher": "taostat/gm-miner"
+    },
+    {
+      "ts": 1792421062,
+      "kind": "release",
+      "source": "github",
+      "title": "v0.5.3-dev",
+      "url": "https://github.com/taostat/gm-miner/releases/tag/v0.5.3-dev",
+      "publisher": "taostat/gm-miner"
+    },
+    {
+      "ts": 1792420027,
+      "kind": "commit",
+      "source": "github",
+      "title": "Cap HTTP/2 upstream streams per connection and prepare 0.5.3-dev (#331)",
+      "url": "https://github.com/taostat/gm-miner/commit/63190d8d0ceccb8943c8988ec7a0c38f556ccd3f",
+      "publisher": "taostat/gm-miner"
+    },
+    {
+      "ts": 1792245157,
+      "kind": "release",
+      "source": "github",
+      "title": "v0.5.2",
+      "url": "https://github.com/taostat/gm-miner/releases/tag/v0.5.2",
+      "publisher": "taostat/gm-miner"
+    },
+    {
+      "ts": 1792243989,
+      "kind": "commit",
+      "source": "github",
+      "title": "chore(release): promote gm-miner 0.5.2 (#327)",
+      "url": "https://github.com/taostat/gm-miner/commit/2261fc7b780b82c8f34a7eb905dc62c425672202",
+      "publisher": "taostat/gm-miner"
+    }
+  ],
+  "updated": 1792474861,
+  "updated_day": "2026-10-20"
+}

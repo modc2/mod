@@ -3,7 +3,7 @@ import mod as m
 
 class Mod:
     description = """scripts"""
-    path = r'/Users/broski/mod/mod/orbit/bloctime/scripts'
+    path = os.path.dirname(os.path.abspath(__file__))
 
     def forward(self, **kwargs):
         """Default entry point."""

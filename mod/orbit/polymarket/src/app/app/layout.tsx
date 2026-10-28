@@ -4,6 +4,7 @@ import { AuthProvider } from "./context/AuthContext";
 import { CopyEngineProvider } from "./context/CopyEngineContext";
 import { FiltersProvider } from "./context/FiltersContext";
 import { ThemeProvider, ThemeBoot } from "./context/ThemeContext";
+import AgentShell from "./components/AgentShell";
 import BuildBadge from "./components/BuildBadge";
 import LiveAutoResume from "./components/LiveAutoResume";
 import AccessGate from "./components/AccessGate";
@@ -54,14 +55,20 @@ export default function RootLayout({
                   Explicit STOP clears the record, so accidental reloads
                   auto-resume but deliberate stops stay stopped. */}
               <div className="crt-overlay" />
-              {/* The whole console insets when the account/strat sidebar is
-                  docked open (--strat-dock, set by StratSidebar) — header
-                  included, so the header cluster that owns it (top-RIGHT)
-                  never slides under it. */}
+              {/* The whole console insets on the LEFT when the agent column
+                  is docked open (--agent-dock, set by HelpAgent), so the
+                  logo that toggles it never slides underneath itself. */}
               <div
                 className="crt-screen dock-inset min-h-screen"
-                style={{ paddingRight: "var(--strat-dock, 0px)" }}
+                style={{
+                  paddingLeft: "var(--agent-dock, 0px)",
+                }}
               >
+                {/* Agent sidebar — lives OUTSIDE AccessGate so it renders
+                    on every page including the gate itself. State is owned
+                    here; NavMenu and AccessGate both dispatch
+                    TOGGLE_AGENT_EVENT to open/close it. */}
+                <AgentShell />
                 {/* Owner-only gate: the API 401s everything until the sudo
                     address signs the terms-acceptance challenge, so the
                     whole console (panels, auto-resume) waits behind

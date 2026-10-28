@@ -1,0 +1,29 @@
+{
+    "name": "airdrop",
+    "title": "Airdrop",
+    "description": "Airdrop: claim your allocation with a Poseidon Merkle proof.",
+    "version": "0.1.0",
+    "submod_of": "zkworld",
+    "kind": "cairo-contract",
+    "template": "merkle_allowlist",
+    "edition": "2024_07",
+    "anchor": "mod.py",
+    "fns": [
+        "forward",
+        "info",
+        "build",
+        "test",
+        "vibe",
+        "abi",
+        "tree",
+        "read",
+        "write",
+        "clean",
+        "app",
+        "deploy",
+        "call",
+        "events"
+    ],
+    "framework": "cairo",
+    "schema": "QmPBkc4rYZm38RSpqHrQxdJUMebPVswhAQcRL7tzDrNYvv"
+}

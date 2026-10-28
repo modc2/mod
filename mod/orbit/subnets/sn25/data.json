@@ -1,0 +1,189 @@
+{
+  "netuid": 25,
+  "name": "UR",
+  "symbol": "א",
+  "owner": "5HTeZ5168DjjGWZgbvzGfysEAj9fnexF24gYFKJHENU5cc8a",
+  "description": "The Privacy Protocol",
+  "github": "https://github.com/urfoundation/sn",
+  "url": "https://ur.xyz/",
+  "discord": "xcolwell",
+  "logo": "https://ur.xyz/onchain-identity.svg",
+  "registered_at": 2998801,
+  "tempo": 360,
+  "active": true,
+  "block": 9322663,
+  "related": [],
+  "market": {
+    "price": 0.00553065,
+    "moving_price": 0.005606968654319644,
+    "market_cap": 34423.95827043024,
+    "tao_in": 12092.560952667,
+    "alpha_in": 2186462.812308418,
+    "alpha_out": 4037752.83511643,
+    "volume": 796420.139028739,
+    "vol_24h": 909.4131421929924,
+    "emission": 0.0,
+    "change_1h": 0.0006328410131484219,
+    "change_24h": -4.408001613638357,
+    "change_7d": -14.746228734728383
+  },
+  "spark_24h": [
+    0.005785683,
+    0.005773006,
+    0.005754263,
+    0.005726367,
+    0.005726007,
+    0.005726018,
+    0.005726032,
+    0.005726728,
+    0.005726743,
+    0.005726754,
+    0.005726755,
+    0.005726769,
+    0.005534748,
+    0.005600121,
+    0.005593375,
+    0.005593387,
+    0.005593399,
+    0.005562574,
+    0.005562588,
+    0.005522303,
+    0.005522318,
+    0.005524461,
+    0.005524964,
+    0.005524978,
+    0.005524997,
+    0.005524988,
+    0.005525058,
+    0.005525066,
+    0.005525079,
+    0.005525096,
+    0.005500217,
+    0.005493006,
+    0.005493018,
+    0.005493035,
+    0.005493056,
+    0.005493068,
+    0.005493076,
+    0.005494013,
+    0.005494023,
+    0.005494035,
+    0.005494053,
+    0.005494063,
+    0.005494074,
+    0.00549408,
+    0.005521464,
+    0.005530615,
+    0.005530625,
+    0.00553065
+  ],
+  "trades_24h": {
+    "trades": 64,
+    "buys": 27,
+    "sells": 37,
+    "buy_tao": 315.056095567,
+    "sell_tao": 590.806302687,
+    "net_tao": -275.75020711999997,
+    "traders": 38
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5CkqhiXivJzuYEZKCTBXTm9oK8LH6L9EyDxJooyPFvHS2GXr",
+      "net_tao": -145.427565926,
+      "gross_tao": 145.427565926,
+      "trades": 1
+    },
+    {
+      "coldkey": "5D4S7jWGyJdsYQqbHvuMjJyunZDbmZAKbhZVScqwRj7zXJHd",
+      "net_tao": 0.0477957009999983,
+      "gross_tao": 99.952204299,
+      "trades": 2
+    },
+    {
+      "coldkey": "5F7HAs8t6FnWp4RxaNi7JJMQnowZRsbRxaNrF8WqiAPujBqM",
+      "net_tao": 0.11567171300000112,
+      "gross_tao": 99.884328287,
+      "trades": 3
+    },
+    {
+      "coldkey": "5Gb23Q7n115ypiHr6jAMRhkhADhEkRFYa5ovgipVApqMt3FV",
+      "net_tao": 0.532879837000003,
+      "gross_tao": 79.467120163,
+      "trades": 3
+    },
+    {
+      "coldkey": "5GHfXPxrFpyPDVM7tUdqa7oeVpFfdH9CWiHyDMnsjjvd4pjR",
+      "net_tao": -0.019907951000000423,
+      "gross_tao": 60.019907951,
+      "trades": 2
+    }
+  ],
+  "news": [
+    {
+      "ts": 1792453147,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge root monitor regular file regression coverage",
+      "url": "https://github.com/urfoundation/sn/commit/b94c2ff28456183fb4ec14fdede348eccb31ecbf",
+      "publisher": "urfoundation/sn"
+    },
+    {
+      "ts": 1792452962,
+      "kind": "commit",
+      "source": "github",
+      "title": "Align root monitor tests with supported regular file sinks",
+      "url": "https://github.com/urfoundation/sn/commit/6f920279a2a1d3d27640320f784e504ad7912e2f",
+      "publisher": "urfoundation/sn"
+    },
+    {
+      "ts": 1792445126,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge reviewed runtime 481 compatibility and rehearsal qualification",
+      "url": "https://github.com/urfoundation/sn/commit/a4abe646cb7d952630b21b5937d9ab2a2a65349d",
+      "publisher": "urfoundation/sn"
+    },
+    {
+      "ts": 1792445083,
+      "kind": "commit",
+      "source": "github",
+      "title": "Admit reviewed runtime 481 and qualify settlement rehearsals",
+      "url": "https://github.com/urfoundation/sn/commit/22c38068faccfef8b3676238f77110f123fab7a2",
+      "publisher": "urfoundation/sn"
+    },
+    {
+      "ts": 1792442484,
+      "kind": "commit",
+      "source": "github",
+      "title": "competition: document immutable runtime blob capability",
+      "url": "https://github.com/urfoundation/sn/commit/c1ab8c19d75bbf556711415df3d45d3d788c54b4",
+      "publisher": "urfoundation/sn"
+    },
+    {
+      "ts": 1792418335,
+      "kind": "release",
+      "source": "github",
+      "title": "v2026.10.19-1076177550",
+      "url": "https://github.com/urfoundation/sn/releases/tag/v2026.10.19-1076177550",
+      "publisher": "urfoundation/sn"
+    },
+    {
+      "ts": 1792400851,
+      "kind": "release",
+      "source": "github",
+      "title": "v2026.10.19-1076002880",
+      "url": "https://github.com/urfoundation/sn/releases/tag/v2026.10.19-1076002880",
+      "publisher": "urfoundation/sn"
+    },
+    {
+      "ts": 1792393401,
+      "kind": "release",
+      "source": "github",
+      "title": "v2026.10.18-1075928470",
+      "url": "https://github.com/urfoundation/sn/releases/tag/v2026.10.18-1075928470",
+      "publisher": "urfoundation/sn"
+    }
+  ],
+  "updated": 1792474861,
+  "updated_day": "2026-10-20"
+}

@@ -7,7 +7,7 @@ type BridgeErr = { ok: false; error: string; trace?: string }
 type BridgeResult<T> = BridgeOk<T> | BridgeErr
 
 async function call<T = unknown>(method: string, args: Record<string, unknown> = {}): Promise<BridgeResult<T>> {
-  const res = await fetch('/api/localfs', {
+  const res = await fetch('/_api/localfs', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ method, args }),
@@ -160,7 +160,7 @@ function StoreTab({
     const fd = new FormData()
     fd.append('file', f)
     fd.append('pin', String(pin))
-    const res = await fetch('/api/upload', { method: 'POST', body: fd })
+    const res = await fetch('/_api/upload', { method: 'POST', body: fd })
     const json = (await res.json()) as BridgeResult<{ cid: string; name: string; size: number }>
     setBusy(false)
     if (json.ok) {

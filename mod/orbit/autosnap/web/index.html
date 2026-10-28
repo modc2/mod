@@ -1,0 +1,618 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AUTOSNAP</title>
+<link rel="stylesheet" href="kit.css" />
+<style>
+@keyframes snapFlash {
+  0%   { border-color: var(--accent); background-color: color-mix(in srgb, var(--accent) 18%, var(--panel2)); }
+  100% { border-color: var(--line);   background-color: var(--panel2); }
+}
+.row.flash { animation: snapFlash 1.8s ease-out; }
+@keyframes tileFlash {
+  from { filter: brightness(1.8) saturate(1.4); }
+  to   { filter: none; }
+}
+.fb-tile.fb-flash { animation: tileFlash 1.8s ease-out; }
+.fb-tile { width: 12px; height: 12px; border-radius: 2px; cursor: pointer; flex-shrink: 0; transition: opacity .15s; }
+.fb-tile:hover { opacity: .75; }
+.fb-dot { display: inline-block; width: 9px; height: 9px; border-radius: 1px; }
+.cp-kbd { font: 10.5px/1 var(--mono); color: var(--faint); border: 1px solid var(--line2); border-radius: 4px; padding: 1px 5px; margin-left: 8px; }
+.cp-list { max-height: 340px; overflow-y: auto; margin-top: 10px; }
+.cp-item { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 6px; cursor: pointer; }
+.cp-item.sel, .cp-item:hover { background: var(--panel2); }
+.cp-item .cp-name { flex: 1; font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div id="hdr"></div>
+  <div class="grid">
+    <div class="card wide">
+      <h2>Loop <span class="sp"></span><span id="tick" class="faint"></span><kbd class="cp-kbd">/ to search</kbd><button id="notifBtn" class="btn sm" style="padding:4px 8px;font-size:11px;margin-left:8px" title="Desktop notifications for new failures">notify ?</button></h2>
+      <div id="stats" class="stats"></div>
+      <div class="meter" style="margin-top:8px"><i id="tickBar"></i></div>
+      <div id="spark" style="margin-top:12px"></div>
+      <div id="hotMods" style="margin-top:8px"></div>
+      <div id="fleetBoard" style="margin-top:12px"></div>
+      <div class="faint" style="margin-top:10px;font-size:12.5px">The switch is the <span class="mono">BUILD_AUTOSNAP</span> env on build's API on purpose — a loop that mints provenance shouldn't flip off from a tab.</div>
+    </div>
+    <div class="card">
+      <h2>Snapshot now</h2>
+      <div class="form">
+        <label class="f">module<input id="s_mod" list="mod-list" /></label>
+        <datalist id="mod-list"></datalist>
+        <label class="f full">message<input id="s_msg" placeholder="manual snapshot" /></label>
+      </div>
+      <div class="inline" style="justify-content:flex-end;margin-top:10px"><button id="snapBtn" class="primary">snapshot</button></div>
+      <div id="snapOut" style="margin-top:10px"></div>
+    </div>
+    <div id="focus" class="card wide" style="display:none">
+      <h2 id="focusName"></h2>
+      <div id="focusHistory" class="rows" style="margin-top:8px"></div>
+      <div class="inline" style="justify-content:flex-end;margin-top:10px;gap:8px">
+        <button id="focusSnap" class="primary" style="font-size:12px">snapshot now</button>
+        <button id="focusClose" class="btn sm" style="padding:6px 9px;font-size:13px">&times;</button>
+      </div>
+    </div>
+    <div class="card wide">
+      <h2>Queue <span class="sp"></span><span class="faint" id="queueN"></span><button id="drainBtn" class="btn sm" style="padding:6px 9px;font-size:10px;margin-left:10px" disabled>drain all</button></h2>
+      <div id="queue" class="rows"></div>
+      <div id="drainOut" class="faint" style="font-size:12px;margin-top:6px"></div>
+    </div>
+    <div class="card">
+      <h2>Stale <span class="sp"></span><span class="faint" id="staleN"></span><button id="snapStaleBtn" class="btn sm" style="padding:6px 9px;font-size:10px;margin-left:10px" disabled>snap all stale</button></h2>
+      <div id="stale" class="rows"></div>
+      <div id="snapStaleOut" class="faint" style="font-size:12px;margin-top:6px"></div>
+    </div>
+    <div class="card">
+      <h2>Failures <span class="sp"></span><span class="faint" id="failN"></span></h2>
+      <div id="fails" class="rows"></div>
+    </div>
+    <div class="card">
+      <h2>Held <span class="sp"></span><span class="faint" id="heldN"></span></h2>
+      <div id="held" class="rows"></div>
+    </div>
+    <div class="card wide">
+      <h2>Recent <span class="sp"></span><input id="filter" placeholder="filter…" style="max-width:200px;padding:6px 10px" /></h2>
+      <div id="recent" class="rows"></div>
+    </div>
+  </div>
+</div>
+<div id="cpVeil" class="veil" style="display:none" role="dialog" aria-modal="true">
+  <div class="dlg" style="width:min(520px,92vw)">
+    <input id="cpInput" placeholder="search modules…" style="width:100%;box-sizing:border-box" autocomplete="off" />
+    <div id="cpList" class="cp-list"></div>
+  </div>
+</div>
+<script src="kit.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+let S = null, tickTimer = null, seenCids = new Set(), firstLoad = true, focusedMod = null;
+const localHistory = [];
+const localHistoryCids = new Set();
+let boardView = localStorage.getItem('autosnap_board_view') || 'grid';
+const cidShort = (c) => (c ? (c.length > 16 ? c.slice(0, 10) + "…" + c.slice(-4) : c) : "");
+
+function row(r, isNew) {
+  return `<div class="row click${isNew ? " flash" : ""}" data-m="${K.esc(r.module)}"><span class="pill ${r.error ? "bad" : "on"}">${r.error ? "fail" : "snap"}</span>
+    <div class="grow"><div class="t">${K.esc(r.module)}</div><div class="s ${r.error ? "" : "mono"}">${r.error ? K.esc(r.error) : K.esc(cidShort(r.cid))} · ${K.ago(r.ts)}</div></div></div>`;
+}
+function sparkline(recent) {
+  const now = Math.floor(Date.now() / 1000);
+  const BARS = 60; // one bar per minute for the last 60 min
+  const slots = Array.from({ length: BARS }, () => ({ count: 0, errors: 0 }));
+  for (const r of recent || []) {
+    const ageMin = (now - r.ts) / 60;
+    if (ageMin < 0 || ageMin >= BARS) continue;
+    const idx = BARS - 1 - Math.floor(ageMin);
+    if (idx >= 0 && idx < BARS) { slots[idx].count++; if (r.error) slots[idx].errors++; }
+  }
+  const maxC = Math.max(1, ...slots.map(s => s.count));
+  const W = 360, H = 36, bw = Math.floor(W / BARS), gap = 1;
+  let rects = '';
+  slots.forEach((s, i) => {
+    const slotTs = now - (BARS - 1 - i) * 60;
+    const d = new Date(slotTs * 1000);
+    const hhmm = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+    const tip = `${s.count} snap${s.count !== 1 ? 's' : ''} (${s.errors} error${s.errors !== 1 ? 's' : ''}) at ${hhmm}`;
+    const h = s.count === 0 ? 2 : Math.max(3, Math.round(s.count / maxC * H));
+    const x = i * bw, y = H - h;
+    rects += `<rect x="${x}" y="${y}" width="${bw - gap}" height="${h}" fill="var(--accent)"><title>${tip}</title></rect>`;
+    if (s.errors > 0) {
+      const he = Math.max(2, Math.round(s.errors / maxC * H));
+      rects += `<rect x="${x}" y="${H - he}" width="${bw - gap}" height="${he}" fill="var(--red)"></rect>`;
+    }
+  });
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="display:block">${rects}</svg>`
+       + `<div class="faint" style="font-size:11px;margin-top:3px">last 60 min</div>`;
+}
+function fleetBoard(S) {
+  const f = $("filter")?.value.trim().toLowerCase() || "";
+  const staleSet = new Set((S.stale_queue || []).map(e => e.name || e));
+  const pendingSet = new Set(S.pending_queue || []);
+  const heldSet = new Set(Object.keys(S.held || {}));
+  const COLORS = { ok: '#4caf7d', stale: '#c9a84c', pending: '#777', held: '#e05252' };
+  const LABELS = { ok: 'snapped and current', stale: 'files changed since last snap', pending: 'never snapped yet', held: 'in backoff' };
+  // Activity pass: count snaps per module in the last 60 minutes.
+  const now = Math.floor(Date.now() / 1000);
+  const actCounts = {};
+  for (const r of localHistory) {
+    if (r.error) continue;
+    if ((now - r.ts) / 60 >= 60) continue;
+    actCounts[r.module] = (actCounts[r.module] || 0) + 1;
+  }
+  const maxActs = Math.max(1, ...Object.values(actCounts));
+  const newMods = new Set();
+  if (!firstLoad) {
+    for (const r of (S.recent || [])) {
+      if (r.cid && !seenCids.has(r.cid) && !r.error) newMods.add(r.module);
+    }
+  }
+  // Use all_modules if the backend provides it; otherwise derive from available state fields.
+  let mods;
+  if (Array.isArray(S.all_modules) && S.all_modules.length) {
+    mods = S.all_modules;
+  } else {
+    const map = new Map();
+    for (const n of pendingSet) map.set(n, 'pending');
+    for (const n of staleSet) if (!map.has(n)) map.set(n, 'stale');
+    for (const n of heldSet) map.set(n, 'held');
+    for (const r of (S.recent || [])) {
+      if (!map.has(r.module)) map.set(r.module, r.error ? 'stale' : 'ok');
+    }
+    mods = [...map.entries()].map(([name, state]) => ({ name, state }));
+  }
+  if (!mods.length) return '';
+  const isGrid = boardView !== 'list';
+  const matching = f ? mods.filter(({ name }) => name.toLowerCase().includes(f)).length : mods.length;
+  const countLabel = f ? `${matching} of ${mods.length} modules` : `${mods.length} modules`;
+  const toggleHtml = `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">` +
+    `<span class="faint" style="font-size:11.5px">${countLabel}</span>` +
+    `<div style="display:inline-flex;border:1px solid var(--line2);border-radius:5px;overflow:hidden">` +
+    `<button class="fb-toggle" data-view="grid" style="background:${isGrid?'var(--panel2)':'transparent'};border:none;padding:2px 8px;font-size:11px;cursor:pointer;color:${isGrid?'var(--text)':'var(--faint)'};font-family:inherit">GRID</button>` +
+    `<button class="fb-toggle" data-view="list" style="background:${!isGrid?'var(--panel2)':'transparent'};border:none;padding:2px 8px;font-size:11px;cursor:pointer;color:${!isGrid?'var(--text)':'var(--faint)'};font-family:inherit">LIST</button>` +
+    `</div></div>`;
+  if (!isGrid) {
+    const rows = mods.map(({ name, state }) => {
+      // Re-derive from live queues so rows stay accurate on each render.
+      const s = heldSet.has(name) ? 'held' : staleSet.has(name) ? 'stale' : pendingSet.has(name) ? 'pending' : (state || 'ok');
+      const c = COLORS[s] || COLORS.ok;
+      const acts = actCounts[name] || 0;
+      const pillClass = s === 'held' ? 'bad' : s === 'stale' ? 'warn' : s === 'pending' ? '' : 'on';
+      const hidden = f && !name.toLowerCase().includes(f) ? 'display:none;' : '';
+      const rowFlash = newMods.has(name) ? ' flash' : '';
+      return `<div class="row${rowFlash}" data-m="${K.esc(name)}" style="${hidden}cursor:pointer;padding:4px 8px;gap:8px">` +
+        `<i style="display:inline-block;width:8px;height:8px;border-radius:1px;flex-shrink:0;background:${c}"></i>` +
+        `<div class="grow" style="font-size:13px">${K.esc(name)}</div>` +
+        `<span class="pill ${pillClass}">${s}</span>` +
+        (acts ? `<span class="faint" style="font-size:11px;white-space:nowrap">${acts} snap${acts!==1?'s':''}/hr</span>` : '') +
+        `</div>`;
+    }).join('');
+    return toggleHtml + `<div class="rows">${rows}</div>`;
+  }
+  const tiles = mods.map(({ name, state }) => {
+    // Re-derive from live queues so tiles stay accurate on each render.
+    const s = heldSet.has(name) ? 'held' : staleSet.has(name) ? 'stale' : pendingSet.has(name) ? 'pending' : (state || 'ok');
+    const c = COLORS[s] || COLORS.ok;
+    const acts = actCounts[name] || 0;
+    const sz = 10 + Math.round(acts / maxActs * 14);
+    const tip = `${K.esc(name)} — ${LABELS[s] || s}${acts ? ` · ${acts} snap${acts !== 1 ? 's' : ''} this hour` : ''}`;
+    const dimmed = f && !name.toLowerCase().includes(f);
+    const tileFlashCls = newMods.has(name) ? ' fb-flash' : '';
+    return `<div class="fb-tile${tileFlashCls}" style="background:${c};width:${sz}px;height:${sz}px;opacity:${dimmed ? '0.15' : '1'}" title="${tip}" data-m="${K.esc(name)}"></div>`;
+  }).join('');
+  const legend = Object.entries(COLORS).map(([s, c]) =>
+    `<span style="display:inline-flex;align-items:center;gap:4px"><i class="fb-dot" style="background:${c}"></i>${s}</span>`
+  ).join('');
+  return toggleHtml + `<div style="display:flex;flex-wrap:wrap;gap:3px;align-items:center">${tiles}</div>` +
+         `<div class="faint" style="font-size:11px;margin-top:5px;display:flex;gap:10px;flex-wrap:wrap">${legend} · tile size = snaps/hr</div>`;
+}
+function hotModules(recent) {
+  const now = Math.floor(Date.now() / 1000);
+  const counts = {};
+  for (const r of recent || []) {
+    if (r.error) continue;
+    const ageMin = (now - r.ts) / 60;
+    if (ageMin < 0 || ageMin >= 60) continue;
+    counts[r.module] = (counts[r.module] || 0) + 1;
+  }
+  const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  if (sorted.length < 2) return '';
+  return sorted.map(([mod, n], i) =>
+    `<div class="row click" data-m="${K.esc(mod)}" style="padding:4px 8px;gap:8px">` +
+    `<span class="pill on" style="min-width:28px;text-align:center;font-size:11px">#${i + 1}</span>` +
+    `<div class="grow" style="font-size:13px">${K.esc(mod)}</div>` +
+    `<span class="faint" style="font-size:12px">${n}</span>` +
+    `</div>`
+  ).join('');
+}
+function heatmap(entries) {
+  const DAYS = 84;
+  const now = Math.floor(Date.now() / 1000);
+  const slots = new Array(DAYS).fill(0);
+  for (const e of entries) {
+    if (e.error) continue;
+    const daysAgo = Math.floor((now - (e.ts || 0)) / 86400);
+    const idx = DAYS - 1 - daysAgo;
+    if (idx >= 0 && idx < DAYS) slots[idx]++;
+  }
+  const total = slots.reduce((a, b) => a + b, 0);
+  if (total === 0) return '';
+  const maxCount = Math.max(1, ...slots);
+  const CELL = 11, GAP = 2, COLS = 12, ROWS = 7;
+  const W = COLS * (CELL + GAP) - GAP, H = ROWS * (CELL + GAP) - GAP;
+  let rects = '';
+  for (let i = 0; i < DAYS; i++) {
+    const col = Math.floor(i / ROWS), row = i % ROWS;
+    const count = slots[i];
+    const opacity = count === 0 ? 0.06 : (0.06 + (count / maxCount) * 0.84);
+    const daysAgo = DAYS - 1 - i;
+    const d = new Date((now - daysAgo * 86400) * 1000);
+    const dateStr = d.toISOString().slice(0, 10);
+    const tip = `${count} snap${count !== 1 ? 's' : ''} on ${dateStr}`;
+    rects += `<rect x="${col * (CELL + GAP)}" y="${row * (CELL + GAP)}" width="${CELL}" height="${CELL}" rx="2" fill="var(--green)" fill-opacity="${opacity.toFixed(2)}"><title>${K.esc(tip)}</title></rect>`;
+  }
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="display:block;margin-bottom:6px">${rects}</svg>` +
+    `<div class="faint" style="font-size:11.5px;margin-bottom:8px">${total} snap${total !== 1 ? 's' : ''} in the last 12 weeks.</div>`;
+}
+function render() {
+  K.setState(K.pill(S.enabled, "on", "off"));
+  if (tickTimer) clearInterval(tickTimer);
+  function updateTick() {
+    const elapsed = Math.floor(Date.now() / 1000) - S.last_tick;
+    $("tickBar").style.width = Math.min(100, elapsed / S.tick_secs * 100) + '%';
+    let text = `every ${K.dur(S.tick_secs)} · ${S.per_tick}/tick · next in ${Math.max(0, S.tick_secs - elapsed)}s`;
+    if (S.pending > 0) text += ` · ~${K.dur(Math.ceil(S.pending / S.per_tick) * S.tick_secs)} to drain`;
+    $("tick").textContent = text;
+  }
+  updateTick();
+  tickTimer = setInterval(updateTick, 1000);
+  const heldCount = Object.keys(S.held || {}).length;
+  $("stats").innerHTML = [["snapped", S.snapped], ["pending", S.pending], ["failed", S.failed], ["held", heldCount], ["stale", (S.stale_queue || []).length], ["per tick", S.per_tick], ["coverage", S.total_modules ? `${S.registered}/${S.total_modules}` : "—"]]
+    .map(([k, v]) => `<div class="stat"><b>${v ?? "—"}</b><span>${k}</span></div>`).join("");
+  $("spark").innerHTML = sparkline(localHistory);
+  $("hotMods").innerHTML = hotModules(localHistory);
+  $("fleetBoard").innerHTML = fleetBoard(S);
+  const f = $("filter").value.trim().toLowerCase();
+  const rec = [...(S.recent || [])].reverse();
+  const newFailures = [];
+  for (const r of rec) {
+    if (!firstLoad && r.cid && !seenCids.has(r.cid) && r.error) newFailures.push(r);
+  }
+  $("recent").innerHTML = rec.filter((r) => !f || r.module.toLowerCase().includes(f)).map((r) => {
+    const isNew = !firstLoad && r.cid && !seenCids.has(r.cid);
+    return row(r, isNew);
+  }).join("") || `<div class="empty">nothing yet</div>`;
+  if (firstLoad) { firstLoad = false; const initMod = new URLSearchParams(location.search).get('mod'); if (initMod) showFocus(initMod); }
+  if (!firstLoad && focusedMod && rec.some(r => r.module === focusedMod && r.cid && !seenCids.has(r.cid))) showFocus(focusedMod);
+  for (const r of rec) { if (r.cid) seenCids.add(r.cid); }
+  if (newFailures.length && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+    for (const r of newFailures) {
+      const n = new Notification('autosnap: ' + r.module + ' failed', { body: r.error, icon: '/autosnap/favicon.ico' });
+      n.onclick = () => window.focus();
+    }
+  }
+  const failSrc = S.recent_failures ? [...S.recent_failures].reverse() : rec;
+  const fails = failSrc.filter((r) => r.error && (!f || r.module.toLowerCase().includes(f)));
+  $("failN").textContent = fails.length;
+  $("fails").innerHTML = fails.map(row).join("") || `<div class="empty">no failures in the recent window</div>`;
+  const queueList = S.pending_queue || [];
+  const filteredQueue = f ? queueList.filter(m => m.toLowerCase().includes(f)) : queueList;
+  $("queueN").textContent = filteredQueue.length;
+  $("drainBtn").disabled = queueList.length === 0;
+  $("snapStaleBtn").disabled = (S.stale_queue || []).length === 0;
+  $("queue").innerHTML = filteredQueue.map((m, i) => {
+    const pill = i < S.per_tick
+      ? `<span class="pill acc">soon</span>`
+      : `<span class="pill">~${K.dur(Math.ceil((i + 1) / S.per_tick) * S.tick_secs)}</span>`;
+    return `<div class="row" style="cursor:pointer" data-qm="${K.esc(m)}">${pill}
+    <div class="grow"><div class="t">${K.esc(m)}</div></div>
+    <button class="btn sm snap-btn" data-m="${K.esc(m)}" style="padding:6px 9px;font-size:10px">snap</button></div>`;
+  }).join("") || `<div class="empty">queue empty — all modules registered</div>`;
+  const staleList = S.stale_queue || [];
+  const filteredStale = f ? staleList.filter(e => (e.name || e).toLowerCase().includes(f)) : staleList;
+  $("staleN").textContent = filteredStale.length;
+  const sortedStale = [...filteredStale].sort((a, b) => ((a.last_snap || 0) - (b.last_snap || 0)));
+  const nowSec = Math.floor(Date.now() / 1000);
+  $("stale").innerHTML = sortedStale.map((entry) => {
+    const m = entry.name || entry;
+    const lastSnap = entry.last_snap || 0;
+    const ageH = lastSnap ? (nowSec - lastSnap) / 3600 : Infinity;
+    const pillClass = ageH > 24 ? "bad" : ageH > 2 ? "warn" : "";
+    const ageBadge = lastSnap ? `<span class="faint" style="font-size:11px;white-space:nowrap">${K.ago(lastSnap)}</span>` : "";
+    const sub = entry.changed_file
+      ? `${K.esc(entry.changed_file)} · changed ${K.ago(entry.mtime)}`
+      : entry.mtime ? `changed ${K.ago(entry.mtime)}` : "";
+    return `<div class="row" style="cursor:pointer" data-qm="${K.esc(m)}"><span class="pill ${pillClass}">stale</span>
+    <div class="grow"><div class="t">${K.esc(m)}</div>${sub ? `<div class="s faint">${sub}</div>` : ""}</div>
+    ${ageBadge}<button class="btn sm snap-btn" data-m="${K.esc(m)}" style="padding:6px 9px;font-size:10px">snap</button></div>`;
+  }).join("") || `<div class="empty">all snapped — no files changed since last version</div>`;
+  const heldEntries = Object.entries(S.held || {});
+  const filteredHeld = f ? heldEntries.filter(([name]) => name.toLowerCase().includes(f)) : heldEntries;
+  $("heldN").textContent = filteredHeld.length;
+  $("held").innerHTML = filteredHeld.map(([name, h]) =>
+    `<div class="row"><span class="pill warn">${h.fails}x</span>
+    <div class="grow"><div class="t">${K.esc(name)}</div><div class="s">retry ${K.ago(h.retry_at)}</div></div>
+    <button class="btn sm retry-btn" data-m="${K.esc(name)}" style="padding:6px 9px;font-size:10px">retry now</button></div>`
+  ).join("") || `<div class="empty">no modules in backoff</div>`;
+  const modNames = new Set([
+    ...(S.pending_queue || []),
+    ...(S.stale_queue || []).map(e => e.name || e),
+    ...Object.keys(S.held || {}),
+    ...(S.recent || []).map(r => r.module)
+  ]);
+  const dl = $("mod-list");
+  if (dl) dl.innerHTML = [...modNames].map(n => `<option value="${K.esc(n)}"></option>`).join('');
+}
+async function load() {
+  const r = await K.api("/autosnap/status");
+  if (r.ok) {
+    S = r.data;
+    const nowSec = Math.floor(Date.now() / 1000);
+    for (const e of (S.recent || [])) {
+      const key = e.cid || (e.module + ':' + e.ts);
+      if (!localHistoryCids.has(key)) {
+        localHistoryCids.add(key);
+        localHistory.push(e);
+      }
+    }
+    for (let i = localHistory.length - 1; i >= 0; i--) {
+      if ((nowSec - localHistory[i].ts) / 60 >= 60) {
+        const key = localHistory[i].cid || (localHistory[i].module + ':' + localHistory[i].ts);
+        localHistoryCids.delete(key);
+        localHistory.splice(i, 1);
+      }
+    }
+    render();
+  }
+}
+
+async function showFocus(mod) {
+  if (!S) return;
+  focusedMod = mod;
+  history.replaceState(null, '', location.pathname + '?mod=' + encodeURIComponent(mod));
+  const isHeld = !!(S.held || {})[mod];
+  const isStale = (S.stale_queue || []).some(e => (e.name || e) === mod);
+  const isPending = (S.pending_queue || []).includes(mod);
+  const state = isHeld ? "held" : isStale ? "stale" : isPending ? "pending" : "ok";
+  const stateClass = (isHeld || isStale) ? "warn" : "on";
+  $("focusName").innerHTML = `${K.esc(mod)} <span class="pill ${stateClass}">${state}</span>`;
+  $("focusHistory").innerHTML = `<div class="faint" style="font-size:12px;padding:6px 0">loading history…</div>`;
+  $("focusSnap").dataset.m = mod;
+  $("focusSnap").disabled = !K.token;
+  $("focus").style.display = "";
+  const res = await K.api('/modules/' + encodeURIComponent(mod) + '/versions');
+  const apiEntries = (res.ok ? (res.data || []) : []).map(r => ({
+    cid: r.cid, ts: r.timestamp, message: r.message || "", author: r.author || "", error: null, fromApi: true
+  }));
+  const apiCids = new Set(apiEntries.map(r => r.cid).filter(Boolean));
+  const ringEntries = [...(S.recent || [])].reverse()
+    .filter(r => r.module === mod && r.cid && !apiCids.has(r.cid))
+    .map(r => ({ cid: r.cid, ts: r.ts, message: "", author: "", error: r.error || null, fromApi: false }));
+  const merged = [...ringEntries, ...apiEntries].sort((a, b) => (b.ts || 0) - (a.ts || 0));
+  if (!merged.length) {
+    $("focusHistory").innerHTML = `<div class="empty">never snapped yet — use the button below for a first snapshot</div>`;
+    return;
+  }
+  $("focusHistory").innerHTML = heatmap(merged) + merged.map(r => {
+    const authorPill = r.fromApi && r.author
+      ? `<span class="pill ${r.author === "autosnap" ? "on" : ""}" style="font-size:10px">${K.esc(r.author)}</span>`
+      : "";
+    const sub = r.error ? K.esc(r.error) : (r.message ? K.esc(r.message) : "");
+    return `<div class="row"><span class="pill ${r.error ? "bad" : "on"}">${r.error ? "fail" : "snap"}</span>
+      <div class="grow"><div class="s mono">${K.esc(cidShort(r.cid))}</div><div class="s faint">${K.ago(r.ts)}${sub ? " · " + sub : ""}</div></div>
+      ${authorPill}</div>`;
+  }).join("");
+}
+
+document.body.addEventListener("click", (e) => {
+  const tog = e.target.closest(".fb-toggle[data-view]");
+  if (tog) {
+    boardView = tog.dataset.view;
+    localStorage.setItem('autosnap_board_view', boardView);
+    if (S) $("fleetBoard").innerHTML = fleetBoard(S);
+    return;
+  }
+  const tile = e.target.closest(".fb-tile[data-m]");
+  if (!tile) return;
+  const m = tile.dataset.m;
+  $("s_mod").value = m;
+  showFocus(m);
+});
+$("filter").oninput = () => S && render();
+$("s_mod").oninput = () => { $("filter").value = $("s_mod").value.trim(); S && render(); };
+document.body.addEventListener("click", (e) => {
+  const rowEl = e.target.closest(".row[data-m]");
+  const m = rowEl?.dataset.m;
+  if (m && !e.target.closest(".retry-btn")) { $("s_mod").value = m; showFocus(m); }
+});
+document.body.addEventListener("click", async (e) => {
+  const btn = e.target.closest(".retry-btn");
+  if (!btn) return;
+  const m = btn.dataset.m;
+  $("s_mod").value = m;
+  btn.disabled = true;
+  const d = await K.act(`/modules/${encodeURIComponent(m)}/snapshot`, { message: "manual retry (autosnap app)" }, "snapshot taken");
+  btn.disabled = false;
+  if (d) load();
+});
+document.body.addEventListener("click", (e) => {
+  const row = e.target.closest("[data-qm]");
+  if (row && !e.target.closest(".snap-btn")) { $("s_mod").value = row.dataset.qm; showFocus(row.dataset.qm); }
+});
+document.body.addEventListener("click", async (e) => {
+  const btn = e.target.closest(".snap-btn");
+  if (!btn) return;
+  const m = btn.dataset.m;
+  $("s_mod").value = m;
+  btn.disabled = true;
+  const d = await K.act(`/modules/${encodeURIComponent(m)}/snapshot`, { message: "snapshot taken" }, "snapshot taken");
+  btn.disabled = false;
+  if (d) load();
+});
+$("drainBtn").onclick = async () => {
+  const q = S?.pending_queue || [];
+  if (!q.length) return;
+  const ok = await K.ask(`Snapshot all ${q.length} pending modules now?`, "drain all");
+  if (!ok) return;
+  $("drainBtn").disabled = true;
+  const total = q.length;
+  let done = 0;
+  $("drainOut").textContent = `draining 0 / ${total}…`;
+  for (const m of q) {
+    await K.act(`/modules/${encodeURIComponent(m)}/snapshot`, { message: "force drain (autosnap app)" }, null);
+    done++;
+    $("drainOut").textContent = `draining ${done} / ${total}…`;
+  }
+  $("drainOut").textContent = "";
+  K.toast(`drained ${done} modules`);
+  load();
+};
+$("snapStaleBtn").onclick = async () => {
+  const q = S?.stale_queue || [];
+  if (!q.length) return;
+  const ok = await K.ask(`Snapshot all ${q.length} stale modules now?`, "snap all stale");
+  if (!ok) return;
+  $("snapStaleBtn").disabled = true;
+  const total = q.length;
+  let done = 0;
+  $("snapStaleOut").textContent = `snapping 0 / ${total}…`;
+  for (const entry of q) {
+    const m = entry.name || entry;
+    await K.act(`/modules/${encodeURIComponent(m)}/snapshot`, { message: "snap all stale (autosnap app)" }, null);
+    done++;
+    $("snapStaleOut").textContent = `snapping ${done} / ${total}…`;
+  }
+  $("snapStaleOut").textContent = "";
+  K.toast(`snapped ${done} stale modules`);
+  load();
+};
+$("snapBtn").onclick = async () => {
+  const m = $("s_mod").value.trim(); if (!m) return K.toast("pick a module", true);
+  $("snapBtn").disabled = true; $("snapOut").innerHTML = `<span class="faint">snapshotting ${K.esc(m)}…</span>`;
+  const d = await K.act(`/modules/${encodeURIComponent(m)}/snapshot`, { message: $("s_msg").value.trim() || "manual snapshot (autosnap app)" }, "snapshot taken");
+  $("snapBtn").disabled = !K.token;
+  $("snapOut").innerHTML = d ? `<div class="row"><span class="pill on">ok</span><div class="grow"><div class="s mono">${K.esc(d.cid || d.version?.cid || JSON.stringify(d).slice(0, 160))}</div></div><a class="btn sm" style="padding:6px 9px;font-size:10px" href="${K.BUILD_APP}?mod=${encodeURIComponent(m)}">versions</a></div>` : "";
+  load();
+};
+
+$("focusClose").onclick = () => { $("focus").style.display = "none"; focusedMod = null; history.replaceState(null, '', location.pathname); };
+$("focusSnap").onclick = async () => {
+  const m = $("focusSnap").dataset.m; if (!m) return;
+  $("s_mod").value = m;
+  $("focusSnap").disabled = true;
+  const d = await K.act(`/modules/${encodeURIComponent(m)}/snapshot`, { message: "manual snapshot (autosnap app)" }, "snapshot taken");
+  $("focusSnap").disabled = !K.token;
+  if (d) { load(); showFocus(m); }
+};
+
+// Desktop notifications
+function updateNotifBtn() {
+  const btn = $('notifBtn');
+  if (!btn || typeof Notification === 'undefined') return;
+  const p = Notification.permission;
+  btn.textContent = p === 'granted' ? 'notify: on' : p === 'denied' ? 'notify: off' : 'notify: ?';
+}
+function initNotif() {
+  if (typeof Notification === 'undefined') { const b = $('notifBtn'); if (b) b.style.display = 'none'; return; }
+  updateNotifBtn();
+}
+$('notifBtn').onclick = async () => {
+  if (typeof Notification === 'undefined') return;
+  if (Notification.permission === 'denied') { K.toast('Notifications blocked — allow them in your browser site settings'); return; }
+  const r = await Notification.requestPermission();
+  localStorage.setItem('autosnap_notif', r);
+  updateNotifBtn();
+  if (r === 'granted') K.toast('Desktop notifications enabled for new failures');
+};
+
+// Command palette
+let cpSelIdx = 0, cpItems = [];
+function cpModList(query) {
+  if (!S) return [];
+  const staleSet = new Set((S.stale_queue || []).map(e => e.name || e));
+  const pendingSet = new Set(S.pending_queue || []);
+  const heldSet = new Set(Object.keys(S.held || {}));
+  let mods;
+  if (Array.isArray(S.all_modules) && S.all_modules.length) {
+    mods = S.all_modules;
+  } else {
+    const map = new Map();
+    for (const n of pendingSet) map.set(n, 'pending');
+    for (const n of staleSet) if (!map.has(n)) map.set(n, 'stale');
+    for (const n of heldSet) map.set(n, 'held');
+    for (const r of (S.recent || [])) { if (!map.has(r.module)) map.set(r.module, r.error ? 'stale' : 'ok'); }
+    mods = [...map.entries()].map(([name, state]) => ({ name, state }));
+  }
+  const q = query.toLowerCase();
+  return mods
+    .map(({ name, state }) => {
+      const s = heldSet.has(name) ? 'held' : staleSet.has(name) ? 'stale' : pendingSet.has(name) ? 'pending' : (state || 'ok');
+      return { name, state: s };
+    })
+    .filter(({ name }) => !q || name.toLowerCase().includes(q))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+function cpPillClass(state) {
+  return state === 'held' ? 'bad' : state === 'stale' ? 'warn' : state === 'pending' ? '' : 'on';
+}
+function cpRender(query) {
+  cpItems = cpModList(query);
+  cpSelIdx = 0;
+  const el = $("cpList");
+  if (!cpItems.length) { el.innerHTML = `<div class="empty">no modules match</div>`; return; }
+  el.innerHTML = cpItems.map((m, i) =>
+    `<div class="cp-item${i === 0 ? " sel" : ""}" data-ci="${i}">` +
+    `<span class="pill ${cpPillClass(m.state)}">${K.esc(m.state)}</span>` +
+    `<span class="cp-name">${K.esc(m.name)}</span></div>`
+  ).join('');
+}
+function cpSetSel(idx) {
+  const items = $("cpList").querySelectorAll(".cp-item");
+  items.forEach((el, i) => el.classList.toggle("sel", i === idx));
+  cpSelIdx = idx;
+  const sel = items[idx];
+  if (sel) sel.scrollIntoView({ block: "nearest" });
+}
+function cpOpen() {
+  $("cpVeil").style.display = "";
+  const inp = $("cpInput");
+  inp.value = "";
+  cpRender("");
+  inp.focus();
+}
+function cpClose() { $("cpVeil").style.display = "none"; }
+function cpSelect(idx) {
+  const m = cpItems[idx];
+  if (!m) return;
+  cpClose();
+  $("s_mod").value = m.name;
+  $("filter").value = m.name;
+  S && render();
+  showFocus(m.name);
+}
+document.addEventListener("keydown", (e) => {
+  if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
+  if (e.key === "/" || (e.key === "k" && e.ctrlKey)) { e.preventDefault(); cpOpen(); }
+});
+$("cpInput").addEventListener("keydown", (e) => {
+  if (e.key === "Escape") { e.preventDefault(); cpClose(); }
+  else if (e.key === "ArrowDown") { e.preventDefault(); cpSetSel(Math.min(cpSelIdx + 1, cpItems.length - 1)); }
+  else if (e.key === "ArrowUp") { e.preventDefault(); cpSetSel(Math.max(cpSelIdx - 1, 0)); }
+  else if (e.key === "Enter") { e.preventDefault(); cpSelect(cpSelIdx); }
+});
+$("cpInput").addEventListener("input", () => cpRender($("cpInput").value.trim()));
+$("cpList").addEventListener("click", (e) => {
+  const item = e.target.closest(".cp-item[data-ci]");
+  if (item) cpSelect(parseInt(item.dataset.ci, 10));
+});
+$("cpVeil").addEventListener("click", (e) => { if (e.target === $("cpVeil")) cpClose(); });
+
+K.init({ glyph: "⌬", title: "Autosnap", accent: "#dfeee6", sub: "Snapshots every module that changed into the versions ledger, a few per tick, so nothing is lost between edits." })
+  .then(() => { $("snapBtn").disabled = !K.token; initNotif(); K.poll(load, 10000); });
+</script>
+</body>
+</html>

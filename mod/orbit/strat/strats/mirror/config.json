@@ -1,0 +1,11 @@
+{
+    "name": "mirror",
+    "description": "Copy every trade your watchlist makes, scaled to your capital — works on any venue.",
+    "version": "1.0.0",
+    "strat": {
+        "protocol": 1,
+        "class": "strat.py:Mirror",
+        "venues": ["raydium", "uniswap", "hyperliquid", "bittensor", "polymarket"],
+        "params": {"scale": 0.1}
+    }
+}

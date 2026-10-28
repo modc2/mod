@@ -1,0 +1,431 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>EVOLVER</title>
+<link rel="stylesheet" href="kit.css" />
+<style>
+.od-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
+.od-lane { border: 1px solid var(--line); border-radius: 12px; padding: 12px; background: var(--panel2); }
+.od-badge { font-size: 13px; font-weight: 700; color: var(--accent); margin-bottom: 6px; }
+.od-lane .t { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 4px; }
+.od-lane .s { font-size: 12px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 8px; }
+.od-acts { display: flex; gap: 6px; align-items: center; }
+@keyframes od-pulse {
+  0%, 100% { border-color: var(--line); box-shadow: none; }
+  50% { border-color: #5ee08a; box-shadow: 0 0 8px #5ee08a55; }
+}
+@keyframes od-think {
+  0%, 100% { border-color: var(--line); box-shadow: none; }
+  50% { border-color: #e0a05e; box-shadow: 0 0 8px #e0a05e55; }
+}
+.od-lane.is-building { animation: od-pulse 2s ease-in-out infinite; }
+.od-lane.is-ideating { animation: od-think 3.5s ease-in-out infinite; }
+.od-done { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin-top: 10px; opacity: 0.5; }
+@keyframes rr-flash { from { background: #5ee08a22; } to { background: transparent; } }
+.rr-hl { animation: rr-flash 1.4s ease-out; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div id="hdr"></div>
+  <div class="grid">
+    <div class="card">
+      <h2>Switch <span class="sp"></span><span id="skip" class="faint"></span></h2>
+      <div class="inline" style="margin-bottom:12px">
+        <button id="enableBtn" class="primary">turn on</button>
+        <div class="seg" id="modeSeg"><button data-m="idle">idle</button><button data-m="meta">meta</button><button data-m="overdrive">overdrive</button></div>
+        <label class="inline faint" id="lanesBox" style="font-size:12px;gap:6px">lanes<input id="s_lanes" type="number" min="1" max="6" style="width:56px" /></label>
+        <button id="runNowBtn" class="sm">run now</button>
+      </div>
+      <div id="modeNote" class="muted" style="font-size:12.5px"></div>
+      <div id="lastNote" style="display:none"></div>
+      <div id="vibeGoalBox" style="display:none"></div>
+      <div id="idleBar" style="margin-top:8px;display:none"></div>
+      <div id="skipNotice" style="display:none"></div>
+      <div id="live" style="margin-top:12px"></div>
+    </div>
+    <div class="card">
+      <h2>Budget</h2>
+      <div id="budget"></div>
+    </div>
+    <div class="card wide">
+      <h2>Settings <span class="sp"></span><button id="saveBtn" class="sm">save</button></h2>
+      <div class="form">
+        <label class="f">model<input id="s_model" /></label>
+        <label class="f">runs / week<input id="s_cap" type="number" min="1" max="500" /></label>
+        <label class="f">quiet before a run (s)<input id="s_idle" type="number" min="0" /></label>
+        <label class="f">stand down at plan %<input id="s_guard" type="number" min="1" max="100" /></label>
+        <label class="f"><input id="s_pg" type="checkbox" style="width:auto" /> enforce plan % guard</label>
+        <label class="f full">standing goal (empty = each run picks freely)<input id="s_goal" placeholder="e.g. polish mobile layouts" /></label>
+      </div>
+    </div>
+    <div class="card wide">
+      <h2>Focus <span class="sp"></span><button id="followBtn" class="sm">follow on</button> <span class="faint" id="focusNote"></span></h2>
+      <div class="chips" id="focus"></div>
+      <div id="followChips"></div>
+      <div class="inline" style="margin-top:10px"><input id="focusIn" placeholder="add a module to focus on…" style="max-width:300px" /><button id="focusAdd" class="sm">add</button></div>
+    </div>
+    <div class="card">
+      <h2>Timers <span class="sp"></span><span class="faint" id="schedCap"></span></h2>
+      <div id="scheds" class="rows"></div>
+      <div class="form" style="margin-top:10px">
+        <label class="f">module<input id="t_mod" /></label>
+        <label class="f">every (min)<input id="t_every" type="number" min="5" value="60" /></label>
+        <label class="f full">prompt<input id="t_prompt" placeholder="empty = standing goal" /></label>
+      </div>
+      <div class="inline" style="justify-content:flex-end;margin-top:8px"><button id="t_add" class="sm">+ timer</button></div>
+    </div>
+    <div class="card">
+      <h2>Task queue <span class="sp"></span><span class="faint" id="taskCap"></span></h2>
+      <div id="tasks" class="rows"></div>
+      <div class="form" style="margin-top:10px">
+        <label class="f">module<input id="q_mod" placeholder="empty = loop picks" /></label>
+        <label class="f full">task<input id="q_prompt" placeholder="what should it do?" /></label>
+      </div>
+      <div class="inline" style="justify-content:flex-end;margin-top:8px"><button id="q_add" class="sm">+ queue</button></div>
+    </div>
+    <div class="card wide">
+      <h2 id="recentHdr">Recent runs<span id="recentDots" style="margin-left:8px;vertical-align:middle"></span></h2>
+      <div id="recent" class="rows"></div>
+    </div>
+  </div>
+</div>
+<script src="kit.js"></script>
+<script>
+let D = null, formSeeded = false, focusFilter = null;
+const $ = (id) => document.getElementById(id);
+
+function budgetSparkline(history, guardPct, resetStart, nowSec) {
+  if (!history || !history.length) return '';
+  const rows = history.filter(r => r.ts > resetStart);
+  if (!rows.length) return '';
+  const W = 200, H = 36, pad = 2;
+  const t0 = rows[0].ts, t1 = Math.max(nowSec, rows[rows.length - 1].ts + 1);
+  const sx = t => pad + ((t - t0) / (t1 - t0)) * (W - 2 * pad);
+  const sy = p => H - pad - (p / 100) * (H - 2 * pad);
+  const pts = rows.map(r => [sx(r.ts), sy(r.percent)]);
+  const line = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ');
+  const last = pts[pts.length - 1], first = pts[0];
+  const area = line + ` L${last[0].toFixed(1)},${(H - pad).toFixed(1)} L${first[0].toFixed(1)},${(H - pad).toFixed(1)} Z`;
+  const gy = sy(guardPct).toFixed(1);
+  const circles = rows.map((r, i) => `<circle cx="${pts[i][0].toFixed(1)}" cy="${pts[i][1].toFixed(1)}" r="3" fill="transparent" stroke="none" pointer-events="all"><title>${K.ago(r.ts * 1000)} · ${Math.round(r.percent)}%</title></circle>`).join('');
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" style="display:block;margin-top:8px;overflow:visible">
+    <path d="${area}" fill="#5ee08a22" stroke="none"/>
+    <path d="${line}" fill="none" stroke="#5ee08a" stroke-width="1.5"/>
+    <line x1="${pad}" y1="${gy}" x2="${W - pad}" y2="${gy}" stroke="#e0a05e" stroke-width="1" stroke-dasharray="4 3"/>
+    ${circles}
+  </svg>`;
+}
+
+function runsHeatmap(rows, weekStart, nowSec) {
+  const W = 200, H = 36, labelH = 14, pad = 2;
+  const dayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const buckets = Array.from({length: 7}, (_, i) => {
+    const s = weekStart + i * 86400, e = s + 86400;
+    const dr = rows.filter(r => r.ts >= s && r.ts < e);
+    return { total: dr.length, played: dr.filter(r => r.outcome === 'played').length, label: dayLabels[new Date(s * 1000).getUTCDay()] };
+  });
+  const maxC = Math.max(1, ...buckets.map(b => b.total));
+  const bW = (W - 2 * pad) / 7;
+  const barsHtml = buckets.map((b, i) => {
+    const fill = b.total === 0 ? 'var(--line)' : b.played === b.total ? '#5ee08a' : b.played === 0 ? '#e05e5e' : '#e0a05e';
+    const bH = b.total === 0 ? 2 : Math.max(3, (b.total / maxC) * (H - 2 * pad));
+    const x = pad + i * bW, y = H - pad - bH;
+    return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${(bW - 2).toFixed(1)}" height="${bH.toFixed(1)}" fill="${fill}" rx="2"><title>${b.total} runs · ${b.played} played</title></rect><text x="${(x + (bW - 2) / 2).toFixed(1)}" y="${(H + labelH - 3).toFixed(1)}" text-anchor="middle" font-size="9" fill="var(--dim)">${b.label}</text>`;
+  }).join('');
+  return `<svg viewBox="0 0 ${W} ${H + labelH}" width="100%" height="${H + labelH}" style="display:block;margin-top:8px">${barsHtml}</svg>`;
+}
+
+function render() {
+  if (!D) return;
+  K.setState(K.pill(D.enabled, `on · ${D.mode}`, "off"));
+  const en = $("enableBtn");
+  en.textContent = D.enabled ? "turn off" : "turn on";
+  en.className = D.enabled ? "danger" : "primary";
+  en.disabled = !K.isOwner;
+  for (const b of $("modeSeg").children) { b.classList.toggle("sel", b.dataset.m === D.mode); b.disabled = !K.isOwner; }
+  const od = D.mode === "overdrive";
+  $("lanesBox").style.display = od ? "" : "none";
+  if (document.activeElement !== $("s_lanes")) $("s_lanes").value = D.lanes ?? 3;
+  $("s_lanes").disabled = !K.isOwner;
+  $("modeNote").textContent = od
+    ? `OVERDRIVE: ${D.lanes} runs in parallel, each on its own mod. It picks the coolest mods across the fleet by itself (apps first), stays off whatever you touched in the last 2h and off build itself, and goes for big, demo-worthy changes. Focus is ignored. Burns the week until the plan guard (${D.plan_guard_pct}%).`
+    : D.mode === "meta"
+    ? "META: keeps looping while you work — still one run at a time."
+    : `IDLE: runs only after ${K.dur(D.idle_secs)} with no writes in the console (quiet for ${K.dur(D.idle_for || 0)} now).`;
+  const lastPlayed = (D.recent || []).find(r => r.outcome === 'played');
+  const lastNote = $("lastNote");
+  if (lastPlayed && lastPlayed.title) {
+    lastNote.style.display = "";
+    lastNote.innerHTML = `<div class="notice" style="margin-top:8px;font-size:12.5px">last delivered · <a href="${K.BUILD_APP}?mod=${encodeURIComponent(lastPlayed.module)}">${K.esc(lastPlayed.module)}</a> — "${K.esc(lastPlayed.title)}" · ${K.ago(lastPlayed.ts)}</div>`;
+  } else {
+    lastNote.style.display = "none";
+  }
+  const vgBox = $("vibeGoalBox");
+  if (od) {
+    const briefText = D.goal ? D.goal : D.vibe_goal;
+    vgBox.style.display = "";
+    vgBox.innerHTML = `<div class="notice" style="margin-top:8px;font-size:12.5px;font-style:italic"><span class="faint">active brief · </span>"${K.esc(briefText)}"</div>`;
+  } else {
+    vgBox.style.display = "none";
+  }
+  $("skip").textContent = D.last_skip ? `last tick: ${D.last_skip} · ${K.ago(D.last_tick)}` : "";
+  const lives = D.lives || (D.live ? [D.live] : []);
+  $("runNowBtn").disabled = !K.isOwner || !!lives.length;
+  const secsToTick = Math.max(0, D.last_tick + (D.tick_secs || 60) - Math.round(Date.now() / 1000));
+  if (od) {
+    const tiles = Array.from({length: D.lanes || 3}, (_, i) => {
+      const l = lives[i];
+      if (l) {
+        return `<div class="od-lane ${l.title ? 'is-building' : 'is-ideating'}"><div class="od-badge">✦${i + 1}</div><div class="t">${K.esc(l.module)}</div><div class="s">${l.title ? `<span class="pill on">building</span> ${K.esc(l.title)}` : `<span class="pill warn">ideating</span>`} · ${K.ago(l.created_at)}</div><div class="od-acts"><a class="pill acc" href="${K.BUILD_APP}?mod=${encodeURIComponent(l.module)}">open ↗</a>${K.isOwner && l.run_id ? `<button class="sm danger stopLane" data-run-id="${K.esc(l.run_id)}">stop</button>` : ""}</div></div>`;
+      }
+      return `<div class="od-lane" style="opacity:.35;border-style:dashed"><div class="od-badge" style="color:var(--dim)">✦${i + 1}</div><div class="t">empty</div><div class="s">${D.enabled ? `fills in ~${secsToTick}s` : 'standby'}</div></div>`;
+    });
+    const liveModules = new Set(lives.map(l => l.module));
+    const done = (D.recent || []).filter(r => !liveModules.has(r.module)).slice(0, 3);
+    const doneHtml = done.length ? `<div class="od-done">${done.map(r => {
+      const badge = r.outcome === 'played' ? `<span class="pill on">played</span>` : r.status === 'failed' ? `<span class="pill bad">failed</span>` : `<span class="pill">${K.esc(r.outcome || r.status || '?')}</span>`;
+      return `<div class="od-lane"><div class="od-badge">✓</div><div class="t">${K.esc(r.module)}</div><div class="s">${badge} ${K.esc(r.title || r.task || '—')} · ${K.ago(r.ts)}</div><div class="od-acts"><a class="pill acc" href="${K.BUILD_APP}?mod=${encodeURIComponent(r.module)}">open ↗</a></div></div>`;
+    }).join('')}</div>` : '';
+    $("live").innerHTML = `<div class="od-grid">${tiles.join("")}</div>${doneHtml}`;
+  } else {
+    $("live").innerHTML = lives.length
+      ? lives.map((l, i) => `<div class="row"><span class="pill on">live</span><div class="grow"><div class="t">${K.esc(l.module)}</div><div class="s">${l.title ? `<span class="pill on">building</span> ${K.esc(l.title)}` : `<span class="pill warn">ideating</span>`} · ${K.ago(l.created_at)}</div></div><a class="pill acc" href="${K.BUILD_APP}?mod=${encodeURIComponent(l.module)}">open ↗</a>${K.isOwner && i === 0 ? `<button class="sm danger" id="stopLive">stop${lives.length > 1 ? " all" : ""}</button>` : ""}</div>`).join("")
+      : `<div class="faint" style="font-size:12.5px">no run in flight</div>`;
+  }
+  if ($("stopLive")) $("stopLive").onclick = async () => { if (await K.ask("Stop the evolver's run(s) in flight? A job already running finishes on its own.", "Stop", true)) { await K.act("/evolver/stop", {}, "stopping"); load(); } };
+  document.querySelectorAll(".stopLane").forEach(btn => {
+    btn.onclick = async () => {
+      const rid = btn.dataset.runId;
+      if (await K.ask("Stop this lane? The freed slot refills on the next tick.", "Stop", true)) {
+        await K.act(`/evolver/stop/${encodeURIComponent(rid)}`, {}, "stopping");
+        load();
+      }
+    };
+  });
+  const idleBar = $("idleBar");
+  if (D.mode === "idle" && !lives.length) {
+    const elapsed = D.idle_for || 0;
+    const pct = Math.min(100, (elapsed / D.idle_secs) * 100);
+    const ready = elapsed >= D.idle_secs;
+    const label = ready
+      ? "ready to fire"
+      : `${K.dur(elapsed)} / ${K.dur(D.idle_secs)} — fires in ${K.dur(D.idle_secs - elapsed)}`;
+    idleBar.style.display = "";
+    idleBar.innerHTML = `<div class="meter"><i style="width:${pct}%"></i></div><div class="faint" style="font-size:12px;margin-top:4px">${label}</div>`;
+  } else {
+    idleBar.style.display = "none";
+  }
+
+  const skipNotice = $("skipNotice");
+  if (D.enabled && D.last_skip && D.last_skip !== '' && D.last_skip !== 'off' && !lives.length) {
+    const sk = D.last_skip;
+    let msg;
+    if (sk === 'plan weekly limit') {
+      msg = `plan budget at capacity · resets ${K.ago(D.plan_weekly?.resets_at)}`;
+    } else if (sk === 'weekly budget spent') {
+      msg = `${(D.week||{}).used}/${(D.week||{}).cap} runs used · resets ${K.ago((D.week||{}).resets_at)}`;
+    } else if (sk === 'someone is active') {
+      msg = `quiet room waiting — console active, fires after ${K.dur(D.idle_secs)} quiet (${K.dur(D.idle_for||0)} now)`;
+    } else if (sk === 'a task is running' || sk === 'an auto run is live') {
+      msg = `another run is in flight`;
+    } else if (sk === 'nothing to evolve') {
+      msg = `no eligible modules — check the focus list`;
+    } else {
+      msg = sk;
+    }
+    skipNotice.style.display = "";
+    skipNotice.innerHTML = `<div class="notice" style="margin-top:8px;font-size:12.5px">⏸ ${msg} · last tick ${K.ago(D.last_tick)}</div>`;
+  } else {
+    skipNotice.style.display = "none";
+  }
+
+  const w = D.week || {};
+  const pw = D.plan_weekly;
+  const pct = pw ? Math.round(pw.percent ?? 0) : null;
+  const weekStart = (w.resets_at || 0) - 7 * 24 * 3600;
+  const weekRows = (D.recent || []).filter(r => r.ts >= weekStart);
+  const hitRate = weekRows.length > 0 ? Math.round(weekRows.filter(r => r.outcome === 'played').length / weekRows.length * 100) : null;
+  const modMap = {};
+  for (const r of weekRows) {
+    if (!modMap[r.module]) modMap[r.module] = { count: 0, cost: 0 };
+    modMap[r.module].count++;
+    if (r.cost_usd) modMap[r.module].cost += r.cost_usd;
+  }
+  const topMods = Object.entries(modMap).sort((a, b) => b[1].count - a[1].count).slice(0, 5);
+  const maxCount = topMods.length ? topMods[0][1].count : 1;
+  const topModsHtml = topMods.length
+    ? `<div style="margin-top:8px;display:flex;flex-direction:column;gap:4px">${topMods.map(([m, s]) =>
+        `<div class="row click" data-bf="${K.esc(m)}" style="padding:5px 10px">` +
+        `<div style="width:80px;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px">${K.esc(m)}</div>` +
+        `<div class="meter" style="flex:1;height:8px"><i style="width:${Math.round(s.count / maxCount * 100)}%"></i></div>` +
+        `<div style="font-size:12px;white-space:nowrap;flex-shrink:0;color:var(--dim)">×${s.count}${s.cost > 0 ? ' $' + s.cost.toFixed(2) : ''}</div>` +
+        `</div>`
+      ).join('')}</div>`
+    : '';
+  $("budget").innerHTML = `
+    <div class="stats">
+      <div class="stat"><b>${w.used ?? 0}/${w.cap ?? "—"}</b><span>runs this week</span></div>
+      <div class="stat"><b>$${(w.cost_usd ?? 0).toFixed(2)}</b><span>spent this week</span></div>
+      <div class="stat"><b>${pct == null ? "—" : pct + "%"}</b><span>${K.esc(pw?.label || "plan weekly")}</span></div>
+      <div class="stat"><b>${hitRate == null ? '—' : hitRate + '%'}</b><span>hit rate this week</span></div>
+    </div>
+    <div style="margin-top:12px" class="muted">${D.budget === "plan" ? "Binding ceiling: the subscription's weekly window" : "Binding ceiling: the run cap"} · ${D.plan_guard === false ? "plan guard off · running freely" : `stands down at ${D.plan_guard_pct}%`}</div>
+    <div class="meter" style="margin-top:8px"><i style="width:${Math.min(100, D.budget === "plan" && pct != null ? pct : ((w.used || 0) / (w.cap || 1)) * 100)}%"></i></div>
+    <div class="faint" style="margin-top:6px;font-size:12px">${w.resets_at ? `resets ${K.ago(w.resets_at)}` : ""}${pw && pw.resets_at ? ` · plan resets ${K.ago(pw.resets_at)}` : ""}</div>
+    ${topModsHtml}
+    ${runsHeatmap(weekRows, weekStart, Date.now() / 1000)}
+    ${budgetSparkline(D.plan_weekly_history, D.plan_guard_pct, (w.resets_at || 0) - 7 * 24 * 3600, Date.now() / 1000)}`;
+
+  if (!formSeeded) {
+    $("s_model").value = D.model || ""; $("s_cap").value = w.cap ?? 70; $("s_idle").value = D.idle_secs;
+    $("s_guard").value = D.plan_guard_pct; $("s_pg").checked = D.plan_guard ?? true; $("s_goal").value = D.goal || ""; formSeeded = true;
+  }
+  $("focus").innerHTML = (D.focus || []).length
+    ? D.focus.map((m) => `<span class="chip" data-ff="${K.esc(m)}">${K.esc(m)}${K.isOwner ? `<button data-f="${K.esc(m)}" title="remove">✕</button>` : ""}</span>`).join("")
+    : `<span class="faint">all mods — the ${D.pool_size} most recently updated</span>`;
+  const hasPinned = (D.focus || []).length > 0;
+  const hasWorking = D.follow && (D.working || []).length > 0;
+  $("focusNote").textContent = hasPinned && hasWorking ? "pinned + auto-follow" : hasPinned ? "rotation = exactly these" : hasWorking ? "auto-follow only" : "";
+  const followBtn = $("followBtn");
+  followBtn.textContent = D.follow ? "follow off" : "follow on";
+  followBtn.disabled = !K.isOwner;
+  $("followChips").innerHTML = hasWorking
+    ? `<div class="chips" style="margin-top:6px;opacity:.65"><span class="faint" style="font-size:11px">auto ·</span>${(D.working || []).map((m) => `<span class="chip">${K.esc(m)}</span>`).join("")}</div>`
+    : "";
+
+  $("schedCap").textContent = `${(D.schedules || []).length}/${D.sched_cap}`;
+  $("scheds").innerHTML = (D.schedules || []).map((s) => {
+    const every_secs = s.every_mins * 60;
+    const pct = s.paused ? 0 : Math.min(100, Math.max(0, ((every_secs - Math.max(0, s.next_at - Date.now() / 1000)) / every_secs) * 100));
+    const last = (D.recent || []).find(r => r.sched === s.id);
+    const lastKind = last ? (last.outcome === "played" ? "on" : last.status === "failed" ? "bad" : last.status === "running" ? "warn" : "") : "";
+    const lastLine = last ? `<div class="s" style="margin-top:3px">last · <span class="pill ${lastKind}">${K.esc(last.outcome || last.status)}</span> · ${K.ago(last.ts)}${last.cost_usd > 0 ? ' · $' + last.cost_usd.toFixed(2) : ''}</div>` : "";
+    return `<div class="row" data-id="${s.id}">
+      <span class="pill ${s.paused ? "" : "on"}">${s.paused ? "paused" : "◷"}</span>
+      <div class="grow"><div class="t">${K.esc(s.module)} · every ${s.every_mins}m</div>
+      <div class="s">${K.esc(s.prompt || "standing goal")} · ${s.paused ? "paused" : s.next_at ? "next " + K.ago(s.next_at) : "due"}</div>
+      ${s.paused ? "" : `<div class="meter" style="margin-top:5px;height:4px"><i style="width:${pct}%"></i></div>`}${lastLine}</div>
+      ${K.isOwner ? `<div class="acts"><button class="sm" data-a="pause">${s.paused ? "resume" : "pause"}</button><button class="sm" data-a="edit">✎</button><button class="sm danger" data-a="del">✕</button></div>` : ""}</div>`;
+  }).join("") || `<div class="empty">no timers</div>`;
+
+  $("taskCap").textContent = `${(D.tasks || []).length}/${D.task_cap}`;
+  $("tasks").innerHTML = (D.tasks || []).map((t, i) => `<div class="row" data-id="${t.id}">
+      <span class="pill">${i + 1}</span><div class="grow"><div class="t">${K.esc(t.prompt)}</div><div class="s">${K.esc(t.module || "loop picks")} · queued ${K.ago(t.created_at)}</div></div>
+      ${K.isOwner ? `<div class="acts"><button class="sm" data-a="promote" ${i === 0 ? 'disabled' : ''}>↑</button><button class="sm danger" data-a="del">✕</button></div>` : ""}</div>`).join("") || `<div class="empty">queue empty</div>`;
+
+  const recentHdr = $("recentHdr");
+  if (focusFilter) {
+    recentHdr.innerHTML = `Recent runs · ${K.esc(focusFilter)} <button id="clearFilter" class="sm" style="vertical-align:middle">×</button><span id="recentDots" style="margin-left:8px;vertical-align:middle"></span>`;
+    $("clearFilter").onclick = () => { focusFilter = null; render(); };
+  } else {
+    recentHdr.innerHTML = `Recent runs<span id="recentDots" style="margin-left:8px;vertical-align:middle"></span>`;
+  }
+  const filteredRecent = (D.recent || []).filter(r => !focusFilter || r.module === focusFilter);
+  $("recent").innerHTML = filteredRecent.slice(0, 20).map((r, i) => {
+    const mark = r.sched ? "◷ " : r.task ? "⚑ " : "";
+    const kind = r.outcome === "played" ? "on" : r.status === "failed" ? "bad" : r.status === "running" ? "warn" : "";
+    const goalLine = r.goal_brief && r.goal_brief !== r.task ? `<div class="s">${K.esc(r.goal_brief)}</div>` : '';
+    return `<div id="rr-${i}" class="row click" onclick="location.href='${K.BUILD_APP}?mod=${encodeURIComponent(r.module)}'"><span class="pill ${kind}">${K.esc(r.outcome || r.status)}</span><div class="grow">
+      <div class="t">${mark}${K.esc(r.module)} — ${K.esc(r.title || r.task || "")}</div>
+      ${goalLine}<div class="s mono">${K.ago(r.ts)}${r.cost_usd > 0 ? ' · $' + r.cost_usd.toFixed(2) : ''} · <a href="${K.BUILD_APP}?mod=${encodeURIComponent(r.module)}">${K.esc(r.run_id)}</a></div></div></div>`;
+  }).join("") || `<div class="empty">no runs yet</div>`;
+  $("recentDots").innerHTML = filteredRecent.slice(0, 30).map((r, i) => {
+    const c = r.outcome === "played" ? "#5ee08a" : r.status === "failed" ? "#e05e5e" : "#555";
+    const clickable = i < 20;
+    return `<span data-dot="${i}" title="${K.esc(r.module + ' · ' + (r.outcome || r.status) + ' · ' + K.ago(r.ts))}" style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${c};margin:0 1px;cursor:${clickable ? 'pointer' : 'default'}"></span>`;
+  }).join("");
+  for (const id of ["saveBtn", "focusAdd", "t_add", "q_add"]) $(id).disabled = !K.isOwner;
+}
+
+async function load() { const r = await K.api("/evolver"); if (r.ok) { D = r.data; render(); } else K.setState(`<span class="pill bad">unreachable</span>`); }
+const post = async (body, msg) => { await K.act("/evolver", body, msg); load(); };
+
+$("enableBtn").onclick = (e) => D.enabled ? post({ enabled: false }, "evolver off") : K.armed(e.target, "sure? spends while idle", () => post({ enabled: true }, "evolver on"));
+$("modeSeg").onclick = (e) => { const m = e.target.dataset.m; if (m && m !== D.mode) post({ mode: m }, `mode: ${m}`); };
+$("s_lanes").onchange = () => post({ lanes: +$("s_lanes").value }, `lanes: ${$("s_lanes").value}`);
+$("saveBtn").onclick = () => post({
+  model: $("s_model").value.trim(), weekly_cap: +$("s_cap").value, idle_secs: +$("s_idle").value,
+  plan_guard_pct: +$("s_guard").value, plan_guard: $("s_pg").checked, goal: $("s_goal").value.trim(),
+}, "saved");
+$("followBtn").onclick = () => post({ follow: !D.follow }, D.follow ? "follow off" : "follow on");
+$("focusAdd").onclick = () => { const m = $("focusIn").value.trim(); if (!m) return; $("focusIn").value = ""; post({ focus: [...new Set([...(D.focus || []), m])] }, "focus updated"); };
+$("focusIn").onkeydown = (e) => { if (e.key === "Enter") $("focusAdd").click(); };
+$("focus").onclick = (e) => {
+  const m = e.target.dataset.f; if (m) { post({ focus: D.focus.filter((x) => x !== m) }, "focus updated"); return; }
+  const ff = e.target.closest(".chip")?.dataset.ff; if (ff) { focusFilter = ff; render(); }
+};
+$("budget").onclick = (e) => {
+  const bf = e.target.closest("[data-bf]")?.dataset.bf;
+  if (bf) { focusFilter = bf; render(); document.getElementById('recentHdr').scrollIntoView({ behavior: 'smooth' }); }
+};
+$("t_add").onclick = async () => {
+  if (await K.act("/evolver/schedules", { module: $("t_mod").value.trim(), every_mins: +$("t_every").value, prompt: $("t_prompt").value.trim() }, "timer added")) { $("t_mod").value = $("t_prompt").value = ""; }
+  load();
+};
+$("scheds").onclick = async (e) => {
+  const a = e.target.dataset.a, id = e.target.closest(".row")?.dataset.id; if (!a) return;
+  const s = D.schedules.find((x) => x.id === id);
+  if (a === "edit") {
+    const row = e.target.closest(".row");
+    if (row.dataset.editing) return;
+    row.dataset.editing = "1";
+    row.querySelector(".grow").style.display = "none";
+    row.querySelector(".acts").style.display = "none";
+    const ef = document.createElement("div");
+    ef.className = "sched-ef";
+    ef.style.cssText = "flex:1;display:flex;gap:6px;align-items:center;flex-wrap:wrap";
+    ef.innerHTML = `<input type="number" data-ef="every" min="5" max="10080" style="width:70px" /><input data-ef="prompt" placeholder="standing goal" style="flex:1;min-width:120px" /><button class="sm primary" data-a="save">save</button><button class="sm" data-a="cancel">cancel</button>`;
+    ef.querySelector("[data-ef='every']").value = s.every_mins;
+    ef.querySelector("[data-ef='prompt']").value = s.prompt || "";
+    row.appendChild(ef);
+    return;
+  }
+  if (a === "cancel") {
+    const row = e.target.closest(".row");
+    delete row.dataset.editing;
+    row.querySelector(".sched-ef")?.remove();
+    row.querySelector(".grow").style.display = "";
+    row.querySelector(".acts").style.display = "";
+    return;
+  }
+  if (a === "save") {
+    const row = e.target.closest(".row");
+    const every_mins = +row.querySelector("[data-ef='every']").value;
+    const prompt = row.querySelector("[data-ef='prompt']").value.trim();
+    await K.act(`/evolver/schedules/${id}`, { every_mins, prompt }, "updated");
+    load();
+    return;
+  }
+  if (a === "pause") await K.act(`/evolver/schedules/${id}`, { paused: !s.paused }, s.paused ? "resumed" : "paused");
+  if (a === "del" && await K.ask(`Delete the ${s.module} timer?`, "Delete", true)) await K.act(`/evolver/schedules/${id}`, undefined, "deleted", "DELETE");
+  load();
+};
+$("q_add").onclick = async () => {
+  if (await K.act("/evolver/tasks", { module: $("q_mod").value.trim(), prompt: $("q_prompt").value.trim() }, "queued")) { $("q_mod").value = $("q_prompt").value = ""; }
+  load();
+};
+$("runNowBtn").onclick = async () => { await K.act("/evolver/run", {}, "firing…"); load(); };
+$("q_prompt").onkeydown = (e) => { if (e.key === "Enter") $("q_add").click(); };
+$("tasks").onclick = async (e) => {
+  const id = e.target.closest(".row")?.dataset.id;
+  if (e.target.dataset.a === "promote") { await K.act(`/evolver/tasks/${id}/promote`, {}, "moved to front"); load(); }
+  if (e.target.dataset.a === "del") { await K.act(`/evolver/tasks/${id}`, undefined, "removed", "DELETE"); load(); }
+};
+
+$("recentDots").onclick = e => {
+  const i = +e.target.dataset.dot;
+  if (isNaN(i) || i >= 20) return;
+  const row = document.getElementById(`rr-${i}`);
+  if (!row) return;
+  row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  row.classList.add('rr-hl');
+  setTimeout(() => row.classList.remove('rr-hl'), 1400);
+};
+K.init({ glyph: "✦", title: "Evolver", accent: "#5ee08a", sub: "The meta agent: improves your mods — one run at a time, or OVERDRIVE lanes in parallel — on timers, a task queue, or a rotation — within a weekly budget." })
+  .then(() => K.poll(load, 8000));
+</script>
+</body>
+</html>

@@ -1,0 +1,189 @@
+{
+  "netuid": 54,
+  "name": "Yanez",
+  "symbol": "ت",
+  "owner": "5FUfruyVDoDsCty1Sh7tCmHVdpoC3XV1nUZYjhcpfe31Defk",
+  "description": "Yanez SN54 generates synthetic identities for challenging Yanez humanhood, presence, and uniqueness detection models.",
+  "github": "https://github.com/yanez-compliance/MIID-subnet",
+  "url": "www.yanez.ai",
+  "discord": "https://discord.com/channels/799672011265015819/1351934165964296232",
+  "logo": "https://raw.githubusercontent.com/yanez-compliance/MIID-subnet/main/Yanez%20AI%20Logo%20-%20Icon%20-%20Outline%20Glow.png",
+  "registered_at": 4742549,
+  "tempo": 360,
+  "active": true,
+  "block": 9322663,
+  "related": [],
+  "market": {
+    "price": 0.005073539,
+    "moving_price": 0.005177688552066684,
+    "market_cap": 31116.959064214287,
+    "tao_in": 9052.25111512,
+    "alpha_in": 1784208.418484068,
+    "alpha_out": 4348977.719281756,
+    "volume": 980480.296121481,
+    "vol_24h": 2109.990924663027,
+    "emission": 0.0,
+    "change_1h": 0.6654563492063392,
+    "change_24h": -7.941000678257404,
+    "change_7d": -12.241381308483312
+  },
+  "spark_24h": [
+    0.005511182,
+    0.005513909,
+    0.005462258,
+    0.005503737,
+    0.005489709,
+    0.005489709,
+    0.005483883,
+    0.005483883,
+    0.00540652,
+    0.005387279,
+    0.005394981,
+    0.005390359,
+    0.00519075,
+    0.00511109,
+    0.005097282,
+    0.005097273,
+    0.005097273,
+    0.005074433,
+    0.005074433,
+    0.004939755,
+    0.004947203,
+    0.004935554,
+    0.004938871,
+    0.004938871,
+    0.004956652,
+    0.00495327,
+    0.00495336,
+    0.00495336,
+    0.004952772,
+    0.004952772,
+    0.004951457,
+    0.004929367,
+    0.004929367,
+    0.004938206,
+    0.004929367,
+    0.004929349,
+    0.004929349,
+    0.004928316,
+    0.005029059,
+    0.005040003,
+    0.005040003,
+    0.005040003,
+    0.005040003,
+    0.005040002,
+    0.00504,
+    0.00504,
+    0.005073553,
+    0.005073539
+  ],
+  "trades_24h": {
+    "trades": 196,
+    "buys": 87,
+    "sells": 109,
+    "buy_tao": 864.043435365,
+    "sell_tao": 1243.881926434,
+    "net_tao": -379.83849106899993,
+    "traders": 83
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5Gp5B45qzEuaS6QCn5qC6WYmxdLwrawzDWLR7HEyHR1dXfE1",
+      "net_tao": 0.4295000150000021,
+      "gross_tao": 279.430030617,
+      "trades": 12
+    },
+    {
+      "coldkey": "5Gb23Q7n115ypiHr6jAMRhkhADhEkRFYa5ovgipVApqMt3FV",
+      "net_tao": 20.703725512000002,
+      "gross_tao": 119.296274488,
+      "trades": 6
+    },
+    {
+      "coldkey": "5C529LQYTq2aMEwg5YjzeffxCb2DX8Xy9XEqJ7qMV7v2nf6L",
+      "net_tao": -84.764851384,
+      "gross_tao": 84.764851384,
+      "trades": 3
+    },
+    {
+      "coldkey": "5GpaEoKUZkpVSuvpz8D8S2n5kZ9NcQdFqzVdHifECqv2s4Aj",
+      "net_tao": -79.807596448,
+      "gross_tao": 79.807596448,
+      "trades": 5
+    },
+    {
+      "coldkey": "5GsRn8W8sdaHH71pxPJyVPi4UQahyPHsjp8gmAdHmmNER6dd",
+      "net_tao": 0.5589111919999965,
+      "gross_tao": 69.441088808,
+      "trades": 3
+    }
+  ],
+  "news": [
+    {
+      "ts": 1792447581,
+      "kind": "commit",
+      "source": "github",
+      "title": "P5 c1 exec (#122)",
+      "url": "https://github.com/yanez-compliance/MIID-subnet/commit/43a0d550776be6e57dbb23c1ffa1946dd9b87f1a",
+      "publisher": "yanez-compliance/MIID-subnet"
+    },
+    {
+      "ts": 1792445293,
+      "kind": "commit",
+      "source": "github",
+      "title": "updating time line",
+      "url": "https://github.com/yanez-compliance/MIID-subnet/commit/be8d4fefbb8fdd798608481599e246b49b22fd5f",
+      "publisher": "yanez-compliance/MIID-subnet"
+    },
+    {
+      "ts": 1792445178,
+      "kind": "commit",
+      "source": "github",
+      "title": "updated the docmuation",
+      "url": "https://github.com/yanez-compliance/MIID-subnet/commit/cbea1e866e9545bbdb45e6dfac6546bf252f64ea",
+      "publisher": "yanez-compliance/MIID-subnet"
+    },
+    {
+      "ts": 1792444591,
+      "kind": "commit",
+      "source": "github",
+      "title": "undoing the last commit",
+      "url": "https://github.com/yanez-compliance/MIID-subnet/commit/145da40e44e01daed3a26667c374a0062438d8cd",
+      "publisher": "yanez-compliance/MIID-subnet"
+    },
+    {
+      "ts": 1792441110,
+      "kind": "commit",
+      "source": "github",
+      "title": "adding in new teir",
+      "url": "https://github.com/yanez-compliance/MIID-subnet/commit/d64b7303fd90ef72d7b1f8fe06b74f7c414ac484",
+      "publisher": "yanez-compliance/MIID-subnet"
+    },
+    {
+      "ts": 1792208226,
+      "kind": "commit",
+      "source": "github",
+      "title": "adding in hotkey charators at the start and end (#121)",
+      "url": "https://github.com/yanez-compliance/MIID-subnet/commit/fb3d4b42d822401b96d8dbdb74b1667880c2b7e1",
+      "publisher": "yanez-compliance/MIID-subnet"
+    },
+    {
+      "ts": 1792204628,
+      "kind": "commit",
+      "source": "github",
+      "title": "adding in hotkey charators at the start and end",
+      "url": "https://github.com/yanez-compliance/MIID-subnet/commit/e92c6a42cfdba8b915948c30fdbcb4be02aac81e",
+      "publisher": "yanez-compliance/MIID-subnet"
+    },
+    {
+      "ts": 1791929520,
+      "kind": "commit",
+      "source": "github",
+      "title": "P5 c1 exec (#120)",
+      "url": "https://github.com/yanez-compliance/MIID-subnet/commit/b307cf28b4a62aec00de74596ea85d9560e7f6c2",
+      "publisher": "yanez-compliance/MIID-subnet"
+    }
+  ],
+  "updated": 1792474861,
+  "updated_day": "2026-10-20"
+}

@@ -37,6 +37,81 @@ pub const MIN_INTERVAL_SECS: u64 = 300;
 /// A week. Past this the disk cache (24h) is long dead anyway.
 pub const MAX_INTERVAL_SECS: u64 = 7 * 24 * 3600;
 
+/// How many windows the owner may keep warm at once. Each one is a full
+/// ~2.5-minute sweep of the candidate pool, so eight is already a cycle that
+/// runs back to back at the 5-minute floor — past this the list stops being a
+/// cache and becomes a queue nothing ever drains.
+pub const MAX_WARM_WINDOWS: usize = 8;
+/// Bounds on a single window, mirroring what `/active-traders` itself clamps
+/// to (routes.rs): a window outside these can never be READ back out of the
+/// cache, so warming it would burn a sweep on an entry with no reader.
+pub const MIN_POOL: u32 = 50;
+pub const MAX_POOL: u32 = 2000;
+pub const MAX_DAYS: u32 = 365;
+pub const MAX_MIN_PER_DAY: f64 = 1000.0;
+
+/// One leaderboard the background sweep keeps warm.
+///
+/// These three fields ARE the pipeline cache key (`days:minPerDay:pool`), which
+/// is why they are the thing worth making configurable. The board sends
+/// whatever the console's DAYS / MIN-PER-DAY filters say; if that combination
+/// isn't on this list it was never aggregated, and the read falls through to a
+/// cold ~10-minute pipeline run that the fleet activator kills at ~60s idle —
+/// so a filter nobody warmed is a filter that never loads, no matter how long
+/// you leave it. Editing this list is how the owner says "cache the view I
+/// actually browse".
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct WarmWindow {
+    pub days: u32,
+    #[serde(default, rename = "minPerDay")]
+    pub min_per_day: f64,
+    #[serde(default = "default_pool")]
+    pub pool: u32,
+}
+
+fn default_pool() -> u32 {
+    MAX_POOL
+}
+
+impl WarmWindow {
+    /// The pipeline cache key. Must format IDENTICALLY to the one
+    /// `active_traders` builds from the query string, or the sweep warms
+    /// entries no reader ever looks up — `{}` on an f64 is what both sides
+    /// use, so 0.0 renders "0" on both.
+    pub fn key(&self) -> String {
+        format!("{}:{}:{}", self.days, self.min_per_day, self.pool)
+    }
+
+    fn validate(&self) -> Result<(), String> {
+        if self.days < 1 || self.days > MAX_DAYS {
+            return Err(format!("days must be 1–{} (got {})", MAX_DAYS, self.days));
+        }
+        if !self.min_per_day.is_finite() || self.min_per_day < 0.0 || self.min_per_day > MAX_MIN_PER_DAY {
+            return Err(format!(
+                "minPerDay must be 0–{} (got {})",
+                MAX_MIN_PER_DAY, self.min_per_day
+            ));
+        }
+        if self.pool < MIN_POOL || self.pool > MAX_POOL {
+            return Err(format!(
+                "pool must be {}–{} (got {})",
+                MIN_POOL, MAX_POOL, self.pool
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// The windows the sweep warmed before the list was configurable. Kept as the
+/// default so an existing `sync.json` (which has no `windows` key) and a fresh
+/// deployment both come up warming exactly what they warmed before.
+pub fn default_windows() -> Vec<WarmWindow> {
+    [1u32, 7, 14, 30]
+        .into_iter()
+        .map(|days| WarmWindow { days, min_per_day: 0.0, pool: MAX_POOL })
+        .collect()
+}
+
 /// What woke the scheduler.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Trigger {
@@ -53,12 +128,25 @@ impl Trigger {
     }
 }
 
-#[derive(Clone, Copy, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 struct SyncConfig {
     #[serde(default = "default_enabled")]
     enabled: bool,
     #[serde(default = "default_interval", rename = "intervalSecs")]
     interval_secs: u64,
+    /// Which leaderboards the sweep keeps warm. See `WarmWindow` — absent from
+    /// an older `sync.json`, which is why this defaults rather than failing the
+    /// whole parse (a rejected config would silently reset the owner's cadence
+    /// too).
+    #[serde(default = "default_windows")]
+    windows: Vec<WarmWindow>,
+    /// Fire scheduled cycles on wall-clock multiples of the interval (epoch-
+    /// aligned, UTC) instead of start-to-start: an hourly cadence runs AT the
+    /// hour — :00, :00, :00 — so the scan archive reads like a clock, and a
+    /// restart mid-hour doesn't shift every future scan to :23. Defaults ON,
+    /// including for an older `sync.json` without the key.
+    #[serde(default = "default_enabled")]
+    align: bool,
 }
 
 fn default_enabled() -> bool {
@@ -74,6 +162,8 @@ impl Default for SyncConfig {
         Self {
             enabled: true,
             interval_secs: DEFAULT_INTERVAL_SECS,
+            windows: default_windows(),
+            align: true,
         }
     }
 }
@@ -142,16 +232,40 @@ impl SyncSchedule {
     }
 
     /// How stale a cached window must be before a cycle re-pulls it. Derived
-    /// from the cadence (92%) rather than fixed: with a hard-coded 55min floor
-    /// a 15-minute cadence would skip every combo and silently never sync.
+    /// from the cadence (half of it) rather than fixed: with a hard-coded
+    /// 55min floor a 15-minute cadence would skip every combo and silently
+    /// never sync.
+    ///
+    /// Half, not 92% as before: a window's `synced_at` is stamped when its
+    /// sweep FINISHES, and a full cycle runs ~10 minutes — so at an hourly
+    /// cadence the windows swept late in the cycle were only ~50 minutes old
+    /// at the next tick, failed the 55-minute bar, and silently synced every
+    /// OTHER hour. Scan history made that visible as alternating "skipped"
+    /// holes. Half the cadence still protects against a restart loop
+    /// re-hammering the data-api, which is all this threshold is for.
     pub fn resync_after_secs(&self) -> i64 {
-        (self.interval_secs() as i64 * 11 / 12).max(60)
+        (self.interval_secs() as i64 / 2).max(60)
     }
 
-    /// Apply an owner change. Either field may be omitted. Returns the error
-    /// message for an out-of-range interval instead of silently clamping — the
+    /// The leaderboards the background sweep keeps warm, in the order the
+    /// owner listed them. Never empty — an empty list would mean the sweep
+    /// warms nothing and every board read goes cold, so it falls back to the
+    /// built-in windows.
+    pub fn windows(&self) -> Vec<WarmWindow> {
+        let w = self.config.read().windows.clone();
+        if w.is_empty() { default_windows() } else { w }
+    }
+
+    /// Apply an owner change. Every field may be omitted. Returns the error
+    /// message for an out-of-range value instead of silently clamping — the
     /// console shows it next to the field.
-    pub fn update(&self, enabled: Option<bool>, interval_secs: Option<u64>) -> Result<(), String> {
+    pub fn update(
+        &self,
+        enabled: Option<bool>,
+        interval_secs: Option<u64>,
+        windows: Option<Vec<WarmWindow>>,
+        align: Option<bool>,
+    ) -> Result<(), String> {
         if let Some(secs) = interval_secs {
             if !(MIN_INTERVAL_SECS..=MAX_INTERVAL_SECS).contains(&secs) {
                 return Err(format!(
@@ -163,6 +277,33 @@ impl SyncSchedule {
                 ));
             }
         }
+        // Validate and normalize the whole list BEFORE taking the write lock,
+        // so a rejected entry leaves the running schedule untouched rather
+        // than half-applied.
+        let windows = match windows {
+            None => None,
+            Some(list) => {
+                if list.is_empty() {
+                    return Err("windows must list at least one leaderboard to keep warm".into());
+                }
+                for w in &list {
+                    w.validate()?;
+                }
+                // De-duplicate on the cache key: two entries that warm the same
+                // key are one window and one wasted sweep per cycle. Keeps the
+                // owner's order.
+                let mut seen = std::collections::HashSet::new();
+                let deduped: Vec<WarmWindow> =
+                    list.into_iter().filter(|w| seen.insert(w.key())).collect();
+                if deduped.len() > MAX_WARM_WINDOWS {
+                    return Err(format!(
+                        "at most {} warm windows \u{2014} each one is a full sweep of the candidate pool",
+                        MAX_WARM_WINDOWS
+                    ));
+                }
+                Some(deduped)
+            }
+        };
         let snapshot = {
             let mut cfg = self.config.write();
             if let Some(e) = enabled {
@@ -171,12 +312,19 @@ impl SyncSchedule {
             if let Some(secs) = interval_secs {
                 cfg.interval_secs = secs;
             }
-            *cfg
+            if let Some(w) = windows {
+                cfg.windows = w;
+            }
+            if let Some(a) = align {
+                cfg.align = a;
+            }
+            cfg.clone()
         };
         self.persist(&snapshot);
         tracing::info!(
             enabled = snapshot.enabled,
             interval_secs = snapshot.interval_secs,
+            windows = snapshot.windows.len(),
             "background sync schedule updated",
         );
         // Re-schedule against the new cadence right away: a pending sleep was
@@ -211,15 +359,29 @@ impl SyncSchedule {
     /// Unix seconds of the next scheduled cycle, or `None` when auto-sync is
     /// off. `Some(<= now)` means it is due right now.
     pub fn next_run_at(&self) -> Option<i64> {
-        let cfg = *self.config.read();
-        if !cfg.enabled {
+        // Field reads, not a snapshot: `SyncConfig` carries the warm-window
+        // list now, so cloning it here would allocate on every countdown tick.
+        let (enabled, interval_secs, align) = {
+            let cfg = self.config.read();
+            (cfg.enabled, cfg.interval_secs, cfg.align)
+        };
+        if !enabled {
             return None;
         }
         // No run yet this process: due immediately. The cycle itself skips
         // windows that a previous process already synced within the interval,
         // so a restart loop can't hammer the data-api.
         Some(match self.status.read().last_start {
-            Some(last) => last + cfg.interval_secs as i64,
+            // Aligned: the next epoch multiple of the interval after the last
+            // start — an hourly cadence fires AT :00 UTC, a 15-minute one at
+            // :00/:15/:30/:45. A cycle that overruns its slot comes due
+            // immediately (`<= now` means "run now") and the one after snaps
+            // back to the grid, so alignment self-heals instead of drifting.
+            Some(last) if align => {
+                let iv = interval_secs as i64;
+                (last / iv + 1) * iv
+            }
+            Some(last) => last + interval_secs as i64,
             None => now_secs(),
         })
     }
@@ -277,13 +439,21 @@ impl SyncSchedule {
     /// Everything the console's SYNC panel renders. `now` ships alongside so
     /// the client can count down without trusting its own clock offset.
     pub fn status_json(&self) -> Value {
-        let cfg = *self.config.read();
+        let cfg = self.config.read().clone();
         let st = self.status.read();
         json!({
             "enabled": cfg.enabled,
             "intervalSecs": cfg.interval_secs,
             "minIntervalSecs": MIN_INTERVAL_SECS,
             "maxIntervalSecs": MAX_INTERVAL_SECS,
+            // The warm list, so the console can show WHICH boards answer from
+            // cache and let the owner add the one they are actually browsing.
+            "windows": self.windows(),
+            "align": cfg.align,
+            "maxWindows": MAX_WARM_WINDOWS,
+            "minPool": MIN_POOL,
+            "maxPool": MAX_POOL,
+            "maxDays": MAX_DAYS,
             "running": st.running,
             "lastRunAt": st.last_start,
             "lastFinishedAt": st.last_finish,
@@ -331,18 +501,22 @@ mod tests {
     fn defaults_to_five_minutes() {
         let s = tmp_schedule();
         assert_eq!(s.interval_secs(), 300);
-        // 4m35s — a cycle on schedule must not skip a window about to fall due.
-        assert_eq!(s.resync_after_secs(), 275);
+        // Half the cadence — see resync_after_secs: windows are stamped when
+        // their sweep FINISHES, so anything tighter than ~half skips windows
+        // swept late in the previous cycle and they sync every OTHER tick.
+        assert_eq!(s.resync_after_secs(), 150);
     }
 
     #[test]
     fn owner_can_change_the_cadence_and_it_persists() {
         let s = tmp_schedule();
-        s.update(None, Some(3600)).unwrap();
+        s.update(None, Some(3600), None, None).unwrap();
         assert_eq!(s.interval_secs(), 3600);
         // Threshold tracks the cadence, else a cycle on schedule would skip
-        // every window about to fall due and never actually sync.
-        assert!(s.resync_after_secs() < 3600);
+        // every window about to fall due and never actually sync. It must
+        // also clear the cycle duration (~10 min) or late-swept windows only
+        // sync every other hour.
+        assert!(s.resync_after_secs() <= 1800);
 
         let raw = std::fs::read_to_string(&s.path).unwrap();
         let saved: SyncConfig = serde_json::from_str(&raw).unwrap();
@@ -354,33 +528,151 @@ mod tests {
     #[test]
     fn out_of_range_intervals_are_rejected() {
         let s = tmp_schedule();
-        assert!(s.update(None, Some(60)).is_err());
-        assert!(s.update(None, Some(30 * 86400)).is_err());
+        assert!(s.update(None, Some(60), None, None).is_err());
+        assert!(s.update(None, Some(30 * 86400), None, None).is_err());
         assert_eq!(s.interval_secs(), 300); // unchanged
     }
 
+    /// Aligned (the default): scheduled runs snap to wall-clock multiples of
+    /// the interval — hourly means AT the hour, which is also what makes the
+    /// scan archive read like a clock.
     #[test]
-    fn next_run_is_immediate_before_the_first_cycle_then_one_interval_out() {
+    fn next_run_is_immediate_before_the_first_cycle_then_on_the_grid() {
         let s = tmp_schedule();
         assert!(s.next_run_at().unwrap() <= now_secs());
         s.mark_started(Trigger::Scheduled);
         s.mark_finished(None);
         let next = s.next_run_at().unwrap();
+        let now = now_secs();
+        assert_eq!(next % 300, 0, "aligned to the epoch grid");
+        assert!(next > now - 1 && next <= now + 300);
+
+        s.update(None, Some(3600), None, None).unwrap();
+        let next = s.next_run_at().unwrap();
+        assert_eq!(next % 3600, 0, "hourly cadence fires at :00 UTC");
+        std::fs::remove_file(&s.path).ok();
+    }
+
+    /// align=false keeps the old start-to-start behavior.
+    #[test]
+    fn unaligned_schedules_run_start_to_start() {
+        let s = tmp_schedule();
+        s.update(None, None, None, Some(false)).unwrap();
+        s.mark_started(Trigger::Scheduled);
+        s.mark_finished(None);
+        let next = s.next_run_at().unwrap();
         assert!(next > now_secs() + 290 && next <= now_secs() + 300);
+        std::fs::remove_file(&s.path).ok();
+    }
+
+    /// A `sync.json` from before the flag existed must come up aligned — the
+    /// whole point is that the deployed hourly schedule starts firing at :00
+    /// without the owner re-saving anything.
+    #[test]
+    fn an_old_config_without_align_defaults_to_aligned() {
+        let cfg: SyncConfig =
+            serde_json::from_str(r#"{"enabled":true,"intervalSecs":3600}"#).unwrap();
+        assert!(cfg.align);
     }
 
     #[test]
     fn disabling_stops_scheduling() {
         let s = tmp_schedule();
-        s.update(Some(false), None).unwrap();
+        s.update(Some(false), None, None, None).unwrap();
         assert!(s.next_run_at().is_none());
+        std::fs::remove_file(&s.path).ok();
+    }
+
+    /// The whole point of the warm list: the sweep must warm the SAME cache
+    /// key `/active-traders` reads. A formatting drift here (0 vs 0.0) warms
+    /// entries nothing looks up, and every board read goes cold.
+    #[test]
+    fn a_windows_key_is_the_pipeline_cache_key() {
+        let w = WarmWindow { days: 30, min_per_day: 0.0, pool: 2000 };
+        assert_eq!(w.key(), "30:0:2000");
+        let w = WarmWindow { days: 3, min_per_day: 2.5, pool: 500 };
+        assert_eq!(w.key(), "3:2.5:500");
+    }
+
+    #[test]
+    fn owner_can_choose_which_boards_stay_warm_and_it_persists() {
+        let s = tmp_schedule();
+        assert_eq!(s.windows(), default_windows());
+
+        let mine = vec![
+            WarmWindow { days: 3, min_per_day: 2.0, pool: 2000 },
+            WarmWindow { days: 30, min_per_day: 0.0, pool: 500 },
+        ];
+        s.update(None, None, Some(mine.clone()), None).unwrap();
+        assert_eq!(s.windows(), mine);
+
+        let raw = std::fs::read_to_string(&s.path).unwrap();
+        let saved: SyncConfig = serde_json::from_str(&raw).unwrap();
+        assert_eq!(saved.windows, mine);
+        // The cadence rides along untouched — a windows-only patch is not a
+        // reset of everything else.
+        assert_eq!(saved.interval_secs, DEFAULT_INTERVAL_SECS);
+        std::fs::remove_file(&s.path).ok();
+    }
+
+    /// A `sync.json` written before this list existed has no `windows` key.
+    /// It must come back warming what it warmed before, not warming nothing.
+    #[test]
+    fn an_old_config_without_windows_still_warms_the_defaults() {
+        let cfg: SyncConfig =
+            serde_json::from_str(r#"{"enabled":true,"intervalSecs":900}"#).unwrap();
+        assert_eq!(cfg.interval_secs, 900);
+        assert_eq!(cfg.windows, default_windows());
+    }
+
+    #[test]
+    fn a_rejected_window_leaves_the_running_list_alone() {
+        let s = tmp_schedule();
+        // Out of range on each dimension in turn.
+        assert!(s.update(None, None, Some(vec![WarmWindow { days: 0, min_per_day: 0.0, pool: 2000 }]), None).is_err());
+        assert!(s.update(None, None, Some(vec![WarmWindow { days: 7, min_per_day: -1.0, pool: 2000 }]), None).is_err());
+        assert!(s.update(None, None, Some(vec![WarmWindow { days: 7, min_per_day: 0.0, pool: 5000 }]), None).is_err());
+        assert!(s.update(None, None, Some(vec![]), None).is_err());
+        // Nine distinct windows — one past the cap.
+        let too_many: Vec<WarmWindow> = (1..=9)
+            .map(|d| WarmWindow { days: d, min_per_day: 0.0, pool: 2000 })
+            .collect();
+        assert!(s.update(None, None, Some(too_many), None).is_err());
+
+        assert_eq!(s.windows(), default_windows(), "a rejected patch changed the live list");
+        std::fs::remove_file(&s.path).ok();
+    }
+
+    /// Two entries with the same key are one window and one wasted sweep per
+    /// cycle — and at the cap, the duplicate would evict a real one.
+    #[test]
+    fn duplicate_windows_collapse_instead_of_burning_a_sweep() {
+        let s = tmp_schedule();
+        s.update(
+            None,
+            None,
+            Some(vec![
+                WarmWindow { days: 7, min_per_day: 0.0, pool: 2000 },
+                WarmWindow { days: 7, min_per_day: 0.0, pool: 2000 },
+                WarmWindow { days: 1, min_per_day: 0.0, pool: 2000 },
+            ]),
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            s.windows(),
+            vec![
+                WarmWindow { days: 7, min_per_day: 0.0, pool: 2000 },
+                WarmWindow { days: 1, min_per_day: 0.0, pool: 2000 },
+            ],
+        );
         std::fs::remove_file(&s.path).ok();
     }
 
     #[tokio::test]
     async fn manual_trigger_wins_over_a_disabled_schedule() {
         let s = tmp_schedule();
-        s.update(Some(false), None).unwrap();
+        s.update(Some(false), None, None, None).unwrap();
         s.trigger_now();
         assert_eq!(s.wait_for_next_run().await, Trigger::Manual);
         std::fs::remove_file(&s.path).ok();

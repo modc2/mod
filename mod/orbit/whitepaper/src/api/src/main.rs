@@ -107,6 +107,14 @@ async fn paper(State(s): State<AppState>) -> Result<Json<Value>, ApiError> {
     Ok(Json(serde_json::json!({ "length": tex.len(), "tex": tex })))
 }
 
+fn append_history(path: &std::path::Path, epoch: u64, root: &str, count: usize, scope: &str) -> anyhow::Result<()> {
+    use std::io::Write;
+    let entry = serde_json::json!({"epoch": epoch, "root": root, "count": count, "scope": scope});
+    let mut f = std::fs::OpenOptions::new().create(true).append(true).open(path)?;
+    writeln!(f, "{}", entry)?;
+    Ok(())
+}
+
 async fn tree_root(State(s): State<AppState>) -> Result<Json<Value>, ApiError> {
     if !s.proto.tree_file().exists() {
         return Ok(Json(serde_json::json!({ "root": null, "epoch": null })));
@@ -125,6 +133,7 @@ async fn tree_build(
 ) -> Result<Json<Value>, ApiError> {
     let manifest = build_tree(req.records)?;
     std::fs::write(s.proto.tree_file(), serde_json::to_vec(&manifest)?)?;
+    let _ = append_history(&s.proto.tree_history_file(), manifest.epoch, &manifest.root, manifest.count, "orbit");
     Ok(Json(serde_json::json!({
         "root": manifest.root,
         "count": manifest.count,
@@ -230,12 +239,31 @@ async fn tree_merkle(
     let records = s.proto.merkle_records(scope);
     let manifest = build_tree(records)?;
     std::fs::write(s.proto.tree_file(), serde_json::to_vec(&manifest)?)?;
+    let _ = append_history(&s.proto.tree_history_file(), manifest.epoch, &manifest.root, manifest.count, scope);
     Ok(Json(serde_json::json!({
         "scope": scope,
         "root": manifest.root,
         "epoch": manifest.epoch,
         "count": manifest.count,
     })))
+}
+
+async fn tree_history(State(s): State<AppState>) -> Result<Json<Value>, ApiError> {
+    let history_file = s.proto.tree_history_file();
+    if !history_file.exists() {
+        return Ok(Json(serde_json::json!({ "history": [] })));
+    }
+    let text = std::fs::read_to_string(&history_file)?;
+    let entries: Vec<Value> = text
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .filter_map(|l| serde_json::from_str(l).ok())
+        .collect();
+    let total = entries.len();
+    let start = if total > 50 { total - 50 } else { 0 };
+    let mut page = entries[start..].to_vec();
+    page.reverse();
+    Ok(Json(serde_json::json!({ "history": page })))
 }
 
 #[tokio::main]
@@ -263,6 +291,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/tree/root", get(tree_root))
         .route("/tree/build", post(tree_build))
         .route("/tree/merkle", post(tree_merkle))
+        .route("/tree/history", get(tree_history))
         .route("/tree/proof", post(tree_proof))
         .route("/tree/verify", post(tree_verify))
         .route("/mods", get(list_mods))
